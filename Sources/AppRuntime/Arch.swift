@@ -38,4 +38,15 @@ extension Arch: CustomStringConvertible, CustomDebugStringConvertible {
 
 // MARK: - Definitions
 
-
+public extension Arch {
+    
+    static var armv5: Arch { "armv5" }
+    
+    static var armv6: Arch { "armv6" }
+    
+    static var armv7: Arch { "armv7" }
+    
+    static var arm64: Arch { "arm64" }
+    
+    static var x86_64: Arch { "x86_64" }
+}
