@@ -49,4 +49,54 @@ public extension Arch {
     static var arm64: Arch { "arm64" }
     
     static var x86_64: Arch { "x86_64" }
+
+    static var x86: Arch { "x86" }
+}
+
+// MARK: - Host
+
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
+
+#if canImport(Glibc) || canImport(Musl) || canImport(Darwin)
+public extension Arch {
+
+    /// The native architecture of the current host, if recognized.
+    static var host: Arch? {
+        var systemInfo = utsname()
+        guard uname(&systemInfo) == 0 else { return nil }
+        let machine = withUnsafeBytes(of: &systemInfo.machine) { buffer in
+            String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
+        }
+        return Arch(machine: machine)
+    }
+}
+#endif
+
+public extension Arch {
+
+    /// Map a `uname -m` machine string to an ``Arch``.
+    init?(machine: String) {
+        switch machine {
+        case "arm64", "aarch64":
+            self = .arm64
+        case "x86_64", "amd64":
+            self = .x86_64
+        case "i386", "i486", "i586", "i686":
+            self = .x86
+        case let arm where arm.hasPrefix("armv7"):
+            self = .armv7
+        case let arm where arm.hasPrefix("armv6"):
+            self = .armv6
+        case let arm where arm.hasPrefix("armv5"):
+            self = .armv5
+        default:
+            return nil
+        }
+    }
 }

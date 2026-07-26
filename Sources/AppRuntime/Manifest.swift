@@ -9,6 +9,7 @@
 public struct Manifest: Equatable, Hashable, Codable, Identifiable {
     
     enum CodingKeys: String, CodingKey {
+        case formatVersion
         case id
         case name
         case appDescription = "description"
@@ -18,8 +19,12 @@ public struct Manifest: Equatable, Hashable, Codable, Identifiable {
         case build
         case copyright
         case capabilities
+        case architectures
     }
-    
+
+    /// Bundle format specification version.
+    public let formatVersion: Int
+
     /// Reverse DNS bundle ID
     public let id: String
     
@@ -46,4 +51,68 @@ public struct Manifest: Equatable, Hashable, Codable, Identifiable {
     
     /// List of capabilities
     public let capabilities: [String]?
+
+    /// Architectures included in the bundle's `bin/` directory.
+    public let architectures: [Arch]
+
+    public init(
+        formatVersion: Int = Manifest.currentFormatVersion,
+        id: String,
+        name: String,
+        appDescription: String,
+        sdk: SDKVersion,
+        executable: String,
+        version: String,
+        build: String,
+        copyright: String? = nil,
+        capabilities: [String]? = nil,
+        architectures: [Arch]
+    ) {
+        self.formatVersion = formatVersion
+        self.id = id
+        self.name = name
+        self.appDescription = appDescription
+        self.sdk = sdk
+        self.executable = executable
+        self.version = version
+        self.build = build
+        self.copyright = copyright
+        self.capabilities = capabilities
+        self.architectures = architectures
+    }
 }
+
+public extension Manifest {
+
+    /// The current bundle format specification version.
+    static var currentFormatVersion: Int { 1 }
+}
+
+// MARK: - JSON
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#elseif canImport(Foundation)
+import Foundation
+#endif
+
+#if canImport(FoundationEssentials) || canImport(Foundation)
+
+public extension Manifest {
+
+    /// Standard file name of the manifest inside a bundle.
+    static var fileName: String { "manifest.json" }
+
+    /// Decode a manifest from JSON data.
+    init(json data: Data) throws {
+        self = try JSONDecoder().decode(Manifest.self, from: data)
+    }
+
+    /// Encode the manifest as JSON data.
+    func jsonData() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(self)
+    }
+}
+#endif
