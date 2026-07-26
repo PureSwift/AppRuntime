@@ -3,8 +3,13 @@
 //  AppRuntime
 //
 
-#if canImport(Foundation)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#elseif canImport(Foundation)
 import Foundation
+#endif
+
+#if canImport(FoundationEssentials) || canImport(Foundation)
 
 /// An installed (or authored) app bundle on disk.
 public struct AppBundle: Equatable, Hashable {
@@ -30,7 +35,10 @@ public struct AppBundle: Equatable, Hashable {
 
     /// Load and validate a bundle at the given directory.
     public init(path: String, fileManager: FileManager = .default) throws {
-        let root = (path as NSString).standardizingPath
+        var root = path
+        while root.count > 1 && root.hasSuffix("/") {
+            root.removeLast()
+        }
         let manifestPath = root + "/" + Manifest.fileName
         guard fileManager.fileExists(atPath: manifestPath) else {
             throw Error.missingManifest(manifestPath)
@@ -84,17 +92,84 @@ public extension AppBundle {
     /// or `nil` if the bundle ships none.
     func libraryPath(for arch: Arch, fileManager: FileManager = .default) -> String? {
         let libPath = path + "/lib/" + arch.rawValue
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: libPath, isDirectory: &isDirectory), isDirectory.boolValue else {
-            return nil
-        }
-        return libPath
+        return Self.directoryExists(atPath: libPath, fileManager: fileManager) ? libPath : nil
     }
 
     /// Select the best architecture for the host and resolve launch paths.
     func selectExecutable(for host: HostCapabilities) throws -> (selection: ArchSelection, executable: String) {
         let selection = try ArchSelector.select(from: manifest.architectures, host: host)
         return (selection, executablePath(for: selection.arch))
+    }
+
+    /// `true` if a directory exists at the given path.
+    internal static func directoryExists(atPath path: String, fileManager: FileManager = .default) -> Bool {
+        guard let type = (try? fileManager.attributesOfItem(atPath: path))?[.type] as? FileAttributeType else {
+            return false
+        }
+        return type == .typeDirectory
+    }
+}
+
+// MARK: - Main Bundle
+
+public extension AppBundle {
+
+    /// Environment variable the launcher sets to the mounted bundle root.
+    static var pathEnvironmentVariable: String { "BUNDLE_PATH" }
+
+    /// Default in-container mount point of the running app's bundle.
+    static var defaultMountPoint: String { "/app" }
+
+    /// The bundle of the currently running app, resolved from `BUNDLE_PATH`
+    /// (set by the launcher) or the standard `/app` mount point.
+    ///
+    /// `nil` when the process is not running inside an app container.
+    static let main: AppBundle? = {
+        let path = ProcessInfo.processInfo.environment[pathEnvironmentVariable] ?? defaultMountPoint
+        return try? AppBundle(path: path)
+    }()
+}
+
+// MARK: - Resources
+
+public extension AppBundle {
+
+    /// Path to the bundle's resource directory (`assets/`),
+    /// or `nil` if the bundle ships no resources.
+    var resourcePath: String? {
+        let assets = path + "/assets"
+        return Self.directoryExists(atPath: assets) ? assets : nil
+    }
+
+    /// URL of the bundle's resource directory (`assets/`).
+    var resourceURL: URL? {
+        resourcePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// Path to the bundle's icon, or `nil` if it ships none.
+    var iconPath: String? {
+        let icon = path + "/icon.png"
+        return FileManager.default.fileExists(atPath: icon) ? icon : nil
+    }
+
+    /// Look up a resource in `assets/`, mirroring `Foundation.Bundle`.
+    ///
+    /// - Parameters:
+    ///   - name: Resource file name, optionally with a subdirectory prefix.
+    ///   - ext: File extension, appended when non-nil and non-empty.
+    /// - Returns: The full path, or `nil` if the file does not exist.
+    func path(forResource name: String, ofType ext: String? = nil) -> String? {
+        guard name.isEmpty == false, name.contains("..") == false else { return nil }
+        var resource = path + "/assets/" + name
+        if let ext = ext, ext.isEmpty == false {
+            resource += "." + ext
+        }
+        return FileManager.default.fileExists(atPath: resource) ? resource : nil
+    }
+
+    /// Look up a resource URL in `assets/`, mirroring `Foundation.Bundle`.
+    func url(forResource name: String, withExtension ext: String? = nil) -> URL? {
+        path(forResource: name, ofType: ext).map { URL(fileURLWithPath: $0) }
     }
 }
 #endif
