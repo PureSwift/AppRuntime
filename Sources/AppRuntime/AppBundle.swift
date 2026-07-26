@@ -101,6 +101,14 @@ public extension AppBundle {
         return (selection, executablePath(for: selection.arch))
     }
 
+    /// The working directory the launcher must set before exec: the bundle root.
+    ///
+    /// Part of the launch contract — apps ported from other platforms commonly
+    /// open assets via paths relative to the working directory, so starting at
+    /// the bundle root lets them work unmodified (optionally with a symlink in
+    /// the bundle mapping their expected directory name to `assets/`).
+    var workingDirectory: String { path }
+
     /// `true` if a directory exists at the given path.
     internal static func directoryExists(atPath path: String, fileManager: FileManager = .default) -> Bool {
         guard let type = (try? fileManager.attributesOfItem(atPath: path))?[.type] as? FileAttributeType else {
