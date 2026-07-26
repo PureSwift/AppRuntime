@@ -55,21 +55,30 @@ public extension Arch {
 
 // MARK: - Host
 
-#if canImport(Foundation)
-import Foundation
+#if canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
+#if canImport(Glibc) || canImport(Musl) || canImport(Darwin)
 public extension Arch {
 
     /// The native architecture of the current host, if recognized.
     static var host: Arch? {
         var systemInfo = utsname()
         guard uname(&systemInfo) == 0 else { return nil }
-        let machine = withUnsafeBytes(of: &systemInfo.machine) { buffer -> String in
-            let data = Data(buffer)
-            return String(decoding: data.prefix(while: { $0 != 0 }), as: UTF8.self)
+        let machine = withUnsafeBytes(of: &systemInfo.machine) { buffer in
+            String(decoding: buffer.prefix(while: { $0 != 0 }), as: UTF8.self)
         }
         return Arch(machine: machine)
     }
+}
+#endif
+
+public extension Arch {
 
     /// Map a `uname -m` machine string to an ``Arch``.
     init?(machine: String) {
@@ -91,4 +100,3 @@ public extension Arch {
         }
     }
 }
-#endif
