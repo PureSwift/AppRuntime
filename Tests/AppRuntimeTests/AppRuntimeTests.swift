@@ -163,6 +163,8 @@ final class AppRuntimeTests: XCTestCase {
         XCTAssertEqual(bundle.libraryPath(for: .arm64), root + "/lib/arm64")
         XCTAssertNil(bundle.libraryPath(for: .x86_64))
 
+        XCTAssertEqual(bundle.workingDirectory, root)
+
         // arm64 host: native binary, no translator.
         let native = try bundle.selectExecutable(for: HostCapabilities(arch: .arm64))
         XCTAssertEqual(native.selection, ArchSelection(arch: .arm64))
