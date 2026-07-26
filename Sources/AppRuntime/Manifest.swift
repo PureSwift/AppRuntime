@@ -90,8 +90,13 @@ public extension Manifest {
 
 // MARK: - JSON
 
-#if canImport(Foundation)
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#elseif canImport(Foundation)
 import Foundation
+#endif
+
+#if canImport(FoundationEssentials) || canImport(Foundation)
 
 public extension Manifest {
 
