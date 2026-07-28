@@ -88,20 +88,37 @@ do {
 // Otherwise fall through to the direct, unsandboxed exec (development mode).
 #if os(Linux)
 if geteuid() == 0 {
+    // Root (CAP_SYS_ADMIN): full sandbox with a per-app uid.
     do {
         let container = try Container.setup(id: bundle.manifest.id)
         let sandbox = Sandbox(
             bundle: bundle,
             selection: selection,
             container: container,
-            capabilities: bundle.manifest.capabilities ?? []
+            capabilities: bundle.manifest.capabilities ?? [],
+            mode: .privileged
         )
         try sandbox.launch(arguments: appArguments)
     } catch {
         fail("sandbox: \(error)")
     }
 } else {
-    fputs("bundle-runtime: warning: not root, launching without sandbox\n", stderr)
+    // Unprivileged: user-namespace sandbox. The app runs as the invoking
+    // user; device access is limited to what that user already has.
+    // Falls back to a direct exec if user namespaces are unavailable.
+    do {
+        let container = try Container.setupUnprivileged(id: bundle.manifest.id)
+        let sandbox = Sandbox(
+            bundle: bundle,
+            selection: selection,
+            container: container,
+            capabilities: bundle.manifest.capabilities ?? [],
+            mode: .userNamespace
+        )
+        try sandbox.launch(arguments: appArguments)
+    } catch {
+        fputs("bundle-runtime: warning: user-namespace sandbox unavailable (\(error)), launching without sandbox\n", stderr)
+    }
 }
 #endif
 

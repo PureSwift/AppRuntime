@@ -68,6 +68,23 @@ struct Container {
     }
 }
 
+extension Container {
+
+    /// Create (if needed) a container under the invoking user's data
+    /// directory, owned by the invoking user.
+    ///
+    /// Used for unprivileged (user-namespace) launches, where per-app
+    /// uids are unavailable: every app runs as the invoking user.
+    static func setupUnprivileged(id: String) throws -> Container {
+        let environment = ProcessInfo.processInfo.environment
+        let dataHome = environment["XDG_DATA_HOME"]
+            ?? (environment["HOME"] ?? ".") + "/.local/share"
+        let path = dataHome + "/bundle-runtime/containers/" + id
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        return Container(path: path, uid: geteuid())
+    }
+}
+
 enum ContainerError: Error {
     case chownFailed(String, Int32)
 }

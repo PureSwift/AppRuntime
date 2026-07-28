@@ -9,18 +9,52 @@
 
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <sched.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/mount.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
-int br_unshare_namespaces(int new_network) {
+int br_unshare_namespaces(int new_network, int new_user) {
     int flags = CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP;
     if (new_network) {
         flags |= CLONE_NEWNET;
     }
+    if (new_user) {
+        flags |= CLONE_NEWUSER;
+    }
     return unshare(flags);
+}
+
+static int br_write_file(const char *path, const char *content) {
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) {
+        return -1;
+    }
+    ssize_t length = (ssize_t)strlen(content);
+    ssize_t written = write(fd, content, (size_t)length);
+    int saved = errno;
+    close(fd);
+    errno = saved;
+    return written == length ? 0 : -1;
+}
+
+int br_map_identity(unsigned int uid, unsigned int gid) {
+    char map[64];
+    // Order is mandated by the kernel: setgroups must be denied before
+    // an unprivileged process may write gid_map.
+    if (br_write_file("/proc/self/setgroups", "deny") != 0) {
+        return -1;
+    }
+    snprintf(map, sizeof(map), "%u %u 1", gid, gid);
+    if (br_write_file("/proc/self/gid_map", map) != 0) {
+        return -1;
+    }
+    snprintf(map, sizeof(map), "%u %u 1", uid, uid);
+    return br_write_file("/proc/self/uid_map", map);
 }
 
 int br_make_root_private(void) {
@@ -80,7 +114,12 @@ static int br_unsupported(void) {
     return -1;
 }
 
-int br_unshare_namespaces(int new_network) { (void)new_network; return br_unsupported(); }
+int br_unshare_namespaces(int new_network, int new_user) {
+    (void)new_network; (void)new_user; return br_unsupported();
+}
+int br_map_identity(unsigned int uid, unsigned int gid) {
+    (void)uid; (void)gid; return br_unsupported();
+}
 int br_make_root_private(void) { return br_unsupported(); }
 int br_mount_tmpfs(const char *target) { (void)target; return br_unsupported(); }
 int br_bind_mount(const char *source, const char *target, int read_only) {
