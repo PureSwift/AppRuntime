@@ -82,7 +82,30 @@ do {
     fail("no runnable architecture: bundle provides \(bundle.manifest.architectures), host is \(host)")
 }
 
-// MARK: - Environment
+// MARK: - Sandbox
+
+// With root (CAP_SYS_ADMIN) on Linux, launch inside the namespace sandbox.
+// Otherwise fall through to the direct, unsandboxed exec (development mode).
+#if os(Linux)
+if geteuid() == 0 {
+    do {
+        let container = try Container.setup(id: bundle.manifest.id)
+        let sandbox = Sandbox(
+            bundle: bundle,
+            selection: selection,
+            container: container,
+            capabilities: bundle.manifest.capabilities ?? []
+        )
+        try sandbox.launch(arguments: appArguments)
+    } catch {
+        fail("sandbox: \(error)")
+    }
+} else {
+    fputs("bundle-runtime: warning: not root, launching without sandbox\n", stderr)
+}
+#endif
+
+// MARK: - Environment (unsandboxed)
 
 setenv(AppBundle.pathEnvironmentVariable, bundle.path, 1)
 setenv("BUNDLE_ID", bundle.manifest.id, 1)

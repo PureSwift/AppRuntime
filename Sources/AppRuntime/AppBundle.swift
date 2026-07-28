@@ -56,6 +56,16 @@ public struct AppBundle: Equatable, Hashable {
         self.manifest = manifest
     }
 
+    /// Create a bundle from an already-validated manifest without touching
+    /// the filesystem.
+    ///
+    /// For launcher use when the bundle's path changes after validation
+    /// (e.g. re-rooted at `/app` inside a container).
+    public init(unchecked path: String, manifest: Manifest) {
+        self.path = path
+        self.manifest = manifest
+    }
+
     /// Validate manifest fields that affect path construction.
     public static func validate(_ manifest: Manifest) throws {
         guard Self.isSafePathComponent(manifest.id) else {

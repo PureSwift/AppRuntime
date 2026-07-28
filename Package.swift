@@ -17,9 +17,11 @@ let package = Package(
         .target(
             name: "AppRuntime",
             dependencies: []),
+        .target(
+            name: "CBundleRuntime"),
         .executableTarget(
             name: "BundleRuntime",
-            dependencies: ["AppRuntime"]),
+            dependencies: ["AppRuntime", "CBundleRuntime"]),
         .testTarget(
             name: "AppRuntimeTests",
             dependencies: ["AppRuntime"]),
