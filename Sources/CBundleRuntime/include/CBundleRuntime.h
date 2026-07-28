@@ -52,4 +52,10 @@ int br_set_no_new_privs(void);
 /// (prctl(PR_CAPBSET_DROP) for all supported capabilities).
 int br_drop_bounding_set(void);
 
+/// Install a seccomp BPF denylist blocking sandbox-escape and
+/// kernel-attack-surface syscalls (mount, pivot_root, ptrace, bpf,
+/// module loading, kexec, ...). Blocked syscalls fail with EPERM.
+/// Requires PR_SET_NO_NEW_PRIVS to have been set.
+int br_apply_seccomp(void);
+
 #endif /* C_BUNDLE_RUNTIME_H */
