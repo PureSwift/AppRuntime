@@ -37,7 +37,7 @@ normalize_arch() {
     case "$1" in
         aarch64|arm64) echo "arm64" ;;
         x86_64|amd64)  echo "x86_64" ;;
-        i?86)          echo "x86" ;;
+        i?86)          echo "i386" ;;
         armv7*)        echo "armv7" ;;
         armv6*)        echo "armv6" ;;
         *)             echo "unsupported architecture: $1" >&2; exit 1 ;;
@@ -99,18 +99,18 @@ case "\$(uname -m)" in
         run arm64
         run armv7
         command -v box64 >/dev/null 2>&1 && run x86_64 box64
-        command -v box86 >/dev/null 2>&1 && run x86 box86
+        command -v box86 >/dev/null 2>&1 && run i386 box86
         ;;
     armv7*)
         run armv7
-        command -v box86 >/dev/null 2>&1 && run x86 box86
+        command -v box86 >/dev/null 2>&1 && run i386 box86
         ;;
     x86_64|amd64)
         run x86_64
-        run x86
+        run i386
         ;;
     i?86)
-        run x86
+        run i386
         ;;
 esac
 echo "run.sh: no runnable binary for \$(uname -m)" >&2
