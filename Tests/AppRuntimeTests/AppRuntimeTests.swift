@@ -74,7 +74,7 @@ final class AppRuntimeTests: XCTestCase {
         XCTAssertEqual(Arch(machine: "arm64"), .arm64)
         XCTAssertEqual(Arch(machine: "x86_64"), .x86_64)
         XCTAssertEqual(Arch(machine: "amd64"), .x86_64)
-        XCTAssertEqual(Arch(machine: "i686"), .x86)
+        XCTAssertEqual(Arch(machine: "i686"), .i386)
         XCTAssertEqual(Arch(machine: "armv7l"), .armv7)
         XCTAssertEqual(Arch(machine: "armv6l"), .armv6)
         XCTAssertNil(Arch(machine: "riscv64"))
@@ -89,7 +89,7 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostPrefersNative() throws {
         let host = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64, .armv7, .arm64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64, .armv7, .arm64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .arm64))
     }
 
@@ -103,16 +103,16 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostRunsX86_64ViaBox64() throws {
         let host = HostCapabilities(arch: .arm64, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .x86_64, translator: .box64))
     }
 
     func testArm64HostRunsX86ViaBox86RequiresAArch32() throws {
-        let bundle: [Arch] = [.x86]
+        let bundle: [Arch] = [.i386]
         let capable = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true)
         XCTAssertEqual(
             try ArchSelector.select(from: bundle, host: capable),
-            ArchSelection(arch: .x86, translator: .box86)
+            ArchSelection(arch: .i386, translator: .box86)
         )
         // box86 present but no AArch32 (64-bit-only core): unrunnable.
         let unable = HostCapabilities(arch: .arm64, supportsAArch32: false, hasBox86: true)
@@ -121,16 +121,16 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostPrefersBox64OverBox86() throws {
         let host = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .x86_64, translator: .box64))
     }
 
     func testArmv7Host() throws {
         let host = HostCapabilities(arch: .armv7, supportsAArch32: true, hasBox86: true)
-        XCTAssertEqual(try ArchSelector.select(from: [.armv7, .x86], host: host), ArchSelection(arch: .armv7))
+        XCTAssertEqual(try ArchSelector.select(from: [.armv7, .i386], host: host), ArchSelection(arch: .armv7))
         XCTAssertEqual(
-            try ArchSelector.select(from: [.x86], host: host),
-            ArchSelection(arch: .x86, translator: .box86)
+            try ArchSelector.select(from: [.i386], host: host),
+            ArchSelection(arch: .i386, translator: .box86)
         )
         XCTAssertThrowsError(try ArchSelector.select(from: [.arm64], host: host))
     }
@@ -138,16 +138,16 @@ final class AppRuntimeTests: XCTestCase {
     func testX86_64Host() throws {
         let multilib = HostCapabilities(arch: .x86_64, supportsX86Multilib: true)
         XCTAssertEqual(try ArchSelector.select(from: [.x86_64], host: multilib), ArchSelection(arch: .x86_64))
-        XCTAssertEqual(try ArchSelector.select(from: [.x86], host: multilib), ArchSelection(arch: .x86))
+        XCTAssertEqual(try ArchSelector.select(from: [.i386], host: multilib), ArchSelection(arch: .i386))
         let pure64 = HostCapabilities(arch: .x86_64)
-        XCTAssertThrowsError(try ArchSelector.select(from: [.x86], host: pure64))
+        XCTAssertThrowsError(try ArchSelector.select(from: [.i386], host: pure64))
         XCTAssertThrowsError(try ArchSelector.select(from: [.arm64, .armv7], host: pure64))
     }
 
     func testUnsupportedError() {
         let host = HostCapabilities(arch: .arm64)
-        XCTAssertThrowsError(try ArchSelector.select(from: [.x86], host: host)) { error in
-            XCTAssertEqual(error as? ArchSelector.Error, .unsupported(bundle: [.x86], host: host))
+        XCTAssertThrowsError(try ArchSelector.select(from: [.i386], host: host)) { error in
+            XCTAssertEqual(error as? ArchSelector.Error, .unsupported(bundle: [.i386], host: host))
         }
     }
 
@@ -162,6 +162,8 @@ final class AppRuntimeTests: XCTestCase {
         XCTAssertEqual(bundle.executablePath(for: .arm64), root + "/bin/arm64/myapp")
         XCTAssertEqual(bundle.libraryPath(for: .arm64), root + "/lib/arm64")
         XCTAssertNil(bundle.libraryPath(for: .x86_64))
+
+        XCTAssertEqual(bundle.workingDirectory, root)
 
         // arm64 host: native binary, no translator.
         let native = try bundle.selectExecutable(for: HostCapabilities(arch: .arm64))
@@ -184,14 +186,14 @@ final class AppRuntimeTests: XCTestCase {
     }
 
     func testAppBundleRejectsMissingBinary() throws {
-        // Declares x86 but ships no bin/x86/myapp.
-        let root = try makeFixtureBundle(architectures: [.arm64], manifestArchitectures: [.arm64, .x86])
+        // Declares x86 but ships no bin/i386/myapp.
+        let root = try makeFixtureBundle(architectures: [.arm64], manifestArchitectures: [.arm64, .i386])
         defer { try? FileManager.default.removeItem(atPath: root) }
         XCTAssertThrowsError(try AppBundle(path: root)) { error in
             guard case AppBundle.Error.missingBinary(let arch, _) = error else {
                 return XCTFail("Expected missingBinary, got \(error)")
             }
-            XCTAssertEqual(arch, .x86)
+            XCTAssertEqual(arch, .i386)
         }
     }
 
@@ -200,28 +202,28 @@ final class AppRuntimeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: root) }
         let fileManager = FileManager.default
 
-        // No assets/ directory yet.
+        // No resources/ directory yet.
         var bundle = try AppBundle(path: root)
         XCTAssertNil(bundle.resourcePath)
         XCTAssertNil(bundle.iconPath)
         XCTAssertNil(bundle.path(forResource: "logo", ofType: "png"))
 
-        // Populate assets/ and icon.png.
-        try fileManager.createDirectory(atPath: root + "/assets/images", withIntermediateDirectories: true)
-        fileManager.createFile(atPath: root + "/assets/logo.png", contents: Data())
-        fileManager.createFile(atPath: root + "/assets/images/bg.jpg", contents: Data())
+        // Populate resources/ and icon.png.
+        try fileManager.createDirectory(atPath: root + "/resources/images", withIntermediateDirectories: true)
+        fileManager.createFile(atPath: root + "/resources/logo.png", contents: Data())
+        fileManager.createFile(atPath: root + "/resources/images/bg.jpg", contents: Data())
         fileManager.createFile(atPath: root + "/icon.png", contents: Data())
         bundle = try AppBundle(path: root)
 
-        XCTAssertEqual(bundle.resourcePath, root + "/assets")
-        XCTAssertEqual(bundle.resourceURL?.path, root + "/assets")
+        XCTAssertEqual(bundle.resourcePath, root + "/resources")
+        XCTAssertEqual(bundle.resourceURL?.path, root + "/resources")
         XCTAssertEqual(bundle.iconPath, root + "/icon.png")
-        XCTAssertEqual(bundle.path(forResource: "logo", ofType: "png"), root + "/assets/logo.png")
-        XCTAssertEqual(bundle.path(forResource: "logo.png"), root + "/assets/logo.png")
-        XCTAssertEqual(bundle.path(forResource: "images/bg", ofType: "jpg"), root + "/assets/images/bg.jpg")
+        XCTAssertEqual(bundle.path(forResource: "logo", ofType: "png"), root + "/resources/logo.png")
+        XCTAssertEqual(bundle.path(forResource: "logo.png"), root + "/resources/logo.png")
+        XCTAssertEqual(bundle.path(forResource: "images/bg", ofType: "jpg"), root + "/resources/images/bg.jpg")
         XCTAssertEqual(bundle.url(forResource: "logo", withExtension: "png")?.lastPathComponent, "logo.png")
         XCTAssertNil(bundle.path(forResource: "missing", ofType: "png"))
-        // Traversal outside assets/ is rejected.
+        // Traversal outside resources/ is rejected.
         XCTAssertNil(bundle.path(forResource: "../manifest", ofType: "json"))
     }
 

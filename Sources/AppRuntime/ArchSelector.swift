@@ -62,19 +62,19 @@ public enum ArchSelector {
                 candidates.append(ArchSelection(arch: .x86_64, translator: .box64))
             }
             if host.supportsAArch32 && host.hasBox86 {
-                candidates.append(ArchSelection(arch: .x86, translator: .box86))
+                candidates.append(ArchSelection(arch: .i386, translator: .box86))
             }
             return candidates
         case .armv7:
             var candidates = [ArchSelection(arch: .armv7)]
             if host.hasBox86 {
-                candidates.append(ArchSelection(arch: .x86, translator: .box86))
+                candidates.append(ArchSelection(arch: .i386, translator: .box86))
             }
             return candidates
         case .x86_64:
             var candidates = [ArchSelection(arch: .x86_64)]
             if host.supportsX86Multilib {
-                candidates.append(ArchSelection(arch: .x86))
+                candidates.append(ArchSelection(arch: .i386))
             }
             return candidates
         default:

@@ -77,7 +77,7 @@ public extension HostCapabilities {
             supportsAArch32: arch == .armv7 || (arch == .arm64 && armhfLoaders.contains(where: fileExists)),
             hasBox86: box86Paths.contains(where: fileExists),
             hasBox64: box64Paths.contains(where: fileExists),
-            supportsX86Multilib: arch == .x86 || (arch == .x86_64 && x86Loaders.contains(where: fileExists))
+            supportsX86Multilib: arch == .i386 || (arch == .x86_64 && x86Loaders.contains(where: fileExists))
         )
     }
 }

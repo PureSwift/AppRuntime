@@ -101,6 +101,14 @@ public extension AppBundle {
         return (selection, executablePath(for: selection.arch))
     }
 
+    /// The working directory the launcher must set before exec: the bundle root.
+    ///
+    /// Part of the launch contract — apps ported from other platforms commonly
+    /// open assets via paths relative to the working directory, so starting at
+    /// the bundle root lets them work unmodified (optionally with a symlink in
+    /// the bundle mapping their expected directory name to `resources/`).
+    var workingDirectory: String { path }
+
     /// `true` if a directory exists at the given path.
     internal static func directoryExists(atPath path: String, fileManager: FileManager = .default) -> Bool {
         guard let type = (try? fileManager.attributesOfItem(atPath: path))?[.type] as? FileAttributeType else {
@@ -134,16 +142,26 @@ public extension AppBundle {
 
 public extension AppBundle {
 
-    /// Path to the bundle's resource directory (`assets/`),
+    /// Path to the bundle's resource directory (`resources/`),
     /// or `nil` if the bundle ships no resources.
     var resourcePath: String? {
-        let assets = path + "/assets"
-        return Self.directoryExists(atPath: assets) ? assets : nil
+        let resources = path + "/resources"
+        return Self.directoryExists(atPath: resources) ? resources : nil
     }
 
-    /// URL of the bundle's resource directory (`assets/`).
+    /// URL of the bundle's resource directory (`resources/`).
     var resourceURL: URL? {
         resourcePath.map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// Path to the bundle's self-contained launch script (`run.sh`),
+    /// or `nil` if it ships none.
+    ///
+    /// The script selects an architecture and execs the binary without
+    /// requiring the Swift launcher or runtime on the host.
+    var runScriptPath: String? {
+        let script = path + "/run.sh"
+        return FileManager.default.fileExists(atPath: script) ? script : nil
     }
 
     /// Path to the bundle's icon, or `nil` if it ships none.
@@ -152,7 +170,7 @@ public extension AppBundle {
         return FileManager.default.fileExists(atPath: icon) ? icon : nil
     }
 
-    /// Look up a resource in `assets/`, mirroring `Foundation.Bundle`.
+    /// Look up a resource in `resources/`, mirroring `Foundation.Bundle`.
     ///
     /// - Parameters:
     ///   - name: Resource file name, optionally with a subdirectory prefix.
@@ -160,14 +178,14 @@ public extension AppBundle {
     /// - Returns: The full path, or `nil` if the file does not exist.
     func path(forResource name: String, ofType ext: String? = nil) -> String? {
         guard name.isEmpty == false, name.contains("..") == false else { return nil }
-        var resource = path + "/assets/" + name
+        var resource = path + "/resources/" + name
         if let ext = ext, ext.isEmpty == false {
             resource += "." + ext
         }
         return FileManager.default.fileExists(atPath: resource) ? resource : nil
     }
 
-    /// Look up a resource URL in `assets/`, mirroring `Foundation.Bundle`.
+    /// Look up a resource URL in `resources/`, mirroring `Foundation.Bundle`.
     func url(forResource name: String, withExtension ext: String? = nil) -> URL? {
         path(forResource: name, ofType: ext).map { URL(fileURLWithPath: $0) }
     }

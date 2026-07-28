@@ -50,7 +50,7 @@ public struct Manifest: Equatable, Hashable, Codable, Identifiable {
     public let copyright: String?
     
     /// List of capabilities
-    public let capabilities: [String]?
+    public let capabilities: [Capability]?
 
     /// Architectures included in the bundle's `bin/` directory.
     public let architectures: [Arch]
@@ -65,7 +65,7 @@ public struct Manifest: Equatable, Hashable, Codable, Identifiable {
         version: String,
         build: String,
         copyright: String? = nil,
-        capabilities: [String]? = nil,
+        capabilities: [Capability]? = nil,
         architectures: [Arch]
     ) {
         self.formatVersion = formatVersion
