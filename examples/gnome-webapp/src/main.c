@@ -40,6 +40,7 @@ static GtkWidget *on_create(WebKitWebView *view,
                             WebKitNavigationAction *action,
                             gpointer user_data)
 {
+    (void)user_data;
     WebKitURIRequest *request = webkit_navigation_action_get_request(action);
     webkit_web_view_load_uri(view, webkit_uri_request_get_uri(request));
     return NULL;
@@ -47,6 +48,7 @@ static GtkWidget *on_create(WebKitWebView *view,
 
 static void on_activate(GtkApplication *app, gpointer user_data)
 {
+    (void)user_data;
     GtkWidget *window = gtk_application_window_new(app);
     gtk_window_set_title(GTK_WINDOW(window), APP_NAME);
     gtk_window_set_default_size(GTK_WINDOW(window), 1024, 768);
@@ -62,7 +64,11 @@ static void on_activate(GtkApplication *app, gpointer user_data)
     g_autoptr(WebKitNetworkSession) session =
         webkit_network_session_new(storage, cache);
 
-    GtkWidget *view = webkit_web_view_new_with_network_session(session);
+    /* WebKitGTK 6.0 exposes only webkit_web_view_new(); the session is a
+     * construct-only property, so the view must be built with g_object_new. */
+    GtkWidget *view = GTK_WIDGET(g_object_new(WEBKIT_TYPE_WEB_VIEW,
+                                              "network-session", session,
+                                              NULL));
     g_signal_connect(view, "create", G_CALLBACK(on_create), NULL);
     webkit_web_view_load_uri(WEBKIT_WEB_VIEW(view), APP_URL);
 
