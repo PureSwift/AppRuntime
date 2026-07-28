@@ -202,28 +202,28 @@ final class AppRuntimeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: root) }
         let fileManager = FileManager.default
 
-        // No assets/ directory yet.
+        // No resources/ directory yet.
         var bundle = try AppBundle(path: root)
         XCTAssertNil(bundle.resourcePath)
         XCTAssertNil(bundle.iconPath)
         XCTAssertNil(bundle.path(forResource: "logo", ofType: "png"))
 
-        // Populate assets/ and icon.png.
-        try fileManager.createDirectory(atPath: root + "/assets/images", withIntermediateDirectories: true)
-        fileManager.createFile(atPath: root + "/assets/logo.png", contents: Data())
-        fileManager.createFile(atPath: root + "/assets/images/bg.jpg", contents: Data())
+        // Populate resources/ and icon.png.
+        try fileManager.createDirectory(atPath: root + "/resources/images", withIntermediateDirectories: true)
+        fileManager.createFile(atPath: root + "/resources/logo.png", contents: Data())
+        fileManager.createFile(atPath: root + "/resources/images/bg.jpg", contents: Data())
         fileManager.createFile(atPath: root + "/icon.png", contents: Data())
         bundle = try AppBundle(path: root)
 
-        XCTAssertEqual(bundle.resourcePath, root + "/assets")
-        XCTAssertEqual(bundle.resourceURL?.path, root + "/assets")
+        XCTAssertEqual(bundle.resourcePath, root + "/resources")
+        XCTAssertEqual(bundle.resourceURL?.path, root + "/resources")
         XCTAssertEqual(bundle.iconPath, root + "/icon.png")
-        XCTAssertEqual(bundle.path(forResource: "logo", ofType: "png"), root + "/assets/logo.png")
-        XCTAssertEqual(bundle.path(forResource: "logo.png"), root + "/assets/logo.png")
-        XCTAssertEqual(bundle.path(forResource: "images/bg", ofType: "jpg"), root + "/assets/images/bg.jpg")
+        XCTAssertEqual(bundle.path(forResource: "logo", ofType: "png"), root + "/resources/logo.png")
+        XCTAssertEqual(bundle.path(forResource: "logo.png"), root + "/resources/logo.png")
+        XCTAssertEqual(bundle.path(forResource: "images/bg", ofType: "jpg"), root + "/resources/images/bg.jpg")
         XCTAssertEqual(bundle.url(forResource: "logo", withExtension: "png")?.lastPathComponent, "logo.png")
         XCTAssertNil(bundle.path(forResource: "missing", ofType: "png"))
-        // Traversal outside assets/ is rejected.
+        // Traversal outside resources/ is rejected.
         XCTAssertNil(bundle.path(forResource: "../manifest", ofType: "json"))
     }
 
