@@ -50,7 +50,7 @@ public extension Arch {
     
     static var x86_64: Arch { "x86_64" }
 
-    static var x86: Arch { "x86" }
+    static var i386: Arch { "i386" }
 }
 
 // MARK: - Host
@@ -88,7 +88,7 @@ public extension Arch {
         case "x86_64", "amd64":
             self = .x86_64
         case "i386", "i486", "i586", "i686":
-            self = .x86
+            self = .i386
         case let arm where arm.hasPrefix("armv7"):
             self = .armv7
         case let arm where arm.hasPrefix("armv6"):
