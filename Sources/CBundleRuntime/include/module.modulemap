@@ -1,0 +1,4 @@
+module CBundleRuntime {
+    header "CBundleRuntime.h"
+    export *
+}
