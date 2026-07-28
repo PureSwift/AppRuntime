@@ -43,8 +43,26 @@ enum SandboxError: Error, CustomStringConvertible {
 
 struct Sandbox {
 
+    enum Mode {
+        /// Root (CAP_SYS_ADMIN): per-app uid, full device gating.
+        case privileged
+        /// User namespace (CLONE_NEWUSER): no root required; the app runs
+        /// as the invoking user, device access limited to what that user
+        /// already has. Development / desktop fallback.
+        case userNamespace
+    }
+
     /// Staging root for the new filesystem, private to the mount namespace.
-    static let stage = "/run/bundle-root"
+    /// Unprivileged launches use a user-writable location.
+    var stagePath: String {
+        switch mode {
+        case .privileged:
+            return "/run/bundle-root"
+        case .userNamespace:
+            return (ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"] ?? "/tmp")
+                + "/bundle-root-\(getpid())"
+        }
+    }
 
     /// System directories bound read-only into the sandbox.
     /// Symlinks (merged-usr layouts) are recreated rather than bound.
@@ -57,21 +75,35 @@ struct Sandbox {
     let selection: ArchSelection
     let container: Container
     let capabilities: [Capability]
+    let mode: Mode
 
     /// Enter the sandbox and exec the app. Never returns on success:
     /// the parent exits with the app's status, the child becomes the app.
     func launch(arguments: [String]) throws -> Never {
         let network = capabilities.contains(.network)
+        let invokingUID = geteuid()
+        let invokingGID = getegid()
 
         // 1. New namespaces. NEWNET only when the app has no Network
-        //    capability (no interfaces = no network).
-        try check(br_unshare_namespaces(network ? 0 : 1), "unshare")
+        //    capability (no interfaces = no network); NEWUSER for the
+        //    unprivileged path, granting capabilities over the namespace.
+        try check(br_unshare_namespaces(network ? 0 : 1, mode == .userNamespace ? 1 : 0), "unshare")
+        if mode == .userNamespace {
+            try check(br_map_identity(invokingUID, invokingGID), "uid/gid map")
+        }
 
         // 2. Fork: the PID namespace applies to children only. The parent
         //    stays outside as supervisor and forwards the exit status.
         let child = fork()
         try check(child == -1 ? -1 : 0, "fork")
         if child > 0 {
+            // The supervisor needs no privileges after the fork:
+            // drop to the app uid so no root process lingers.
+            if mode == .privileged {
+                _ = setgid(container.uid)
+                _ = setuid(container.uid)
+            }
+            _ = br_set_no_new_privs()
             var status: Int32 = 0
             while waitpid(child, &status, 0) == -1 && errno == EINTR {}
             if status & 0x7f != 0 {
@@ -80,11 +112,18 @@ struct Sandbox {
             exit((status >> 8) & 0xff)         // normal exit
         }
 
-        // Child: build the new root and become the app.
-        try buildRoot()
-        try pivot()
-        try dropPrivileges()
-        try environmentAndExec(arguments: arguments)
+        // Child: build the new root and become the app. Errors here must
+        // not propagate to the caller — the child would fall into the
+        // caller's fallback path and exec unsandboxed alongside the parent.
+        do {
+            try buildRoot()
+            try pivot()
+            try dropPrivileges()
+            try environmentAndExec(arguments: arguments)
+        } catch {
+            fputs("bundle-runtime: sandbox child: \(error)\n", stderr)
+            exit(127)
+        }
     }
 
     // MARK: - Mounts
@@ -92,13 +131,13 @@ struct Sandbox {
     private func buildRoot() throws {
         let fileManager = FileManager.default
         try check(br_make_root_private(), "make / private")
-        try? fileManager.createDirectory(atPath: Self.stage, withIntermediateDirectories: true)
-        try check(br_mount_tmpfs(Self.stage), "tmpfs \(Self.stage)")
+        try? fileManager.createDirectory(atPath: stagePath, withIntermediateDirectories: true)
+        try check(br_mount_tmpfs(stagePath), "tmpfs \(stagePath)")
 
         // OS directories, read-only. Merged-usr symlinks are recreated.
         for directory in Self.systemDirectories {
             guard fileManager.fileExists(atPath: directory) else { continue }
-            let target = Self.stage + directory
+            let target = stagePath + directory
             if let destination = try? fileManager.destinationOfSymbolicLink(atPath: directory) {
                 try fileManager.createSymbolicLink(atPath: target, withDestinationPath: destination)
             } else {
@@ -108,21 +147,21 @@ struct Sandbox {
         }
 
         // Bundle at /app (read-only), container at /data (read-write).
-        try fileManager.createDirectory(atPath: Self.stage + "/app", withIntermediateDirectories: true)
-        try check(br_bind_mount(bundle.path, Self.stage + "/app", 1), "bind /app")
-        try fileManager.createDirectory(atPath: Self.stage + "/data", withIntermediateDirectories: true)
-        try check(br_bind_mount(container.path, Self.stage + "/data", 0), "bind /data")
+        try fileManager.createDirectory(atPath: stagePath + "/app", withIntermediateDirectories: true)
+        try check(br_bind_mount(bundle.path, stagePath + "/app", 1), "bind /app")
+        try fileManager.createDirectory(atPath: stagePath + "/data", withIntermediateDirectories: true)
+        try check(br_bind_mount(container.path, stagePath + "/data", 0), "bind /data")
 
         // tmp (with XDG runtime dir), proc, dev.
-        try fileManager.createDirectory(atPath: Self.stage + "/tmp", withIntermediateDirectories: true)
-        try check(br_mount_tmpfs(Self.stage + "/tmp"), "tmpfs /tmp")
-        let runtimeDirectory = Self.stage + "/tmp/run"
+        try fileManager.createDirectory(atPath: stagePath + "/tmp", withIntermediateDirectories: true)
+        try check(br_mount_tmpfs(stagePath + "/tmp"), "tmpfs /tmp")
+        let runtimeDirectory = stagePath + "/tmp/run"
         try fileManager.createDirectory(atPath: runtimeDirectory, withIntermediateDirectories: true)
         try check(chmod(runtimeDirectory, 0o700), "chmod /tmp/run")
         try check(chown(runtimeDirectory, container.uid, container.uid), "chown /tmp/run")
 
-        try fileManager.createDirectory(atPath: Self.stage + "/proc", withIntermediateDirectories: true)
-        try check(br_mount_proc(Self.stage + "/proc"), "mount /proc")
+        try fileManager.createDirectory(atPath: stagePath + "/proc", withIntermediateDirectories: true)
+        try check(br_mount_proc(stagePath + "/proc"), "mount /proc")
 
         try mountDevices()
         try bindDisplaySocket()
@@ -132,7 +171,7 @@ struct Sandbox {
     /// plus capability-gated directories.
     private func mountDevices() throws {
         let fileManager = FileManager.default
-        let dev = Self.stage + "/dev"
+        let dev = stagePath + "/dev"
         try fileManager.createDirectory(atPath: dev, withIntermediateDirectories: true)
         try check(br_mount_tmpfs(dev), "tmpfs /dev")
 
@@ -149,7 +188,7 @@ struct Sandbox {
         if capabilities.contains(.audio) { directories.append("/dev/snd") }
         for directory in directories {
             guard fileManager.fileExists(atPath: directory) else { continue }
-            let target = Self.stage + directory
+            let target = stagePath + directory
             try fileManager.createDirectory(atPath: target, withIntermediateDirectories: true)
             try check(br_bind_mount(directory, target, 0), "bind \(directory)")
         }
@@ -163,7 +202,7 @@ struct Sandbox {
         let hostRuntime = ProcessInfo.processInfo.environment["XDG_RUNTIME_DIR"] ?? "/run"
         let socket = hostRuntime + "/wayland-0"
         guard fileManager.fileExists(atPath: socket) else { return }
-        let target = Self.stage + "/tmp/run/wayland-0"
+        let target = stagePath + "/tmp/run/wayland-0"
         fileManager.createFile(atPath: target, contents: nil)
         try check(br_bind_mount(socket, target, 0), "bind wayland socket")
     }
@@ -171,9 +210,9 @@ struct Sandbox {
     // MARK: - pivot_root
 
     private func pivot() throws {
-        let oldRoot = Self.stage + "/.old-root"
+        let oldRoot = stagePath + "/.old-root"
         try FileManager.default.createDirectory(atPath: oldRoot, withIntermediateDirectories: true)
-        try check(chdir(Self.stage), "chdir stage")
+        try check(chdir(stagePath), "chdir stage")
         try check(br_pivot_root(".", ".old-root"), "pivot_root")
         try check(chdir("/"), "chdir /")
         try check(br_detach("/.old-root"), "detach old root")
@@ -184,13 +223,21 @@ struct Sandbox {
 
     private func dropPrivileges() throws {
         try check(br_set_no_new_privs(), "PR_SET_NO_NEW_PRIVS")
-        try check(setgroups(0, nil), "setgroups")
-        try check(setgid(container.uid), "setgid")
-        try check(setuid(container.uid), "setuid")
-        try check(br_drop_bounding_set(), "drop bounding set")
-        // Verify the drop is irreversible.
-        guard setuid(0) != 0 else {
-            fatalError("privilege drop failed: setuid(0) succeeded")
+        switch mode {
+        case .privileged:
+            try check(setgroups(0, nil), "setgroups")
+            try check(setgid(container.uid), "setgid")
+            try check(setuid(container.uid), "setuid")
+            try check(br_drop_bounding_set(), "drop bounding set")
+            // Verify the drop is irreversible.
+            guard setuid(0) != 0 else {
+                fatalError("privilege drop failed: setuid(0) succeeded")
+            }
+        case .userNamespace:
+            // Already the invoking user; setgroups is denied by the uid map.
+            // Dropping the bounding set sheds the namespace capabilities
+            // gained from CLONE_NEWUSER before exec.
+            try check(br_drop_bounding_set(), "drop bounding set")
         }
     }
 
