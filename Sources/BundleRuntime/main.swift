@@ -90,6 +90,15 @@ do {
 if geteuid() == 0 {
     // Root (CAP_SYS_ADMIN): full sandbox with a per-app uid.
     do {
+        // Resource caps first: joining the cgroup before fork means the
+        // app and everything it spawns inherit the limits.
+        if ResourceLimits.isAvailable {
+            do {
+                try ResourceLimits.default.apply(id: bundle.manifest.id)
+            } catch {
+                fputs("bundle-runtime: warning: resource limits not applied: \(error)\n", stderr)
+            }
+        }
         let container = try Container.setup(id: bundle.manifest.id)
         let sandbox = Sandbox(
             bundle: bundle,
