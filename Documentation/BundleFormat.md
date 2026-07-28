@@ -144,8 +144,12 @@ self-executing image) must:
    (`box64 E` / `box86 E`).
 
 The system launcher additionally mounts the bundle read-only at `/app`,
-exports `BUNDLE_PATH=/app`, and applies sandboxing (out of scope for this
-document). `AppBundle.main` resolves from `BUNDLE_PATH`, defaulting to `/app`.
+exports `BUNDLE_PATH=/app`, and isolates the app in namespaces with the
+manifest's capabilities enforced — see [Sandbox.md](Sandbox.md).
+`AppBundle.main` resolves from `BUNDLE_PATH`, defaulting to `/app`.
+
+`run.sh` and self-executing images (§6.3, §7.2) apply **no** isolation; they
+are development and plain-Linux launch paths.
 
 ### 6.3 `run.sh`
 
