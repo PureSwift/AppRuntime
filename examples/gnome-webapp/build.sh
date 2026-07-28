@@ -113,24 +113,52 @@ echo "==> Building $EXECUTABLE for $ARCH"
 mkdir -p "$BUILD_DIR"
 BINARY="$BUILD_DIR/$EXECUTABLE-$ARCH"
 
-DEFINES="-DAPP_URL=\"$APP_URL\" -DAPP_NAME=\"$APP_NAME\" -DAPP_ID=\"$BUNDLE_ID\""
-
+# pkg-config must resolve against the target sysroot, not the host.
 if [ -n "${SYSROOT:-}" ]; then
-    TRIPLE=$(triple_for_arch "$ARCH")
-    # pkg-config against the sysroot, not the host.
     PKG_CONFIG_SYSROOT_DIR="$SYSROOT"
     PKG_CONFIG_LIBDIR="$SYSROOT/usr/lib/pkgconfig:$SYSROOT/usr/share/pkgconfig"
     export PKG_CONFIG_SYSROOT_DIR PKG_CONFIG_LIBDIR
-    CFLAGS=$(pkg-config --cflags gtk4 webkitgtk-6.0)
-    LIBS=$(pkg-config --libs gtk4 webkitgtk-6.0)
-    # shellcheck disable=SC2086
-    "$CLANG" -target "$TRIPLE" --sysroot="$SYSROOT" -fuse-ld=lld -O2 \
-        $DEFINES $CFLAGS "$SRC_DIR/main.c" $LIBS -o "$BINARY"
+fi
+
+if command -v cmake >/dev/null 2>&1; then
+    # Preferred: the example's CMakeLists, consistent with the rest of
+    # the repo and directly reusable from a Buildroot package recipe.
+    CMAKE_DIR="$BUILD_DIR/cmake-$ARCH"
+    set -- -S "$SCRIPT_DIR" -B "$CMAKE_DIR" -DCMAKE_BUILD_TYPE=Release \
+        -DAPP_URL="$APP_URL" -DAPP_NAME="$APP_NAME" -DAPP_ID="$BUNDLE_ID" \
+        -DAPPRUNTIME_ARCH="$ARCH"
+    # Prefer Ninja: it is the generator the rest of the repo uses, and
+    # minimal build environments often ship it without make.
+    if command -v ninja >/dev/null 2>&1; then
+        set -- "$@" -G Ninja
+    fi
+    if [ -n "${SYSROOT:-}" ]; then
+        TRIPLE=$(triple_for_arch "$ARCH")
+        set -- "$@" \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSROOT="$SYSROOT" \
+            -DCMAKE_C_COMPILER="$CLANG" \
+            -DCMAKE_C_COMPILER_TARGET="$TRIPLE" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld"
+    fi
+    cmake "$@"
+    cmake --build "$CMAKE_DIR" --parallel
+    cp "$CMAKE_DIR/$EXECUTABLE" "$BINARY"
 else
+    # Fallback: compile directly when CMake is unavailable.
+    echo "    cmake not found; compiling directly"
+    DEFINES="-DAPP_URL=\"$APP_URL\" -DAPP_NAME=\"$APP_NAME\" -DAPP_ID=\"$BUNDLE_ID\""
     CFLAGS=$(pkg-config --cflags gtk4 webkitgtk-6.0)
     LIBS=$(pkg-config --libs gtk4 webkitgtk-6.0)
-    # shellcheck disable=SC2086
-    cc -O2 $DEFINES $CFLAGS "$SRC_DIR/main.c" $LIBS -o "$BINARY"
+    if [ -n "${SYSROOT:-}" ]; then
+        TRIPLE=$(triple_for_arch "$ARCH")
+        # shellcheck disable=SC2086
+        "$CLANG" -target "$TRIPLE" --sysroot="$SYSROOT" -fuse-ld=lld -O2 \
+            $DEFINES $CFLAGS "$SRC_DIR/main.c" $LIBS -o "$BINARY"
+    else
+        # shellcheck disable=SC2086
+        cc -O2 $DEFINES $CFLAGS "$SRC_DIR/main.c" $LIBS -o "$BINARY"
+    fi
 fi
 
 echo "==> Staging bundle at $BUNDLE_DIR"
