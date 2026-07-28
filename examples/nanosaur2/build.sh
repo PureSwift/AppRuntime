@@ -52,9 +52,12 @@ if [ ! -d "$SRC_DIR" ]; then
 fi
 
 echo "==> Building for $ARCH"
+# -include cstdint: the Pomme submodule pinned by v2.1.0 relies on transitive
+# <cstdint> includes that newer libstdc++ (GCC 14+) no longer provides.
 cmake -S "$SRC_DIR" -B "$BUILD_DIR/cmake-$ARCH" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON \
+    -DCMAKE_CXX_FLAGS="-include cstdint"
 cmake --build "$BUILD_DIR/cmake-$ARCH" --parallel
 
 BINARY="$BUILD_DIR/cmake-$ARCH/$EXECUTABLE"
