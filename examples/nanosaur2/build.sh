@@ -62,17 +62,61 @@ BINARY="$BUILD_DIR/cmake-$ARCH/$EXECUTABLE"
 [ -n "$BINARY" ] && [ -f "$BINARY" ] || { echo "error: built executable not found" >&2; exit 1; }
 
 echo "==> Staging bundle at $BUNDLE_DIR"
-mkdir -p "$BUNDLE_DIR/bin/$ARCH" "$BUNDLE_DIR/assets"
+mkdir -p "$BUNDLE_DIR/bin/$ARCH" "$BUNDLE_DIR/resources"
 install -m 755 "$BINARY" "$BUNDLE_DIR/bin/$ARCH/$EXECUTABLE"
 strip "$BUNDLE_DIR/bin/$ARCH/$EXECUTABLE" 2>/dev/null || true
 
 # Game data (art, audio, models, terrain) is architecture-independent.
-cp -R "$SRC_DIR/Data/." "$BUNDLE_DIR/assets/"
+cp -R "$SRC_DIR/Data/." "$BUNDLE_DIR/resources/"
 
 # Icon
 if [ -f "$SRC_DIR/packaging/icon.png" ]; then
     cp "$SRC_DIR/packaging/icon.png" "$BUNDLE_DIR/icon.png"
 fi
+
+echo "==> Writing run.sh"
+# Self-contained launcher: selects the best architecture and execs the
+# binary directly — no Swift runtime or AppRuntime launcher required.
+cat > "$BUNDLE_DIR/run.sh" <<EOF
+#!/bin/sh
+# Launch $BUNDLE_ID without the AppRuntime launcher.
+set -eu
+DIR=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)
+EXECUTABLE=$EXECUTABLE
+run() {
+    arch=\$1; shift
+    BIN="\$DIR/bin/\$arch/\$EXECUTABLE"
+    [ -x "\$BIN" ] || return 0
+    if [ -d "\$DIR/lib/\$arch" ]; then
+        LD_LIBRARY_PATH="\$DIR/lib/\$arch\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+        export LD_LIBRARY_PATH
+    fi
+    cd "\$DIR"
+    exec "\$@" "\$BIN"
+}
+case "\$(uname -m)" in
+    aarch64|arm64)
+        run arm64
+        run armv7
+        command -v box64 >/dev/null 2>&1 && run x86_64 box64
+        command -v box86 >/dev/null 2>&1 && run x86 box86
+        ;;
+    armv7*)
+        run armv7
+        command -v box86 >/dev/null 2>&1 && run x86 box86
+        ;;
+    x86_64|amd64)
+        run x86_64
+        run x86
+        ;;
+    i?86)
+        run x86
+        ;;
+esac
+echo "run.sh: no runnable binary for \$(uname -m)" >&2
+exit 1
+EOF
+chmod 755 "$BUNDLE_DIR/run.sh"
 
 echo "==> Writing manifest.json"
 # Regenerate the architectures array from every staged bin/<arch>/ directory,
@@ -95,10 +139,39 @@ cat > "$BUNDLE_DIR/manifest.json" <<EOF
 EOF
 
 if command -v mksquashfs >/dev/null 2>&1; then
-    echo "==> Packing squashfs image"
-    rm -f "$BUILD_DIR/$BUNDLE_ID.app.squashfs"
-    mksquashfs "$BUNDLE_DIR" "$BUILD_DIR/$BUNDLE_ID.app.squashfs" \
-        -comp zstd -all-root -noappend
+    echo "==> Packing self-executing squashfs image"
+    IMAGE="$BUILD_DIR/$BUNDLE_ID.app.squashfs"
+    rm -f "$IMAGE"
+    # AppImage-style polyglot: a shell-script header in the first 4 KiB,
+    # squashfs at offset 4096. Executing the file mounts itself (squashfuse,
+    # falling back to a loop mount) and runs the bundle's run.sh.
+    OFFSET=4096
+    mksquashfs "$BUNDLE_DIR" "$IMAGE" \
+        -comp zstd -all-root -noappend -quiet -offset "$OFFSET"
+    HEADER=$(mktemp)
+    cat > "$HEADER" <<EOF
+#!/bin/sh
+# Self-mounting AppRuntime bundle: squashfs at offset $OFFSET.
+set -eu
+SELF=\$(CDPATH= cd -- "\$(dirname -- "\$0")" && pwd)/\$(basename -- "\$0")
+MNT=\$(mktemp -d)
+cleanup() {
+    umount "\$MNT" 2>/dev/null || fusermount -u "\$MNT" 2>/dev/null || true
+    rmdir "\$MNT" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+if command -v squashfuse >/dev/null 2>&1; then
+    squashfuse -o offset=$OFFSET "\$SELF" "\$MNT"
+else
+    mount -o loop,offset=$OFFSET,ro "\$SELF" "\$MNT"
+fi
+"\$MNT/run.sh" "\$@"
+EOF
+    HEADER_SIZE=$(wc -c < "$HEADER")
+    [ "$HEADER_SIZE" -le "$OFFSET" ] || { echo "error: header exceeds offset" >&2; exit 1; }
+    dd if="$HEADER" of="$IMAGE" conv=notrunc 2>/dev/null
+    rm -f "$HEADER"
+    chmod 755 "$IMAGE"
 else
     echo "==> mksquashfs not found; skipping image (bundle folder is complete)"
 fi
