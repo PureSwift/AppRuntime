@@ -239,6 +239,9 @@ struct Sandbox {
             // gained from CLONE_NEWUSER before exec.
             try check(br_drop_bounding_set(), "drop bounding set")
         }
+        // Seccomp last, after no_new_privs and the uid drop, so the filter
+        // covers the app and everything it execs.
+        try check(br_apply_seccomp(), "seccomp")
     }
 
     // MARK: - Environment & exec
