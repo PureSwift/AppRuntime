@@ -70,7 +70,7 @@ public struct AppBundle: Equatable, Hashable {
     }
 
     /// A single path component: non-empty, no separators, not `.` or `..`.
-    static func isSafePathComponent(_ value: String) -> Bool {
+    public static func isSafePathComponent(_ value: String) -> Bool {
         value.isEmpty == false
             && value != "."
             && value != ".."
