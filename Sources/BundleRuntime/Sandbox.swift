@@ -225,10 +225,13 @@ struct Sandbox {
         try check(br_set_no_new_privs(), "PR_SET_NO_NEW_PRIVS")
         switch mode {
         case .privileged:
+            // The bounding set must be emptied *before* dropping uid:
+            // PR_CAPBSET_DROP needs CAP_SETPCAP, and setuid() to a
+            // non-root uid clears the capability sets.
+            try check(br_drop_bounding_set(), "drop bounding set")
             try check(setgroups(0, nil), "setgroups")
             try check(setgid(container.uid), "setgid")
             try check(setuid(container.uid), "setuid")
-            try check(br_drop_bounding_set(), "drop bounding set")
             // Verify the drop is irreversible.
             guard setuid(0) != 0 else {
                 fatalError("privilege drop failed: setuid(0) succeeded")
