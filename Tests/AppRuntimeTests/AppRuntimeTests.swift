@@ -74,7 +74,7 @@ final class AppRuntimeTests: XCTestCase {
         XCTAssertEqual(Arch(machine: "arm64"), .arm64)
         XCTAssertEqual(Arch(machine: "x86_64"), .x86_64)
         XCTAssertEqual(Arch(machine: "amd64"), .x86_64)
-        XCTAssertEqual(Arch(machine: "i686"), .x86)
+        XCTAssertEqual(Arch(machine: "i686"), .i386)
         XCTAssertEqual(Arch(machine: "armv7l"), .armv7)
         XCTAssertEqual(Arch(machine: "armv6l"), .armv6)
         XCTAssertNil(Arch(machine: "riscv64"))
@@ -89,7 +89,7 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostPrefersNative() throws {
         let host = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64, .armv7, .arm64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64, .armv7, .arm64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .arm64))
     }
 
@@ -103,16 +103,16 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostRunsX86_64ViaBox64() throws {
         let host = HostCapabilities(arch: .arm64, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .x86_64, translator: .box64))
     }
 
     func testArm64HostRunsX86ViaBox86RequiresAArch32() throws {
-        let bundle: [Arch] = [.x86]
+        let bundle: [Arch] = [.i386]
         let capable = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true)
         XCTAssertEqual(
             try ArchSelector.select(from: bundle, host: capable),
-            ArchSelection(arch: .x86, translator: .box86)
+            ArchSelection(arch: .i386, translator: .box86)
         )
         // box86 present but no AArch32 (64-bit-only core): unrunnable.
         let unable = HostCapabilities(arch: .arm64, supportsAArch32: false, hasBox86: true)
@@ -121,16 +121,16 @@ final class AppRuntimeTests: XCTestCase {
 
     func testArm64HostPrefersBox64OverBox86() throws {
         let host = HostCapabilities(arch: .arm64, supportsAArch32: true, hasBox86: true, hasBox64: true)
-        let selection = try ArchSelector.select(from: [.x86, .x86_64], host: host)
+        let selection = try ArchSelector.select(from: [.i386, .x86_64], host: host)
         XCTAssertEqual(selection, ArchSelection(arch: .x86_64, translator: .box64))
     }
 
     func testArmv7Host() throws {
         let host = HostCapabilities(arch: .armv7, supportsAArch32: true, hasBox86: true)
-        XCTAssertEqual(try ArchSelector.select(from: [.armv7, .x86], host: host), ArchSelection(arch: .armv7))
+        XCTAssertEqual(try ArchSelector.select(from: [.armv7, .i386], host: host), ArchSelection(arch: .armv7))
         XCTAssertEqual(
-            try ArchSelector.select(from: [.x86], host: host),
-            ArchSelection(arch: .x86, translator: .box86)
+            try ArchSelector.select(from: [.i386], host: host),
+            ArchSelection(arch: .i386, translator: .box86)
         )
         XCTAssertThrowsError(try ArchSelector.select(from: [.arm64], host: host))
     }
@@ -138,16 +138,16 @@ final class AppRuntimeTests: XCTestCase {
     func testX86_64Host() throws {
         let multilib = HostCapabilities(arch: .x86_64, supportsX86Multilib: true)
         XCTAssertEqual(try ArchSelector.select(from: [.x86_64], host: multilib), ArchSelection(arch: .x86_64))
-        XCTAssertEqual(try ArchSelector.select(from: [.x86], host: multilib), ArchSelection(arch: .x86))
+        XCTAssertEqual(try ArchSelector.select(from: [.i386], host: multilib), ArchSelection(arch: .i386))
         let pure64 = HostCapabilities(arch: .x86_64)
-        XCTAssertThrowsError(try ArchSelector.select(from: [.x86], host: pure64))
+        XCTAssertThrowsError(try ArchSelector.select(from: [.i386], host: pure64))
         XCTAssertThrowsError(try ArchSelector.select(from: [.arm64, .armv7], host: pure64))
     }
 
     func testUnsupportedError() {
         let host = HostCapabilities(arch: .arm64)
-        XCTAssertThrowsError(try ArchSelector.select(from: [.x86], host: host)) { error in
-            XCTAssertEqual(error as? ArchSelector.Error, .unsupported(bundle: [.x86], host: host))
+        XCTAssertThrowsError(try ArchSelector.select(from: [.i386], host: host)) { error in
+            XCTAssertEqual(error as? ArchSelector.Error, .unsupported(bundle: [.i386], host: host))
         }
     }
 
@@ -186,14 +186,14 @@ final class AppRuntimeTests: XCTestCase {
     }
 
     func testAppBundleRejectsMissingBinary() throws {
-        // Declares x86 but ships no bin/x86/myapp.
-        let root = try makeFixtureBundle(architectures: [.arm64], manifestArchitectures: [.arm64, .x86])
+        // Declares x86 but ships no bin/i386/myapp.
+        let root = try makeFixtureBundle(architectures: [.arm64], manifestArchitectures: [.arm64, .i386])
         defer { try? FileManager.default.removeItem(atPath: root) }
         XCTAssertThrowsError(try AppBundle(path: root)) { error in
             guard case AppBundle.Error.missingBinary(let arch, _) = error else {
                 return XCTFail("Expected missingBinary, got \(error)")
             }
-            XCTAssertEqual(arch, .x86)
+            XCTAssertEqual(arch, .i386)
         }
     }
 
