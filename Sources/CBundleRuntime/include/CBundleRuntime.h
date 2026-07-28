@@ -14,8 +14,14 @@
 #define C_BUNDLE_RUNTIME_H
 
 /// Unshare mount, UTS, IPC, PID, and cgroup namespaces;
-/// additionally the network namespace when `new_network` is non-zero.
-int br_unshare_namespaces(int new_network);
+/// additionally the network namespace when `new_network` is non-zero,
+/// and a user namespace when `new_user` is non-zero (unprivileged launch).
+int br_unshare_namespaces(int new_network, int new_user);
+
+/// Inside a fresh user namespace: deny setgroups and write identity
+/// uid/gid maps so the caller keeps its ids while holding full
+/// capabilities over the namespace.
+int br_map_identity(unsigned int uid, unsigned int gid);
 
 /// Remount `/` recursively private so mounts don't propagate to the host.
 int br_make_root_private(void);
