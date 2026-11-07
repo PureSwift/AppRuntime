@@ -24,6 +24,7 @@ let package = Package(
         .library(name: "DynamicBluetooth", targets: ["DynamicBluetooth"]),
         .library(name: "DynamicLocation", targets: ["DynamicLocation"]),
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
+        .library(name: "DynamicNFC", targets: ["DynamicNFC"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
         // Wasm: WasmKit import shim.
         .library(name: "RuntimeWasm", targets: ["RuntimeWasm"]),
@@ -101,6 +102,16 @@ let package = Package(
             name: "DynamicNetworking",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicNetworking"
+        ),
+        .target(
+            name: "DynamicNFC",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicNFC"
+        ),
+        .testTarget(
+            name: "DynamicNFCTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicNFC", "RuntimeNative"]
         ),
         .target(
             name: "DynamicFormatting",
