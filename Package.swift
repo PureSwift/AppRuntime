@@ -22,6 +22,7 @@ let package = Package(
         .library(name: "RuntimeNative", targets: ["RuntimeNative"]),
         // Shared: portable provider contracts (declarations; hosts implement them).
         .library(name: "DynamicBluetooth", targets: ["DynamicBluetooth"]),
+        .library(name: "DynamicDevice", targets: ["DynamicDevice"]),
         .library(name: "DynamicLocation", targets: ["DynamicLocation"]),
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
@@ -87,6 +88,16 @@ let package = Package(
 
         // MARK: - Contracts
 
+        .target(
+            name: "DynamicDevice",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicDevice"
+        ),
+        .testTarget(
+            name: "DynamicDeviceTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicDevice", "RuntimeNative"]
+        ),
         .target(
             name: "DynamicBluetooth",
             dependencies: ["DynamicRuntime"],
