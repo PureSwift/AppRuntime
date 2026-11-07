@@ -92,6 +92,11 @@ let package = Package(
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicBluetooth"
         ),
+        .testTarget(
+            name: "DynamicBluetoothTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicBluetooth", "RuntimeNative"]
+        ),
         .target(
             name: "DynamicLocation",
             dependencies: ["DynamicRuntime"],
@@ -106,6 +111,10 @@ let package = Package(
             name: "DynamicFormatting",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicFormatting"
+        ),
+        .testTarget(
+            name: "DynamicFormattingTests",
+            dependencies: ["DynamicFormatting", "RuntimeNative"]
         ),
 
         // MARK: - Wasm
@@ -179,17 +188,6 @@ let package = Package(
                 "ExampleContracts",
                 "ExampleHost",
                 "ExampleApp",
-            ]
-        ),
-        .testTarget(
-            name: "ContractsTests",
-            dependencies: [
-                // Supplies the rt_* symbols the contract proxies link against.
-                "RuntimeNative",
-                "DynamicBluetooth",
-                "DynamicLocation",
-                "DynamicNetworking",
-                "DynamicFormatting",
             ]
         ),
         .testTarget(
