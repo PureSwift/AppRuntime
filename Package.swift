@@ -23,6 +23,7 @@ let package = Package(
         // Shared: portable provider contracts (declarations; hosts implement them).
         .library(name: "DynamicBluetooth", targets: ["DynamicBluetooth"]),
         .library(name: "DynamicLocation", targets: ["DynamicLocation"]),
+        .library(name: "DynamicMotion", targets: ["DynamicMotion"]),
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
         // Wasm: WasmKit import shim.
@@ -96,6 +97,16 @@ let package = Package(
             name: "DynamicLocation",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicLocation"
+        ),
+        .target(
+            name: "DynamicMotion",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicMotion"
+        ),
+        .testTarget(
+            name: "DynamicMotionTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicMotion", "RuntimeNative"]
         ),
         .target(
             name: "DynamicNetworking",
