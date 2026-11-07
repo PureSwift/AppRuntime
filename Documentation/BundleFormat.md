@@ -1,5 +1,13 @@
 # AppRuntime Bundle Format Specification
 
+> **Superseded.** The universal bundle of the
+> [DynamicRuntime design](DynamicRuntime.md) (§7.5–§7.7) replaces this
+> format: guest-only slices (`wasm32/App.wasm`, `lib/<target>/libapp.a`), an
+> `Info.plist` listing `RTTargets`, and host-side slice selection, linking and
+> thinning. `bundle-runtime` still implements this format, which remains the
+> format for port bundles (plain Linux programs) until the launcher moves to
+> the new one.
+
 **Format version: 1**
 
 This document specifies the AppRuntime app bundle format completely enough to

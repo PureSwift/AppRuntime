@@ -1,0 +1,5 @@
+module CRuntime {
+    header "rt.h"
+    header "rt_guest.h"
+    export *
+}
