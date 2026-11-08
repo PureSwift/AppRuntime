@@ -52,27 +52,91 @@ import DynamicRuntime
         #expect(ContractMetadata.decode(Self.descriptors.flatMap(ContractMetadata.encode)) == Self.descriptors)
     }
 
-    // MARK: Guest helpers
+    // MARK: UUID strings
 
-    @Test(arguments: ["180D", "0x180d", "0000180d", "0000180d-0000-1000-8000-00805f9b34fb", "0000180D00001000800000805F9B34FB"])
-    func canonicalUUID(_ input: String) {
-        #expect(BluetoothUUID.canonical(input) == "0000180D-0000-1000-8000-00805F9B34FB")
+    @Test(arguments: [
+        ("180D", BluetoothUUID.bit16(0x180D)),
+        ("0000180D", BluetoothUUID.bit32(0x180D)),
+    ])
+    func shortUUIDForms(_ string: String, _ uuid: BluetoothUUID) {
+        #expect(BluetoothUUID(rawValue: string) == uuid)
+        #expect(uuid.rawValue == string)
     }
 
-    @Test func canonicalUUIDEdgeCases() {
-        #expect(BluetoothUUID.canonical("6E400001-B5A3-F393-E0A9-E50E24DCCA9E") == "6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
-        #expect(BluetoothUUID.canonical("180") == nil)
-        #expect(BluetoothUUID.canonical("XYZW") == nil)
-        #expect(BluetoothUUID.canonical("") == nil)
+    @Test func fullUUIDForm() throws {
+        let string = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+        let uuid = try #require(BluetoothUUID(rawValue: string))
+        #expect(uuid.rawValue == string)
     }
 
-    @Test func shortForm() {
-        #expect(BluetoothUUID.shortForm("0000180D-0000-1000-8000-00805F9B34FB") == "180D")
-        #expect(BluetoothUUID.shortForm("6E400001-B5A3-F393-E0A9-E50E24DCCA9E") == nil)
+    @Test func formsCompareAfterExpanding() throws {
+        let full = try #require(BluetoothUUID(rawValue: "0000180D-0000-1000-8000-00805F9B34FB"))
+        #expect(BluetoothUUID.bit16(0x180D) != full, "BluetoothUUID compares by form")
+        #expect(BluetoothUUID.bit16(0x180D).bit128 == full.bit128)
+    }
+
+    @Test(arguments: ["180", "XYZW", "", "0000180D-0000"])
+    func invalidUUIDStrings(_ string: String) {
+        #expect(BluetoothUUID(rawValue: string) == nil)
+    }
+
+    // MARK: Accessors
+
+    @Test func addressOnlyWhereTheIdentifierIsOne() {
+        #expect(FakePeripheral(identifier: "AA:BB:CC:DD:EE:FF").address?.rawValue == "AA:BB:CC:DD:EE:FF")
+        #expect(FakePeripheral(identifier: "6E400001-B5A3-F393-E0A9-E50E24DCCA9E").address == nil)
+    }
+
+    @Test func companyIdentifier() {
+        #expect(FakeAdvertisement(manufacturer: [0x4C, 0x00, 0x02]).companyIdentifier == CompanyIdentifier(rawValue: 0x004C))
+        #expect(FakeAdvertisement(manufacturer: [0x4C]).companyIdentifier == nil)
+        #expect(FakeAdvertisement(manufacturer: nil).companyIdentifier == nil)
+    }
+
+    @Test func uuidsAreStringsOnTheWire() {
+        #expect(method(ServiceProxy.descriptor, "uuid")?.signature == Signature("()O"))
+        #expect(method(AdvertisementProxy.descriptor, "serviceUUIDs")?.signature == Signature("()O"))
+        #expect(method(AdvertisementProxy.descriptor, "serviceData:")?.signature == Signature("(O)O"))
     }
 
     @Test func codes() {
-        #expect(CharacteristicProperties(rawValue: 0x12).contains(.notify))
+        #expect(GATTCharacteristicProperties(rawValue: 0x12).contains(.notify))
         #expect(BluetoothError.attribute.rawValue + 0x05 == 261, "ATT insufficient authentication")
     }
+}
+
+// MARK: - Fakes
+
+final class FakePeripheral: Peripheral {
+    let identifierString: String
+    init(identifier: String) { identifierString = identifier }
+    func identifier() -> String { identifierString }
+    func name() -> String? { nil }
+    func state() -> Int32 { 0 }
+    func setDelegate(_ delegate: (any PeripheralDelegate)?) { }
+    func discoverServices(_ uuids: [BluetoothUUID]) { }
+    func services() -> [any Service] { [] }
+    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: any Service) { }
+    func discoverDescriptors(for characteristic: any Characteristic) { }
+    func readValue(_ characteristic: any Characteristic) { }
+    func writeValue(_ value: [UInt8], for characteristic: any Characteristic, type: Int32) { }
+    func setNotifyValue(_ enabled: Bool, for characteristic: any Characteristic) { }
+    func readDescriptor(_ descriptor: any Descriptor) { }
+    func writeDescriptor(_ value: [UInt8], for descriptor: any Descriptor) { }
+    func readRSSI() { }
+    func maximumWriteLength(_ type: Int32) -> Int32 { 20 }
+    func canSendWriteWithoutResponse() -> Bool { true }
+}
+
+final class FakeAdvertisement: Advertisement {
+    let manufacturer: [UInt8]?
+    init(manufacturer: [UInt8]?) { self.manufacturer = manufacturer }
+    func localName() -> String? { nil }
+    func manufacturerData() -> [UInt8]? { manufacturer }
+    func serviceUUIDs() throws(RuntimeError) -> [BluetoothUUID] { [] }
+    func serviceDataUUIDs() throws(RuntimeError) -> [BluetoothUUID] { [] }
+    func serviceData(_ uuid: BluetoothUUID) -> [UInt8]? { nil }
+    func solicitedServiceUUIDs() throws(RuntimeError) -> [BluetoothUUID] { [] }
+    func txPowerLevel() -> Int32 { .min }
+    func isConnectable() -> Int32 { -1 }
 }
