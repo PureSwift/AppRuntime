@@ -48,25 +48,6 @@ public enum WriteType: Int32, Sendable {
     case withoutResponse = 1
 }
 
-/// `Characteristic.properties()`, as in the Bluetooth Core specification.
-public struct CharacteristicProperties: OptionSet, Sendable {
-
-    public let rawValue: Int32
-
-    public init(rawValue: Int32) {
-        self.rawValue = rawValue
-    }
-
-    public static var broadcast: Self { Self(rawValue: 0x01) }
-    public static var read: Self { Self(rawValue: 0x02) }
-    public static var writeWithoutResponse: Self { Self(rawValue: 0x04) }
-    public static var write: Self { Self(rawValue: 0x08) }
-    public static var notify: Self { Self(rawValue: 0x10) }
-    public static var indicate: Self { Self(rawValue: 0x20) }
-    public static var authenticatedSignedWrites: Self { Self(rawValue: 0x40) }
-    public static var extendedProperties: Self { Self(rawValue: 0x80) }
-}
-
 /// Delegate `error` codes. `0` is success.
 public enum BluetoothError: Int32, Error, Sendable {
     case unknown = 1
