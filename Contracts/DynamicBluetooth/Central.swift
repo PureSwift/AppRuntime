@@ -1,3 +1,4 @@
+import Bluetooth
 import DynamicRuntime
 
 /// A Bluetooth LE central: scans for, connects to and retrieves peripherals.
@@ -34,11 +35,10 @@ public protocol Central: AnyObject {
     /// A `CentralState` raw value.
     func state() -> Int32
 
-    /// Scans for peripherals advertising any of `services` (canonical UUID
-    /// strings; empty for all). iOS doesn't discover peripherals in the
-    /// background without `services`. `mode` is a `ScanMode` raw value and
-    /// only affects Android.
-    func scan(services: [String], allowDuplicates: Bool, mode: Int32)
+    /// Scans for peripherals advertising any of `services` (empty for all).
+    /// iOS doesn't discover peripherals in the background without `services`.
+    /// `mode` is a `ScanMode` raw value and only affects Android.
+    func scan(services: [BluetoothUUID], allowDuplicates: Bool, mode: Int32)
 
     func stopScan()
 
@@ -58,5 +58,5 @@ public protocol Central: AnyObject {
 
     /// Peripherals already connected to the system (by any app) that expose
     /// any of `services`.
-    func retrieveConnectedPeripherals(_ services: [String]) -> [Peripheral]
+    func retrieveConnectedPeripherals(_ services: [BluetoothUUID]) -> [Peripheral]
 }
