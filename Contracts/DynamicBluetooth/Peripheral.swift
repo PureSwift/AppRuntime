@@ -1,3 +1,4 @@
+import Bluetooth
 import DynamicRuntime
 
 /// A remote peripheral. Results of its operations arrive through its
@@ -10,10 +11,12 @@ import DynamicRuntime
 @DynamicRuntime("org.pureswift.bluetooth.Peripheral")
 public protocol Peripheral: AnyObject {
 
-    /// Opaque identifier, stable for this app on this device. **Not** a
-    /// Bluetooth address: CoreBluetooth never exposes addresses, and Android
-    /// peripherals often use random private addresses. Persist it only to
-    /// pass back to `Central.retrievePeripherals(_:)` on the same device.
+    /// Identifier stable for this app on this device. A UUID on Apple
+    /// platforms, which never expose addresses; the Bluetooth address on
+    /// Android and Linux, where it is often a random private address. Treat
+    /// it as opaque: persist it only to pass back to
+    /// `Central.retrievePeripherals(_:)` on the same device. `address`
+    /// parses it where it is an address.
     func identifier() -> String
 
     /// The GAP device name, if known (may be cached by the system).
@@ -24,13 +27,13 @@ public protocol Peripheral: AnyObject {
 
     func setDelegate(_ delegate: PeripheralDelegate?)
 
-    /// Discovers services (canonical UUID strings; empty for all).
-    func discoverServices(_ uuids: [String])
+    /// Discovers services (empty for all).
+    func discoverServices(_ uuids: [BluetoothUUID])
 
     /// Services discovered so far.
     func services() -> [Service]
 
-    func discoverCharacteristics(_ uuids: [String], for service: Service)
+    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: Service)
 
     func discoverDescriptors(for characteristic: Characteristic)
 
