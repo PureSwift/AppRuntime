@@ -36,6 +36,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
         .package(url: "https://github.com/swiftwasm/WasmKit.git", from: "0.4.2"),
+        .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.0"),
     ],
     targets: [
 
@@ -89,7 +90,11 @@ let package = Package(
 
         .target(
             name: "DynamicBluetooth",
-            dependencies: ["DynamicRuntime"],
+            dependencies: [
+                "DynamicRuntime",
+                .product(name: "Bluetooth", package: "Bluetooth"),
+                .product(name: "BluetoothGATT", package: "Bluetooth"),
+            ],
             path: "Contracts/DynamicBluetooth"
         ),
         .testTarget(
@@ -189,6 +194,10 @@ let package = Package(
                 "ExampleHost",
                 "ExampleApp",
             ]
+        ),
+        .testTarget(
+            name: "RawStringContractTests",
+            dependencies: ["DynamicRuntime", "RuntimeNative"]
         ),
         .testTarget(
             name: "RuntimeWasmTests",
