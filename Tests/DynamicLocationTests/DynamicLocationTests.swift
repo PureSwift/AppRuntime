@@ -1,9 +1,9 @@
-import XCTest
+import Testing
 import DynamicLocation
 import DynamicRuntime
 
 /// Pins the location contracts.
-final class DynamicLocationTests: XCTestCase {
+@Suite struct DynamicLocationTests {
 
     func method(_ descriptor: ContractDescriptor, _ key: String) -> MethodDescriptor? {
         descriptor.methods.first { $0.key == key }
@@ -14,37 +14,39 @@ final class DynamicLocationTests: XCTestCase {
         LocationProxy.descriptor, HeadingProxy.descriptor,
     ]
 
-    func testPermissionsFirst() {
+    @Test(arguments: ["authorizationStatus", "accuracyAuthorization"])
+    func statusNeverNeedsAnInstance(_ key: String) {
+        #expect(method(LocationManagerProxy.descriptor, key) == MethodDescriptor(key, "()I", .static))
+    }
+
+    @Test func permissionsFirst() {
         let manager = LocationManagerProxy.descriptor
-        XCTAssertEqual(manager.capability, .location)
-        for key in ["authorizationStatus", "accuracyAuthorization"] {
-            XCTAssertEqual(method(manager, key), MethodDescriptor(key, "()I", .static), key)
-        }
-        XCTAssertEqual(method(manager, "isLocationServicesEnabled")?.kind, .static)
-        XCTAssertEqual(method(manager, "make:")?.kind, .constructor)
+        #expect(manager.capability == .location)
+        #expect(method(manager, "isLocationServicesEnabled")?.kind == .static)
+        #expect(method(manager, "make:")?.kind == .constructor)
         // Two steps: foreground first, then background; precise on demand.
-        XCTAssertNotNil(method(manager, "requestWhenInUseAuthorization"))
-        XCTAssertNotNil(method(manager, "requestAlwaysAuthorization"))
-        XCTAssertEqual(method(manager, "requestFullAccuracy:")?.signature, Signature("(O)V"))
-        XCTAssertEqual(method(LocationManagerDelegateProxy.descriptor, "didChangeAuthorization:status:accuracy:")?.signature, Signature("(OII)V"))
+        #expect(method(manager, "requestWhenInUseAuthorization") != nil)
+        #expect(method(manager, "requestAlwaysAuthorization") != nil)
+        #expect(method(manager, "requestFullAccuracy:")?.signature == Signature("(O)V"))
+        #expect(method(LocationManagerDelegateProxy.descriptor, "didChangeAuthorization:status:accuracy:")?.signature == Signature("(OII)V"))
     }
 
-    func testUpdates() {
+    @Test func updates() {
         let manager = LocationManagerProxy.descriptor
-        XCTAssertEqual(method(manager, "setDesiredAccuracy:")?.signature, Signature("(I)V"), "accuracy tiers, not meters")
-        XCTAssertEqual(method(manager, "lastLocation")?.signature, Signature("()O"))
-        XCTAssertEqual(method(LocationProxy.descriptor, "timestamp")?.signature, Signature("()J"))
-        XCTAssertEqual(method(LocationProxy.descriptor, "isSimulated")?.signature, Signature("()I"))
-        XCTAssertEqual(method(HeadingProxy.descriptor, "trueHeading")?.signature, Signature("()D"))
-        XCTAssertEqual(method(LocationManagerDelegateProxy.descriptor, "didUpdateLocations:locations:")?.signature, Signature("(OO)V"))
+        #expect(method(manager, "setDesiredAccuracy:")?.signature == Signature("(I)V"), "accuracy tiers, not meters")
+        #expect(method(manager, "lastLocation")?.signature == Signature("()O"))
+        #expect(method(LocationProxy.descriptor, "timestamp")?.signature == Signature("()J"))
+        #expect(method(LocationProxy.descriptor, "isSimulated")?.signature == Signature("()I"))
+        #expect(method(HeadingProxy.descriptor, "trueHeading")?.signature == Signature("()D"))
+        #expect(method(LocationManagerDelegateProxy.descriptor, "didUpdateLocations:locations:")?.signature == Signature("(OO)V"))
     }
 
-    func testRecordsRoundTrip() {
-        XCTAssertEqual(ContractMetadata.decode(Self.descriptors.flatMap(ContractMetadata.encode)), Self.descriptors)
+    @Test func recordsRoundTrip() {
+        #expect(ContractMetadata.decode(Self.descriptors.flatMap(ContractMetadata.encode)) == Self.descriptors)
     }
 
-    func testCodes() {
-        XCTAssertEqual(LocationAuthorization(rawValue: 4), .authorizedWhenInUse)
-        XCTAssertEqual(LocationAccuracy.reduced.rawValue, 4)
+    @Test func codes() {
+        #expect(LocationAuthorization(rawValue: 4) == .authorizedWhenInUse)
+        #expect(LocationAccuracy.reduced.rawValue == 4)
     }
 }
