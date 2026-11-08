@@ -14,8 +14,16 @@ role) are not part of the contract.
 | `Advertisement` | contract | advertisement dictionary · `ScanRecord` · `Device1` properties |
 
 Guest-side Swift (never crosses the ABI): `BluetoothAuthorization`,
-`CentralState`, `PeripheralState`, `ScanMode`, `WriteType`,
-`CharacteristicProperties`, `BluetoothError`, `BluetoothUUID`.
+`CentralState`, `PeripheralState`, `ScanMode`, `WriteType`, `BluetoothError`.
+
+`BluetoothUUID`, `BluetoothAddress`, `CompanyIdentifier` and
+`GATTCharacteristicProperties` come from
+[PureSwift/Bluetooth](https://github.com/PureSwift/Bluetooth), re-exported by
+this module. Contracts can declare `BluetoothUUID` directly, because the macros
+marshal any `RawRepresentable` type with `String` raw values as its string.
+The wire carries only strings and integers, so non-Swift hosts never see that
+package. A method returning a `BluetoothUUID` is declared `throws`, and throws
+`RuntimeError.thrown` if the host's string isn't a valid UUID.
 
 ## Permissions first
 
@@ -53,22 +61,38 @@ to Settings.
 
 ## Platform limitations the contract accounts for
 
-**No Bluetooth address.** CoreBluetooth never exposes the peer address, and
-Android peripherals usually advertise random private addresses that change.
-`Peripheral.identifier()` is therefore an **opaque string, stable for this
-app on this device only**:
+**No Bluetooth address on Apple platforms.** CoreBluetooth never exposes the
+peer address, and Android peripherals usually advertise random private
+addresses that change. `Peripheral.identifier()` is therefore a string that
+is **stable for this app on this device only**:
 - the `CBPeripheral.identifier` UUID on Apple platforms;
 - the address on Android and Linux.
 
-Don't parse it or share it between devices. Use it only with
-`Central.retrievePeripherals(_:)`. Apps that need a stable identity across
-devices must read one from the peripheral itself (for example, a serial
-number characteristic).
+Treat it as opaque. Use it with `Central.retrievePeripherals(_:)`, and don't
+share it between devices. `Peripheral.address` returns a `BluetoothAddress`
+where the identifier is one, and nil on Apple platforms. Apps that need a
+stable identity across devices must read one from the peripheral itself (for
+example, a serial number characteristic).
 
-**UUIDs** are always the canonical 128-bit uppercase form
-(`0000180D-0000-1000-8000-00805F9B34FB`). Hosts convert CoreBluetooth's
-short forms and Android's lowercase strings. `BluetoothUUID.canonical(_:)`
-converts app input.
+**UUIDs** are `BluetoothUUID` in Swift and raw strings on the wire, in one of
+the three forms that `BluetoothUUID.rawValue` produces:
+
+| Form | Example |
+|---|---|
+| 16-bit | `180D` |
+| 32-bit | `0000180D` |
+| 128-bit | `0000180D-0000-1000-8000-00805F9B34FB` |
+
+Only hosts that lack these forms convert:
+- CoreBluetooth's `CBUUID` already uses them, so Apple hosts pass strings
+  straight through.
+- Android and BlueZ only have full 128-bit UUIDs. Their hosts expand short
+  forms on the way in, and on the way out shorten any UUID built on the
+  Bluetooth Base UUID, to 16-bit where the upper 16 bits are zero and 32-bit
+  otherwise.
+
+`BluetoothUUID` compares by form: `.bit16(0x180D)` isn't equal to the same UUID
+spelled as `.bit128`. Compare `.bit128` values when the forms may differ.
 
 **Manufacturer data** is always the raw AD structure payload, with the
 company identifier first, which is what CoreBluetooth reports. Android
@@ -132,7 +156,7 @@ final class Scanner: CentralDelegate {
 
     func didUpdateState(_ central: Central, state: Int32) {
         guard state == CentralState.poweredOn.rawValue else { return }
-        central.scan(services: [BluetoothUUID.canonical("180D")!], allowDuplicates: false,
+        central.scan(services: [BluetoothUUID.bit16(0x180D)], allowDuplicates: false,
                      mode: ScanMode.balanced.rawValue)
     }
 
