@@ -1,3 +1,4 @@
+import Bluetooth
 import DynamicRuntime
 
 /// Advertisement and scan response data received while scanning, in the
@@ -12,16 +13,16 @@ public protocol Advertisement: AnyObject {
     /// from `ScanRecord`; with several entries, the first one.
     func manufacturerData() -> [UInt8]?
 
-    /// Advertised service UUIDs, canonical.
-    func serviceUUIDs() -> [String]
+    /// Advertised service UUIDs.
+    func serviceUUIDs() throws(RuntimeError) -> [BluetoothUUID]
 
-    /// UUIDs with service data, canonical.
-    func serviceDataUUIDs() -> [String]
+    /// UUIDs with service data.
+    func serviceDataUUIDs() throws(RuntimeError) -> [BluetoothUUID]
 
-    func serviceData(_ uuid: String) -> [UInt8]?
+    func serviceData(_ uuid: BluetoothUUID) -> [UInt8]?
 
-    /// Solicited service UUIDs, canonical.
-    func solicitedServiceUUIDs() -> [String]
+    /// Solicited service UUIDs.
+    func solicitedServiceUUIDs() throws(RuntimeError) -> [BluetoothUUID]
 
     /// dBm; `Int32.min` if absent.
     func txPowerLevel() -> Int32
