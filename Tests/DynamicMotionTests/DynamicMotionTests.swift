@@ -1,9 +1,9 @@
-import XCTest
+import Testing
 import DynamicMotion
 import DynamicRuntime
 
 /// Pins the motion contracts and tests the guest-side helpers.
-final class DynamicMotionTests: XCTestCase {
+@Suite struct DynamicMotionTests {
 
     func method(_ descriptor: ContractDescriptor, _ key: String) -> MethodDescriptor? {
         descriptor.methods.first { $0.key == key }
@@ -16,48 +16,47 @@ final class DynamicMotionTests: XCTestCase {
         ActivityRecognizerProxy.descriptor, ActivityRecognizerDelegateProxy.descriptor,
     ]
 
-    func testPermissions() {
-        // Raw inertial sensors need no permission anywhere.
-        XCTAssertNil(MotionManagerProxy.descriptor.capability)
-        XCTAssertNil(method(MotionManagerProxy.descriptor, "authorizationStatus"))
-        // Motion & Fitness services: permissions first.
-        for descriptor in [AltimeterProxy.descriptor, PedometerProxy.descriptor, ActivityRecognizerProxy.descriptor] {
-            XCTAssertEqual(descriptor.capability, Capability("motion"), descriptor.name)
-            XCTAssertEqual(method(descriptor, "authorizationStatus"), MethodDescriptor("authorizationStatus", "()I", .static), descriptor.name)
-            XCTAssertEqual(method(descriptor, "requestAuthorization")?.kind, .instance, descriptor.name)
-            XCTAssertEqual(method(descriptor, "make:")?.kind, .constructor, descriptor.name)
-        }
+    @Test func inertialSensorsNeedNoPermission() {
+        #expect(MotionManagerProxy.descriptor.capability == nil)
+        #expect(method(MotionManagerProxy.descriptor, "authorizationStatus") == nil)
     }
 
-    func testScalarSamples() {
+    @Test(arguments: [AltimeterProxy.descriptor, PedometerProxy.descriptor, ActivityRecognizerProxy.descriptor])
+    func fitnessServicesArePermissionsFirst(_ descriptor: ContractDescriptor) {
+        #expect(descriptor.capability == Capability("motion"))
+        #expect(method(descriptor, "authorizationStatus") == MethodDescriptor("authorizationStatus", "()I", .static))
+        #expect(method(descriptor, "requestAuthorization")?.kind == .instance)
+        #expect(method(descriptor, "make:")?.kind == .constructor)
+    }
+
+    @Test func scalarSamples() {
         let delegate = MotionManagerDelegateProxy.descriptor
-        XCTAssertEqual(method(delegate, "didUpdateAcceleration:x:y:z:timestamp:")?.signature, Signature("(ODDDJ)V"))
+        #expect(method(delegate, "didUpdateAcceleration:x:y:z:timestamp:")?.signature == Signature("(ODDDJ)V"))
         let deviceMotion = delegate.methods.first { $0.key.hasPrefix("didUpdateDeviceMotion:") }
-        XCTAssertEqual(deviceMotion?.signature, Signature("(ODDDDDDDDDDDDDJ)V"), "no objects per sample")
-        XCTAssertEqual(method(MotionManagerProxy.descriptor, "start:interval:")?.signature, Signature("(ID)V"))
-        XCTAssertEqual(method(PedometerDelegateProxy.descriptor, "didUpdate:steps:distance:floorsAscended:floorsDescended:start:end:")?.signature, Signature("(OJDIIJJ)V"))
+        #expect(deviceMotion?.signature == Signature("(ODDDDDDDDDDDDDJ)V"), "no objects per sample")
+        #expect(method(MotionManagerProxy.descriptor, "start:interval:")?.signature == Signature("(ID)V"))
+        #expect(method(PedometerDelegateProxy.descriptor, "didUpdate:steps:distance:floorsAscended:floorsDescended:start:end:")?.signature == Signature("(OJDIIJJ)V"))
     }
 
-    func testRecordsRoundTrip() {
-        XCTAssertEqual(Set(Self.descriptors.map(\.name)).count, Self.descriptors.count)
-        XCTAssertEqual(ContractMetadata.decode(Self.descriptors.flatMap(ContractMetadata.encode)), Self.descriptors)
+    @Test func recordsRoundTrip() {
+        #expect(Set(Self.descriptors.map(\.name)).count == Self.descriptors.count)
+        #expect(ContractMetadata.decode(Self.descriptors.flatMap(ContractMetadata.encode)) == Self.descriptors)
     }
 
     // MARK: Guest helpers
 
-    func testQuaternionRotation() {
+    @Test func quaternionRotation() {
         // 90° about z: device x maps to reference y.
         let half = (0.5).squareRoot()
-        let q = Quaternion(x: 0, y: 0, z: half, w: half)
-        let rotated = q.rotate(Vector3(x: 1, y: 0, z: 0))
-        XCTAssertEqual(rotated.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(rotated.y, 1, accuracy: 1e-12)
-        XCTAssertEqual(rotated.z, 0, accuracy: 1e-12)
-        XCTAssertEqual(Quaternion(x: 0, y: 0, z: 0, w: 1).rotate(Vector3(x: 1, y: 2, z: 3)), Vector3(x: 1, y: 2, z: 3))
-        XCTAssertEqual(Vector3(x: 0, y: 0, z: standardGravity).magnitude, 9.80665)
+        let rotated = Quaternion(x: 0, y: 0, z: half, w: half).rotate(Vector3(x: 1, y: 0, z: 0))
+        #expect(abs(rotated.x) < 1e-12)
+        #expect(abs(rotated.y - 1) < 1e-12)
+        #expect(abs(rotated.z) < 1e-12)
+        #expect(Quaternion(x: 0, y: 0, z: 0, w: 1).rotate(Vector3(x: 1, y: 2, z: 3)) == Vector3(x: 1, y: 2, z: 3))
+        #expect(Vector3(x: 0, y: 0, z: standardGravity).magnitude == 9.80665)
     }
 
-    func testMotionUpdatesPacksScalars() {
+    @Test func motionUpdatesPacksScalars() {
         let updates = MotionUpdates()
         var received: DeviceMotion?
         updates.onDeviceMotion = { received = $0 }
@@ -70,16 +69,16 @@ final class DynamicMotionTests: XCTestCase {
             rotationRateX: 4, rotationRateY: 5, rotationRateZ: 6,
             timestamp: 42
         )
-        XCTAssertEqual(received?.gravity, Vector3(x: 0, y: 0, z: standardGravity))
-        XCTAssertEqual(received?.userAcceleration, Vector3(x: 1, y: 2, z: 3))
-        XCTAssertEqual(received?.rotationRate, Vector3(x: 4, y: 5, z: 6))
-        XCTAssertEqual(received?.timestamp, 42)
+        #expect(received?.gravity == Vector3(x: 0, y: 0, z: standardGravity))
+        #expect(received?.userAcceleration == Vector3(x: 1, y: 2, z: 3))
+        #expect(received?.rotationRate == Vector3(x: 4, y: 5, z: 6))
+        #expect(received?.timestamp == 42)
 
         var failure: (MotionSensor?, MotionError)?
         updates.onFailure = { failure = ($0, $1) }
         updates.didFail(manager, sensor: MotionSensor.gyroscope.rawValue, error: MotionError.unavailable.rawValue)
-        XCTAssertEqual(failure?.0, .gyroscope)
-        XCTAssertEqual(failure?.1, .unavailable)
+        #expect(failure?.0 == .gyroscope)
+        #expect(failure?.1 == .unavailable)
     }
 }
 
