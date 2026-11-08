@@ -1,3 +1,4 @@
+import Bluetooth
 import DynamicRuntime
 
 /// A GATT descriptor of a characteristic.
@@ -7,8 +8,9 @@ import DynamicRuntime
 @DynamicRuntime("org.pureswift.bluetooth.Descriptor")
 public protocol Descriptor: AnyObject {
 
-    /// Canonical UUID string (see `BluetoothUUID`).
-    func uuid() -> String
+    /// In the shortest form that represents it. Throws if the host's string
+    /// isn't a valid UUID.
+    func uuid() throws(RuntimeError) -> BluetoothUUID
 
     /// The last value read, if any, as raw bytes.
     func value() -> [UInt8]?
