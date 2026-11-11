@@ -107,6 +107,11 @@ let package = Package(
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicLocation"
         ),
+        .testTarget(
+            name: "DynamicLocationTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicLocation", "RuntimeNative"]
+        ),
         .target(
             name: "DynamicNetworking",
             dependencies: ["DynamicRuntime"],
