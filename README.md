@@ -104,6 +104,17 @@ Scripts/build-bundle.sh --product ExampleApp --id org.pureswift.example \
 `Scripts/guest.py targets` lists every target ID. Output goes to
 `.build/guest/<product>/`.
 
+The toolchain has no Embedded concurrency runtime for the arm64 ELF slices'
+bare-metal triple, so `linux-arm64` and `android-arm64-v8a` use the one for
+`aarch64-unknown-linux-gnu`. arm64 Linux toolchains include it. Elsewhere,
+copy it from the `swift` Docker image once per Swift version:
+
+```sh
+Scripts/fetch-embedded-linux.sh
+```
+
+Without it, those two slices are built without concurrency.
+
 `RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
 (`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
 as a native slice.
