@@ -64,6 +64,18 @@ Async code runs on the guest executor: tasks run before each call from the
 host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
 `Task.sleep`, which Embedded Swift doesn't have.
 
+Every host also provides the built-in `Permissions`, `Bundle` (`AppBundle` in
+Swift) and `Application` contracts: one way to ask for any capability, the
+app's metadata and localized strings, and its lifecycle and incoming URLs.
+
+```swift
+let greeting = try AppBundleProxy.localizedString("greeting", table: nil) ?? "Hello"
+if try PermissionsProxy.status(.location) == PermissionStatus.notDetermined.rawValue {
+    try PermissionsProxy.request(.location, delegate: permissionsDelegate)
+}
+let application = try ApplicationProxy.make(lifecycleDelegate)
+```
+
 Each provider contract also has async wrappers for guest code, such as
 `AsyncCentral`, `AsyncLocationManager` and `HTTPSession.data(for:)`. Event
 sequences are `EventStream`s, which stop the native work when released:
