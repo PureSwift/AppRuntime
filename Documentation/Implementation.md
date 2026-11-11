@@ -19,6 +19,7 @@ builds and the first provider contracts:
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
+| `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
@@ -125,6 +126,25 @@ wasm2c, GLES. TCP and UDP are not part of the spec.
   `rt_dispatch` arguments and results in linear memory, which the ABI had no
   other way to do, so every wasm host, including a browser host, uses them.
   Native hosts pass their own pointers and never call them.
+- **`Permissions`, `Bundle` and `Application`** are built-ins every host
+  provides. Unlike `Clock`, the runtime core doesn't implement them: they're
+  `@DynamicRuntime` protocols in `DynamicRuntime`, so a host implements them
+  like any contract (`PermissionsProxy.register(MyPermissions.self, in:
+  native)`). `HostRuntime` registers their descriptors
+  (`BuiltinContracts`) at start, so they resolve before the host registers
+  an implementation, and calls fail with `.notFound` until it does. Their
+  methods throw `RuntimeError`, so a guest can handle a host without them.
+  - Contracts in the `org.pureswift.runtime.` namespace get no `rt.contracts`
+    record: apps don't declare what every host provides, and a record would
+    land in every app that links `DynamicRuntime`.
+  - `Bundle` is `AppBundle` in Swift, so a host that imports Foundation can
+    still write `Bundle`.
+  - `Permissions` takes a `Capability`, which travels as its raw string. A
+    host reports `.denied` for capabilities the app's manifest doesn't
+    declare.
+  - The delegates take their object first, like the provider contracts'
+    (`didChangeState(_:state:)`), and `ApplicationState`'s raw values match
+    `UIApplication.State`.
 - **Contracts are class-bound** (`protocol Central: AnyObject`). Embedded
   Swift only supports existentials of class-bound protocols, and contract
   parameters such as `Peripheral` are existentials. The macro reports a
@@ -326,6 +346,9 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests/AsyncHelperTests`: `EventStream` buffering,
   failure, and termination on finish, cancellation and release;
   `withCallback`; `PendingCallbacks` ordering; `EventSubscribers` fan-out.
+- `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
+  and `Application` built-ins against fake hosts, calls before a host
+  implements them, and their descriptors against `BuiltinContracts`.
 
 ## 6. Next
 
