@@ -270,6 +270,24 @@ class Target:
         self.target_dependencies = description.get("target_dependencies", [])
         self.product_dependencies = description.get("product_dependencies", [])
         self.package_path = Path(package_path)
+        self.traits = []
+
+
+def default_traits(manifest):
+    """The traits a package enables by default, including the ones they enable.
+
+    Guest builds use every package's default traits; SwiftPM passes enabled
+    traits to the package's own targets as compilation conditions.
+    """
+    traits = {trait["name"]: trait for trait in manifest.get("traits", [])}
+    enabled = set()
+    pending = list(traits.get("default", {}).get("enabledTraits", []))
+    while pending:
+        name = pending.pop()
+        if name not in enabled:
+            enabled.add(name)
+            pending.extend(traits.get(name, {}).get("enabledTraits", []))
+    return enabled
 
 
 def disabled_trait_dependencies(manifest):
@@ -278,10 +296,7 @@ def disabled_trait_dependencies(manifest):
     `swift package describe` lists them unconditionally, but a trait that's
     off means the dependency isn't part of the build.
     """
-    enabled = set()
-    for trait in manifest.get("traits", []):
-        if trait.get("name") == "default":
-            enabled.update(trait.get("enabledTraits", []))
+    enabled = default_traits(manifest)
     disabled = {}
     for target in manifest.get("targets", []):
         for dependency in target.get("dependencies", []):
@@ -314,8 +329,10 @@ class PackageGraph:
         description = json.loads(run(["swift", "package", "describe", "--type", "json"], cwd=path, quiet=True))
         manifest = json.loads(run(["swift", "package", "dump-package"], cwd=path, quiet=True))
         disabled = disabled_trait_dependencies(manifest)
+        traits = sorted(default_traits(manifest))
         for target in description["targets"]:
             model = Target(path, target)
+            model.traits = traits
             excluded = disabled.get(model.name, set())
             model.target_dependencies = [d for d in model.target_dependencies if d not in excluded]
             model.product_dependencies = [d for d in model.product_dependencies if d not in excluded]
@@ -461,6 +478,8 @@ class Compiler:
         obj = self.output / f"{target.c99name}.o"
         flags = self.swift_flags()
         flags += ["-package-name", target.package_path.name.lower()]
+        for trait in target.traits:
+            flags += ["-D", trait]
         for include, module_map in module_maps:
             flags += ["-Xcc", f"-I{include}", "-Xcc", f"-fmodule-map-file={module_map}"]
         for plugin, module in plugins:
