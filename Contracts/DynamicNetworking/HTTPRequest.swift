@@ -1,18 +1,22 @@
 import DynamicRuntime
 
-/// A mutable HTTP request.
+/// A mutable HTTP request (`URLRequest`). `GET` with no body by default.
 @DynamicRuntime("org.pureswift.network.HTTPRequest")
 public protocol HTTPRequest: AnyObject {
 
-    /// `method` is the HTTP method, for example `GET` or `POST`. Returns nil
-    /// if `url` isn't an absolute http or https URL.
-    static func make(url: String, method: String) -> Self?
+    /// Nil unless `url` is an absolute `http` or `https` URL. Plain `http`
+    /// may still fail with `.insecureConnectionNotAllowed` (see
+    /// `NetworkError`).
+    static func make(url: String) -> Self?
 
     func url() -> String
 
+    /// For example `GET`, `POST`, `PUT`, `DELETE`.
+    func setMethod(_ method: String)
+
     func method() -> String
 
-    /// Replaces every value of the header.
+    /// Replaces every value of the header; nil removes it.
     func setHeader(_ name: String, value: String?)
 
     /// Values of the header joined with `, `, or nil.
@@ -24,8 +28,13 @@ public protocol HTTPRequest: AnyObject {
 
     func body() -> [UInt8]?
 
-    /// Seconds; `0` uses the host's default.
+    /// Seconds; `0` uses the session's `timeoutForRequest`.
     func setTimeout(_ seconds: Double)
 
     func timeout() -> Double
+
+    /// An `HTTPCachePolicy` raw value.
+    func setCachePolicy(_ policy: Int32)
+
+    func cachePolicy() -> Int32
 }

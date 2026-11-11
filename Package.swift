@@ -140,6 +140,11 @@ let package = Package(
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicNetworking"
         ),
+        .testTarget(
+            name: "DynamicNetworkingTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicNetworking", "RuntimeNative"]
+        ),
         .target(
             name: "DynamicNFC",
             dependencies: ["DynamicRuntime"],
