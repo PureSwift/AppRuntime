@@ -10,7 +10,7 @@ public struct PedometerData: Equatable, Sendable {
 
     public var steps: Int64
 
-    /// Meters; `-1` if the host can't measure distance.
+    /// Meters; `nan` if the host can't measure distance.
     public var distance: Double
 
     /// `-1` if the host can't count floors.
