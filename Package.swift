@@ -9,8 +9,8 @@ import CompilerPluginSupport
 let package = Package(
     name: "AppRuntime",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18),
+        .macOS(.v12),
+        .iOS(.v15),
     ],
     products: [
         // Shared: C ABI, wire model, guest library and macros.
@@ -34,8 +34,6 @@ let package = Package(
         .library(name: "DynamicObservation", targets: ["DynamicObservation"]),
         .library(name: "DynamicUI", targets: ["DynamicUI"]),
         .library(name: "DynamicSwiftUI", targets: ["DynamicSwiftUI"]),
-        // Wasm: WasmKit import shim.
-        .library(name: "RuntimeWasm", targets: ["RuntimeWasm"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
@@ -43,10 +41,11 @@ let package = Package(
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
         // Example UI guest app (§9). Scripts/guest.py builds its slices.
         .library(name: "ExampleUI", type: .static, targets: ["ExampleUI"]),
+        // Example host contracts, for tests in nested packages (Packages/).
+        .library(name: "ExampleHost", targets: ["ExampleHost"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
-        .package(url: "https://github.com/swiftwasm/WasmKit.git", from: "0.4.2"),
         .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.1"),
     ],
     targets: [
@@ -195,17 +194,6 @@ let package = Package(
             dependencies: ["DynamicFormatting", "RuntimeNative"]
         ),
 
-        // MARK: - Wasm
-
-        .target(
-            name: "RuntimeWasm",
-            dependencies: [
-                "RuntimeCore",
-                .product(name: "WasmKit", package: "WasmKit"),
-                .product(name: "WasmKitWASI", package: "WasmKit"),
-            ]
-        ),
-
         // MARK: - Linux bundle and sandbox
 
         .target(
@@ -294,16 +282,6 @@ let package = Package(
         .testTarget(
             name: "RawStringContractTests",
             dependencies: ["DynamicRuntime", "RuntimeNative"]
-        ),
-        .testTarget(
-            name: "RuntimeWasmTests",
-            dependencies: [
-                "RuntimeWasm",
-                "RuntimeNative",
-                "ExampleHost",
-                "DynamicUI",
-                .product(name: "WAT", package: "WasmKit"),
-            ]
         ),
         .testTarget(
             name: "AppRuntimeTests",

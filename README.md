@@ -19,6 +19,12 @@ written separately.
 
 ## Packages
 
+The package supports macOS 12 and iOS 15, the oldest deployment targets
+current Xcode accepts. The WasmKit engine needs macOS 15 / iOS 18, so it is
+its own package, [`Packages/RuntimeWasm`](Packages/RuntimeWasm), which
+depends on this one by path. Hosts that ship only native slices or wasm2c
+don't depend on WasmKit.
+
 | Target | Role | Embedded |
 |---|---|---|
 | `CRuntime` | `rt.h`, plus `rt_guest.h` (ABI version, section names, wasm allocator) | C, freestanding |
@@ -27,7 +33,7 @@ written separately.
 | `DynamicRuntimeMacros` | `@DynamicRuntime` / `@DynamicCallback`: proxies, dispatch adapters, metadata records | build machine |
 | `RuntimeCore` | Runtime core: handle table, registry, Swift-registry backend, validation | yes |
 | `RuntimeNative` | `rt_*` as C symbols, for native slices and host Swift code | yes |
-| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore` | host |
+| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `AppRuntime`, `bundle-runtime`, `CBundleRuntime` | Linux bundle model, launcher and sandbox | Linux |
 
@@ -144,6 +150,13 @@ swift build
 swift test
 ```
 
+The WasmKit engine's tests run from its own package:
+
+```sh
+cd Packages/RuntimeWasm
+swift test
+```
+
 ### Guest slices and bundles
 
 `Scripts/guest.py` compiles a package's guest library product for each
@@ -180,9 +193,9 @@ Scripts/fetch-embedded-linux.sh
 
 Without it, those two slices are built without concurrency.
 
-`RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
-(`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
-as a native slice.
+`RuntimeWasmTests` (in `Packages/RuntimeWasm`) runs the example app's
+`App.wasm` when it has been built (`Scripts/build-wasm.sh ExampleApp`), the
+same app `DynamicRuntimeTests` runs as a native slice.
 
 ## Linux bundle launcher
 
