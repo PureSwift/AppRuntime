@@ -14,7 +14,7 @@ builds and the first provider contracts:
 
 | Roadmap item | Status |
 |---|---|
-| `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm`; the example app passes in both modes |
+| `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
@@ -44,8 +44,8 @@ wasm2c, GLES. TCP and UDP are not part of the spec.
 ```
 
 - `RuntimeCore.HostRuntime` is instance-based. `RuntimeNative` exports the
-  `rt_*` C symbols over `NativeRuntime.shared`; `RuntimeWasm` binds a wasm
-  instance's `rt` imports to any `HostRuntime`, normally the same shared one,
+  `rt_*` C symbols over `NativeRuntime.shared`; `RuntimeWasm`, a package of
+  its own (§3), binds a wasm instance's `rt` imports to any `HostRuntime`, normally the same shared one,
   so host objects and wasm objects live in one handle table.
 - Each object made by `rt_implement` remembers its `Guest`: the wasm instance
   (`WasmGuest`, called through its exports) or native code in the process
@@ -72,6 +72,15 @@ wasm2c, GLES. TCP and UDP are not part of the spec.
 
 **Implementation choices:**
 
+- **Platform minimums.** The package supports macOS 12 / iOS 15, the oldest
+  deployment targets current Xcode accepts (`.v10_15` and `.v13` are
+  deprecated), so a host can depend on it at its own minimum. Swift
+  Concurrency, `TaskLocal` included, back-deploys that far, and the shared
+  modules use nothing newer. WasmKit declares macOS 15 / iOS 18, and SwiftPM
+  rejects a product whose minimum is higher than its client's even behind a
+  package trait, so the WasmKit engine and its tests moved to
+  `Packages/RuntimeWasm`, which depends on this package by path. The root
+  package exports `ExampleHost` for those tests.
 - **SwiftUI frontend** (§9): ported from Swift-iOS6's Embedded SwiftUI, with
   its backend calls replaced by render IR. Identity is positional, with no
   reflection: each composed view's `body` runs in a scope keyed by its
@@ -290,12 +299,13 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests`: the example app as a native slice, end to end
   (every wire type, callbacks both ways, throws, lists, identity, capability
   gating, leak check).
-- `RuntimeWasmTests`: the import shim with hand-written WAT guests, and the
-  same example app as `App.wasm` (built by `Scripts/build-wasm.sh
-  ExampleApp`; skipped without it), including `rt.contracts` validation and
-  its async checks: tasks run before `rt_main` returns, sleeps resume when
-  the test advances a `ManualClock`, and cancellation before and during a
-  sleep. Embedded only: in host tests Swift's own executor runs guest code.
+- `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
+  hand-written WAT guests, and the same example app as `App.wasm` (built by
+  `Scripts/build-wasm.sh ExampleApp`; skipped without it), including
+  `rt.contracts` validation and its async checks: tasks run before
+  `rt_main` returns, sleeps resume when the test advances a `ManualClock`,
+  and cancellation before and during a sleep. Embedded only: in host tests
+  Swift's own executor runs guest code.
 - Contract test targets (`DynamicBluetoothTests`, `DynamicLocationTests`,
   …): names, capabilities, keys and signatures of the provider contracts, and
   their async wrappers against fake Swift hosts through `NativeRuntime`:

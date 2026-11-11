@@ -76,6 +76,8 @@ import WasmKit
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+            .deletingLastPathComponent() // Packages/RuntimeWasm
+            .deletingLastPathComponent()
             .appendingPathComponent(".build/guest/ExampleApp/wasm32/App.wasm")
     }
 
