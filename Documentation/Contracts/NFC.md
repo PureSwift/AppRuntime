@@ -96,6 +96,22 @@ to the manifest, not to this contract.
 from 17.4), peer-to-peer (Android Beam, removed in Android 14), tag
 formatting (`NdefFormatable`, Android only), MIFARE Classic.
 
+## Async/await
+
+Guest code can use `AsyncNFCReader` instead of the delegate (§6.2.1). It's
+guest-side only; hosts never see it.
+
+- `AsyncNFCReader.availability`: never starts a session.
+- `session(tagTypes:alertMessage:)`: `EventStream<[any NFCTag], NFCError>`.
+  It finishes normally after `invalidate()`, or by throwing the host's reason
+  (`userCancelled`, `sessionTimeout`, …). Releasing it ends the session.
+- `connect(_:)`, `ndefStatus(of:)`, `readNDEF(_:)`, `writeNDEF(_:to:)`,
+  `lock(_:)`, `transceive(_:with:)`: async, in order per tag. They throw when
+  the session ends.
+
+`cancelled` (17) is a guest-side code: the wrapper throws it when a task is
+cancelled, hosts never send it.
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4). Tag I/O happens on
