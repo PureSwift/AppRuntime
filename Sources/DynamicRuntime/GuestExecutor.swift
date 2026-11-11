@@ -24,18 +24,17 @@ import _Concurrency
 /// `enter` only runs its body.
 public enum GuestExecutor {
 
-    /// Runs `body` as a call from the host, then, if it's the outermost
-    /// one, runs every queued job.
+    /// Runs `body` as a call from the host. When the outermost call
+    /// returns, runs every queued job, then the `whenIdle` handlers (and
+    /// the jobs those queue), so the host sees one consistent update.
     public static func enter<R>(_ body: () -> R) -> R {
-        #if hasFeature(Embedded) && !EMBEDDED_NO_CONCURRENCY
         depth += 1
         let result = body()
         depth -= 1
-        drain()
+        if depth == 0 {
+            finishHostCall()
+        }
         return result
-        #else
-        return body()
-        #endif
     }
 
     /// Runs queued jobs, including ones they enqueue, until none are left.
@@ -55,6 +54,22 @@ public enum GuestExecutor {
         #endif
     }
 
+    /// Runs `body` once, just before control returns to the host: after the
+    /// current call from the host and its jobs finish. Outside a host call it
+    /// runs at once. The UI frontend sends its updates here.
+    public static func whenIdle(_ body: @escaping () -> Void) {
+        guard depth > 0 else {
+            body()
+            return
+        }
+        idleHandlers.append(body)
+    }
+
+    /// Whether a call from the host (or a drain) is in progress.
+    public static var isInHostCall: Bool {
+        depth > 0
+    }
+
     /// Jobs waiting to run.
     public static var pendingCount: Int {
         #if hasFeature(Embedded) && !EMBEDDED_NO_CONCURRENCY
@@ -69,7 +84,28 @@ public enum GuestExecutor {
         jobs.append(job)
     }
     #endif
+
+    private static func finishHostCall() {
+        drain()
+        while !idleHandlers.isEmpty {
+            let handlers = idleHandlers
+            idleHandlers = []
+            // Handlers run as part of the host call, so what they schedule
+            // waits for the next round instead of running inside them.
+            depth = 1
+            for handler in handlers {
+                handler()
+            }
+            depth = 0
+            drain()
+        }
+    }
 }
+
+// Single-threaded by contract (§6.4).
+/// Calls from the host (or drains) in progress.
+nonisolated(unsafe) private var depth = 0
+nonisolated(unsafe) private var idleHandlers: [() -> Void] = []
 
 public extension Runtime {
 
@@ -93,8 +129,6 @@ public extension Runtime {
 // Single-threaded by contract (§6.4).
 nonisolated(unsafe) private var jobs: [UnownedJob] = []
 nonisolated(unsafe) private var head = 0
-/// Calls from the host (or drains) in progress.
-nonisolated(unsafe) private var depth = 0
 
 /// The one executor every job runs on: the generic executor, which also
 /// stands for the main actor.
