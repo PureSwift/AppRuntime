@@ -8,7 +8,8 @@ import _Concurrency
 /// One accelerometer or gyroscope sample.
 public struct MotionSample: Equatable, Sendable {
 
-    /// Acceleration in g, or rotation rate in radians per second.
+    /// Acceleration in m/s² (with gravity's sign as in `MotionManagerDelegate`),
+    /// or rotation rate in radians per second.
     public var vector: Vector3
 
     /// Host monotonic nanoseconds.
