@@ -49,13 +49,20 @@ and an `rt.contracts` record, plus adapters that export a Swift
 implementation to the runtime. Guest code uses `CentralProxy.make(delegate)`;
 a Swift host registers `CentralProxy.register(MyCentral.self, in: registrar)`.
 
-An app exports one entry point and no `main`:
+An app exports one entry point and no `main`. `Runtime.main` runs the async
+work it starts before returning to the host:
 
 ```swift
 @_expose(wasm, "rt_main")
 @c(rt_main)
-public func appMain() -> rt_status { … }
+public func appMain() -> rt_status {
+    Runtime.main { App.start() }
+}
 ```
+
+Async code runs on the guest executor: tasks run before each call from the
+host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
+`Task.sleep`, which Embedded Swift doesn't have.
 
 ## Building
 
