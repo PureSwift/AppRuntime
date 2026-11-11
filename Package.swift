@@ -41,8 +41,7 @@ let package = Package(
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
         // Example UI guest app (§9). Scripts/guest.py builds its slices.
         .library(name: "ExampleUI", type: .static, targets: ["ExampleUI"]),
-        // Example host contracts, for the WasmKit engine's tests in
-        // Packages/RuntimeWasm.
+        // Example host contracts, for tests in nested packages (Packages/).
         .library(name: "ExampleHost", targets: ["ExampleHost"]),
     ],
     dependencies: [
