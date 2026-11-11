@@ -113,6 +113,23 @@ import Testing
         #expect(ContractMetadata.decode(ContractMetadata.encode(generator.model.descriptor)) == [generator.model.descriptor])
     }
 
+    /// Every host provides the built-ins, so apps don't list them.
+    @Test func builtinContractsHaveNoMetadataRecord() {
+        func expanded(_ name: String) -> String {
+            let file = Parser.parse(source: """
+                @DynamicRuntime("\(name)")
+                public protocol Thing: AnyObject {
+                    static func value() -> Int32
+                }
+                """)
+            let context = BasicMacroExpansionContext(sourceFiles: [file: .init(moduleName: "Test", fullFilePath: "test.swift")])
+            return file.expand(macros: macros, in: context).description
+        }
+        #expect(!expanded("org.pureswift.runtime.Thing").contains("_rt_contract_"))
+        #expect(expanded("org.example.Thing").contains("_rt_contract_Thing"))
+        #expect(BuiltinContracts.all.allSatisfy { BuiltinContracts.isBuiltin($0.name) })
+    }
+
     // MARK: Diagnostics
 
     func diagnostics(_ source: String) -> [String] {
