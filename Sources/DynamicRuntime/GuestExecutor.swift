@@ -9,7 +9,8 @@ import _Concurrency
 ///
 /// Embedded Swift's default executor drains its queue in a loop that never
 /// returns, but the host owns the run loop and the guest runs only while the
-/// host calls it. So the guest supplies the executor hooks itself: jobs are
+/// host calls it. So the guest supplies the executor hooks itself
+/// (`CRuntime`'s `executor.c`, forwarding here): jobs are
 /// queued inside the guest and run just before control returns to the host,
 /// when `rt_main` (through `Runtime.main`), `rt_dispatch` or `rt_finalize`
 /// returns. A call that re-enters the guest while a job runs (guest → host →
@@ -101,98 +102,28 @@ private var genericExecutor: UnownedSerialExecutor {
     unsafeBitCast((UInt(0), UInt(0)), to: UnownedSerialExecutor.self)
 }
 
-private func isGeneric(_ executor: UnownedSerialExecutor) -> Bool {
-    unsafeBitCast(executor, to: (UInt, UInt).self).0 == 0
-}
-
-// MARK: - Executor hooks (swift/ExecutorImpl.h)
+// MARK: - Executor hooks
 //
-// The Embedded concurrency runtime leaves these undefined for the platform
-// to provide. They use the Swift calling convention, which @_silgen_name
-// functions have, and hidden visibility, which internal declarations have.
-// Nothing in Swift calls them, so @used keeps them.
+// The runtime's executor hooks are in CRuntime's executor.c, which forwards
+// jobs here.
 
-@_silgen_name("swift_task_enqueueGlobalImpl")
-@used
-func _rt_enqueueGlobal(_ job: UnownedJob) {
-    GuestExecutor.enqueue(job)
+/// A job for the guest's queue.
+@c(rt_executor_enqueue)
+public func _rt_executorEnqueue(_ job: UnsafeMutableRawPointer) {
+    GuestExecutor.enqueue(unsafeBitCast(job, to: UnownedJob.self))
 }
 
-@_silgen_name("swift_task_enqueueMainExecutorImpl")
-@used
-func _rt_enqueueMainExecutor(_ job: UnownedJob) {
-    GuestExecutor.enqueue(job)
-}
-
-@_silgen_name("swift_task_enqueueGlobalWithDelayImpl")
-@used
-func _rt_enqueueGlobalWithDelay(_ delay: UInt64, _ job: UnownedJob) {
+/// A job to queue once `nanoseconds` have passed, timed by the Clock contract.
+@c(rt_executor_enqueue_after)
+public func _rt_executorEnqueueAfter(_ nanoseconds: UInt64, _ job: UnsafeMutableRawPointer) {
+    let job = unsafeBitCast(job, to: UnownedJob.self)
     do throws(RuntimeError) {
-        try RuntimeClock.after(nanoseconds: Int64(clamping: delay)) {
+        try RuntimeClock.after(nanoseconds: Int64(clamping: nanoseconds)) {
             GuestExecutor.enqueue(job)
         }
     } catch {
         fatalError("Clock.after failed: \(error.message)")
     }
 }
-
-@_silgen_name("swift_task_enqueueGlobalWithDeadlineImpl")
-@used
-func _rt_enqueueGlobalWithDeadline(
-    _ seconds: Int64,
-    _ nanoseconds: Int64,
-    _ toleranceSeconds: Int64,
-    _ toleranceNanoseconds: Int64,
-    _ clock: Int32,
-    _ job: UnownedJob
-) {
-    GuestExecutor.enqueue(job)
-}
-
-@_silgen_name("swift_task_getMainExecutorImpl")
-@used
-func _rt_getMainExecutor() -> UnownedSerialExecutor {
-    genericExecutor
-}
-
-@_silgen_name("swift_task_asyncMainDrainQueueImpl")
-@used
-func _rt_asyncMainDrainQueue() -> Never {
-    fatalError("Guests have no async main: the host owns the run loop")
-}
-
-@_silgen_name("swift_task_donateThreadToGlobalExecutorUntilImpl")
-@used
-func _rt_donateThreadToGlobalExecutorUntil(
-    _ condition: @convention(c) (UnsafeMutableRawPointer?) -> Bool,
-    _ context: UnsafeMutableRawPointer?
-) {
-    fatalError("The guest can't block the host's thread")
-}
-
-// The wasm32 runtime defines these three; the native runtimes don't.
-#if !arch(wasm32)
-@_silgen_name("swift_task_isMainExecutorImpl")
-@used
-func _rt_isMainExecutor(_ executor: UnownedSerialExecutor) -> Bool {
-    isGeneric(executor)
-}
-
-@_silgen_name("swift_task_checkIsolatedImpl")
-@used
-func _rt_checkIsolated(_ executor: UnownedSerialExecutor) {
-    // Every job runs on the one generic executor.
-    guard isGeneric(executor) else {
-        fatalError("Custom executors aren't supported in a guest")
-    }
-}
-
-@_silgen_name("swift_task_isIsolatingCurrentContextImpl")
-@used
-func _rt_isIsolatingCurrentContext(_ executor: UnownedSerialExecutor) -> Int8 {
-    // 1: isolated; -1: unknown, so the runtime falls back to checkIsolated.
-    isGeneric(executor) ? 1 : -1
-}
-#endif
 
 #endif
