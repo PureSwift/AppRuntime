@@ -288,10 +288,11 @@ Each of these needs a decision, or is verified only as far as noted:
   gating, leak check).
 - `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
   hand-written WAT guests, and the same example app as `App.wasm` (built by
-  `Scripts/build-wasm.sh ExampleApp`; skipped without it), including `rt.contracts` validation and
-  its async checks: tasks run before `rt_main` returns, sleeps resume when
-  the test advances a `ManualClock`, and cancellation before and during a
-  sleep. Embedded only: in host tests Swift's own executor runs guest code.
+  `Scripts/build-wasm.sh ExampleApp`; skipped without it), including
+  `rt.contracts` validation and its async checks: tasks run before
+  `rt_main` returns, sleeps resume when the test advances a `ManualClock`,
+  and cancellation before and during a sleep. Embedded only: in host tests
+  Swift's own executor runs guest code.
 - Contract test targets (`DynamicBluetoothTests`, `DynamicLocationTests`,
   …): names, capabilities, keys and signatures of the provider contracts, and
   their async wrappers against fake Swift hosts through `NativeRuntime`:
