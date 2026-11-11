@@ -45,9 +45,9 @@ enum ContractExpansion {
             return []
         }
         let generator = ContractGenerator(model: model)
-        return [
-            DeclSyntax(stringLiteral: generator.proxyDeclaration()),
-            DeclSyntax(stringLiteral: generator.metadataDeclaration()),
-        ]
+        let declarations = [generator.proxyDeclaration()]
+            + generator.marshalingDeclarations()
+            + [generator.metadataDeclaration()]
+        return declarations.map { DeclSyntax(stringLiteral: $0) }
     }
 }

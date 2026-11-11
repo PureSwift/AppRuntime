@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import ExampleHost
 import RuntimeABI
 import RuntimeCore
@@ -8,7 +8,8 @@ import RuntimeWasm
 import WAT
 import WasmKit
 
-final class WasmShimTests: XCTestCase {
+/// Serialized: the example app test uses `NativeRuntime.shared`.
+@Suite(.serialized) struct WasmShimTests {
 
     // MARK: Imports, with hand-written guests
 
@@ -35,19 +36,19 @@ final class WasmShimTests: XCTestCase {
         )
         """
 
-    func testStringsAndClassesThroughImports() throws {
+    @Test func stringsAndClassesThroughImports() throws {
         let runtime = HostRuntime()
         let app = try WasmApp(bytes: try wat2wasm(Self.stringGuest), runtime: runtime)
-        XCTAssertEqual(WasmApp.abiVersion(of: app.module), 1)
-        XCTAssertEqual(WasmApp.validate(app.module, runtime: runtime, capabilities: nil), [])
+        #expect(WasmApp.abiVersion(of: app.module) == 1)
+        #expect(WasmApp.validate(app.module, runtime: runtime, capabilities: nil) == [])
         // rt_main's status is the raw i32 here: 5 bytes, List resolved.
-        XCTAssertEqual(try app.instance.exports[function: "rt_main"]?().first?.i32, 5001)
-        let copied = try XCTUnwrap(app.instance.exports[memory: "memory"]).data[64..<69]
-        XCTAssertEqual(Array(copied), Array("hello".utf8))
-        XCTAssertEqual(runtime.handleCount, 0)
+        #expect(try app.instance.exports[function: "rt_main"]?().first?.i32 == 5001)
+        let copied = try #require(app.instance.exports[memory: "memory"]).data[64..<69]
+        #expect(Array(copied) == Array("hello".utf8))
+        #expect(runtime.handleCount == 0)
     }
 
-    func testOutOfBoundsAccessTraps() throws {
+    @Test func outOfBoundsAccessTraps() throws {
         let guest = """
             (module
               (import "rt" "string_new" (func $string_new (param i32 i32) (result i32)))
@@ -56,18 +57,18 @@ final class WasmShimTests: XCTestCase {
                 (call $string_new (i32.const 65530) (i32.const 100))))
             """
         let app = try WasmApp(bytes: try wat2wasm(guest), runtime: HostRuntime())
-        XCTAssertThrowsError(try app.start())
+        #expect(throws: (any Error).self) { try app.start() }
     }
 
-    func testModuleWithoutABISectionFailsValidation() throws {
+    @Test func moduleWithoutABISectionFailsValidation() throws {
         let module = try parseWasm(bytes: try wat2wasm("(module)"))
-        XCTAssertEqual(WasmApp.validate(module, runtime: HostRuntime(), capabilities: nil).first?.severity, .error)
+        #expect(WasmApp.validate(module, runtime: HostRuntime(), capabilities: nil).first?.severity == .error)
     }
 
     // MARK: The example app as App.wasm
 
     /// Built by `Scripts/build-wasm.sh ExampleApp`; skipped without it.
-    var exampleAppURL: URL {
+    static var exampleAppURL: URL {
         if let path = ProcessInfo.processInfo.environment["EXAMPLE_APP_WASM"] {
             return URL(fileURLWithPath: path)
         }
@@ -78,10 +79,9 @@ final class WasmShimTests: XCTestCase {
             .appendingPathComponent(".build/guest/ExampleApp/wasm32/App.wasm")
     }
 
-    func testExampleAppInWasmMode() throws {
-        guard let bytes = try? Data(contentsOf: exampleAppURL) else {
-            throw XCTSkip("Build the wasm slice first: Scripts/build-wasm.sh ExampleApp")
-        }
+    @Test(.enabled(if: FileManager.default.fileExists(atPath: WasmShimTests.exampleAppURL.path), "Build the wasm slice first: Scripts/build-wasm.sh ExampleApp"))
+    func exampleAppInWasmMode() throws {
+        let bytes = try Data(contentsOf: Self.exampleAppURL)
         // Host Swift objects and the wasm guest share one handle table.
         let native = NativeRuntime.shared
         ExampleHost.lines = []
@@ -89,18 +89,18 @@ final class WasmShimTests: XCTestCase {
         let handles = native.runtime.handleCount
 
         let app = try WasmApp(bytes: Array(bytes), runtime: native.runtime, capabilities: [])
-        XCTAssertEqual(WasmApp.abiVersion(of: app.module), runtimeABIVersion)
+        #expect(WasmApp.abiVersion(of: app.module) == runtimeABIVersion)
         // guest.py adds the rt.contracts section; validate it like a host would.
-        XCTAssertEqual(WasmApp.contracts(of: app.module).map(Set.init), Set(ExampleHost.contracts))
+        #expect(WasmApp.contracts(of: app.module).map(Set.init) == Set(ExampleHost.contracts))
         let issues = WasmApp.validate(app.module, runtime: native.runtime, capabilities: [])
-        XCTAssertEqual(issues.map(\.contract), ["org.pureswift.example.Beacon"], "only the ungranted capability")
+        #expect(issues.map(\.contract) == ["org.pureswift.example.Beacon"], "only the ungranted capability")
         let status = try app.start()
 
         let lines = ExampleHost.lines
-        XCTAssertEqual(status, .ok, lines.joined(separator: "\n"))
-        XCTAssertEqual(lines.filter { $0.hasPrefix("FAIL") }, [])
-        XCTAssertTrue(lines.contains("beacon refused"), "the manifest grants no capabilities")
-        XCTAssertEqual(lines.last, "done")
-        XCTAssertEqual(native.runtime.handleCount, handles)
+        #expect(status == .ok, "\(lines.joined(separator: "\n"))")
+        #expect(lines.filter { $0.hasPrefix("FAIL") } == [])
+        #expect(lines.contains("beacon refused"), "the manifest grants no capabilities")
+        #expect(lines.last == "done")
+        #expect(native.runtime.handleCount == handles)
     }
 }

@@ -89,7 +89,7 @@ struct ContractGenerator {
         let invoke = method.isThrowing ? "try call.invoke()" : "call.invokeOrTrap()"
         if let type = method.result {
             body.append("let results = \(invoke)")
-            body.append("return \(resultDecoding(type))")
+            body.append("return \(resultDecoding(type, throwing: method.isThrowing))")
         } else {
             body.append("_ = \(invoke)")
         }
@@ -102,16 +102,6 @@ struct ContractGenerator {
 
     private func wrappingDeclarations() -> String {
         """
-        /// Wraps a +1 handle. `nil` for null.
-        \(access)static func wrap(retained handle: ObjectHandle) -> \(proxy)? {
-            handle == 0 ? nil : \(proxy)(retained: handle)
-        }
-
-        /// Wraps a borrowed handle, retaining it. `nil` for null.
-        \(access)static func wrap(borrowing handle: ObjectHandle) -> \(proxy)? {
-            handle == 0 ? nil : \(proxy)(borrowing: handle)
-        }
-
         /// A +1 handle for any implementation: a proxy's own handle, or a new
         /// native object exported with `rt_implement`.
         \(access)static func retainedHandle(for value: any \(model.protocolName)) -> ObjectHandle {
@@ -167,7 +157,7 @@ struct ContractGenerator {
     private func dispatchCase(_ method: ContractMethod, receiver: String, resultIsSelf: Bool) -> String {
         var lines = [String]()
         for parameter in method.parameters {
-            lines.append("let \(parameter.name) = \(argumentDecoding(parameter.type))")
+            lines.append("let \(parameter.name): \(parameter.typeText) = \(argumentDecoding(parameter.type))")
         }
         let arguments = method.parameters.map { parameter in
             parameter.label.map { "\($0): \(parameter.name)" } ?? parameter.name
@@ -210,22 +200,59 @@ struct ContractGenerator {
 
     // MARK: Marshaling
 
+    /// Overloads of the marshaling functions for this protocol. Generated
+    /// code calls them by name, and `DynamicRuntime` has generic overloads
+    /// for `RawRepresentable` string types, so the compiler picks by type.
+    func marshalingDeclarations() -> [String] {
+        let name = model.protocolName
+        return [
+            """
+            \(access)func _rtEncode(_ value: any \(name)) -> ObjectHandle {
+                \(proxy).retainedHandle(for: value)
+            }
+            """,
+            """
+            \(access)func _rtDecodeRetained(_ handle: ObjectHandle) throws(RuntimeError) -> any \(name) {
+                guard handle != 0 else { throw RuntimeError.null }
+                return \(proxy)(retained: handle)
+            }
+            """,
+            """
+            \(access)func _rtDecodeBorrowed(_ handle: ObjectHandle) throws(RuntimeError) -> any \(name) {
+                guard handle != 0 else { throw RuntimeError.null }
+                return \(proxy)(borrowing: handle)
+            }
+            """,
+            """
+            \(access)func _rtResult(_ handle: ObjectHandle) -> any \(name) {
+                \(proxy)(retained: handle)
+            }
+            """,
+        ]
+    }
+
     /// Adds an argument to `call`.
     private func argumentEncoding(_ type: ContractType, _ expression: String) -> String {
         switch type {
-        case .object(let name):
-            return "call.add(retained: \(name)Proxy.retainedHandle(for: \(expression)))"
-        case .optional(.object(let name)):
-            return "call.add(retained: \(expression).map { \(name)Proxy.retainedHandle(for: $0) } ?? 0)"
-        case .objects(let name), .optional(.objects(let name)):
-            return "call.addList(\(expression)) { \(name)Proxy.retainedHandle(for: $0) }"
+        case .object:
+            return "call.add(retained: _rtEncode(\(expression)))"
+        case .optional(.object):
+            return "call.add(retained: \(expression).map { _rtEncode($0) } ?? 0)"
+        case .objects, .optional(.objects):
+            return "call.addList(\(expression)) { _rtEncode($0) }"
         default:
             return "call.add(\(expression))"
         }
     }
 
-    /// Reads an owned result from `results`.
-    private func resultDecoding(_ type: ContractType) -> String {
+    /// Reads an owned result from `results`. Only throwing methods can use
+    /// the decoders that reject invalid raw strings.
+    private func resultDecoding(_ type: ContractType, throwing: Bool) -> String {
+        let single = throwing ? "try _rtDecodeRetained(results.handle())" : "_rtResult(results.handle())"
+        let element = throwing
+            ? "{ (handle: ObjectHandle) throws(RuntimeError) in try _rtDecodeRetained(handle) }"
+            : "{ (handle: ObjectHandle) in _rtResult(handle) }"
+        let results = throwing ? "try results" : "results"
         switch type {
         case .scalar(let name, _):
             return "results.scalar(\(name).self)"
@@ -235,10 +262,10 @@ struct ContractGenerator {
             return "results.bytes()"
         case .strings:
             return "results.strings()"
-        case .object(let name):
-            return "\(name)Proxy(retained: results.handle())"
-        case .objects(let name):
-            return "results.list { (handle: ObjectHandle) -> any \(name) in \(name)Proxy(retained: handle) }"
+        case .object:
+            return single
+        case .objects:
+            return "\(results).list \(element)"
         case .selfType:
             return "Self(retained: results.handle())"
         case .optional(let wrapped):
@@ -246,17 +273,18 @@ struct ContractGenerator {
             case .string: return "results.optionalString()"
             case .bytes: return "results.optionalBytes()"
             case .strings: return "results.optionalStrings()"
-            case .object(let name): return "\(name)Proxy.wrap(retained: results.handle())"
-            case .objects(let name):
-                return "results.optionalList { (handle: ObjectHandle) -> any \(name) in \(name)Proxy(retained: handle) }"
+            case .object: return "results.handle() == 0 ? nil : \(single)"
+            case .objects: return "\(results).optionalList \(element)"
             case .selfType: return "results.handle() == 0 ? nil : Self(retained: results.handle())"
             default: return "results.handle()"
             }
         }
     }
 
-    /// Reads a borrowed argument from `arguments`.
+    /// Reads a borrowed argument from `arguments`. Dispatch always throws, so
+    /// an invalid raw string fails the incoming call.
     private func argumentDecoding(_ type: ContractType) -> String {
+        let element = "{ (handle: ObjectHandle) throws(RuntimeError) in try _rtDecodeRetained(handle) }"
         switch type {
         case .scalar(let name, _):
             return "arguments.scalar(\(name).self)"
@@ -266,10 +294,10 @@ struct ContractGenerator {
             return "arguments.bytes()"
         case .strings:
             return "arguments.strings()"
-        case .object(let name):
-            return "\(name)Proxy(borrowing: arguments.handle())"
-        case .objects(let name):
-            return "arguments.list { (handle: ObjectHandle) -> any \(name) in \(name)Proxy(retained: handle) }"
+        case .object:
+            return "try _rtDecodeBorrowed(arguments.handle())"
+        case .objects:
+            return "try arguments.list \(element)"
         case .selfType:
             return "arguments.handle()"
         case .optional(let wrapped):
@@ -277,9 +305,9 @@ struct ContractGenerator {
             case .string: return "arguments.optionalString()"
             case .bytes: return "arguments.optionalBytes()"
             case .strings: return "arguments.optionalStrings()"
-            case .object(let name): return "\(name)Proxy.wrap(borrowing: arguments.handle())"
-            case .objects(let name):
-                return "arguments.optionalList { (handle: ObjectHandle) -> any \(name) in \(name)Proxy(retained: handle) }"
+            case .object:
+                return "try arguments.optional { (handle: ObjectHandle) throws(RuntimeError) in try _rtDecodeBorrowed(handle) }"
+            case .objects: return "try arguments.optionalList \(element)"
             default: return "arguments.handle()"
             }
         }
@@ -288,12 +316,12 @@ struct ContractGenerator {
     /// Writes a +1 result to `results`.
     private func resultEncoding(_ type: ContractType, _ expression: String) -> String {
         switch type {
-        case .object(let name):
-            return "results.set(retained: \(name)Proxy.retainedHandle(for: \(expression)))"
-        case .optional(.object(let name)):
-            return "results.set(retained: \(expression).map { \(name)Proxy.retainedHandle(for: $0) } ?? 0)"
-        case .objects(let name), .optional(.objects(let name)):
-            return "results.setList(\(expression)) { \(name)Proxy.retainedHandle(for: $0) }"
+        case .object:
+            return "results.set(retained: _rtEncode(\(expression)))"
+        case .optional(.object):
+            return "results.set(retained: \(expression).map { _rtEncode($0) } ?? 0)"
+        case .objects, .optional(.objects):
+            return "results.setList(\(expression)) { _rtEncode($0) }"
         case .selfType:
             return "results.set(retained: retainedHandle(for: \(expression)))"
         default:

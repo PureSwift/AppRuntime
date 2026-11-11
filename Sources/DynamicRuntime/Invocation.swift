@@ -61,14 +61,21 @@ public struct Arguments {
         return handle == 0 ? nil : RuntimeList.strings(handle)
     }
 
-    /// Unpacks a borrowed `List`. `wrap` receives a +1 handle per element.
-    public mutating func list<T>(_ wrap: (ObjectHandle) -> T) -> [T] {
-        optionalList(wrap) ?? []
+    /// Decodes the next borrowed handle, or nil for null.
+    public mutating func optional<T, E: Error>(_ decode: (ObjectHandle) throws(E) -> T) throws(E) -> T? {
+        let handle = handle()
+        return handle == 0 ? nil : try decode(handle)
     }
 
-    public mutating func optionalList<T>(_ wrap: (ObjectHandle) -> T) -> [T]? {
+    /// Unpacks a borrowed `List`. `wrap` receives a +1 handle per element and
+    /// owns it even if it throws.
+    public mutating func list<T, E: Error>(_ wrap: (ObjectHandle) throws(E) -> T) throws(E) -> [T] {
+        try optionalList(wrap) ?? []
+    }
+
+    public mutating func optionalList<T, E: Error>(_ wrap: (ObjectHandle) throws(E) -> T) throws(E) -> [T]? {
         let handle = handle()
-        return handle == 0 ? nil : RuntimeList.retainedHandles(handle).map(wrap)
+        return handle == 0 ? nil : try RuntimeList.elements(handle, wrap)
     }
 }
 
