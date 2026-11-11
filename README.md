@@ -259,6 +259,24 @@ cd Packages/LinkedSlice
 swift test
 ```
 
+### wasm2c: App.wasm as a slice
+
+A host with no slice for its platform translates `App.wasm` to C with
+WABT's wasm2c (`brew install wabt`). `Scripts/wasm2c-shim.py` adds the
+import shim and a minimal WASI, and seals the result into a `libapp.a` that
+a host links exactly like a slice:
+
+```sh
+Scripts/build-wasm.sh ExampleApp
+Scripts/wasm2c-shim.py build --wasm .build/guest/ExampleApp/wasm32/App.wasm \
+    --output .build/guest/ExampleApp/wasm2c
+cd Packages/LinkedSlice
+APPRUNTIME_LINKED_ENGINE=wasm2c swift test
+```
+
+`APPRUNTIME_LINKED_PRODUCT=ExampleUI` runs the example UI app instead,
+either way.
+
 ## Linux bundle launcher
 
 `bundle-runtime` resolves a bundle, selects an architecture and launches it
