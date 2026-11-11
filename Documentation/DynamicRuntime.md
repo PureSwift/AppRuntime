@@ -367,8 +367,9 @@ Guests use `@Observable` / `@Bindable` with Apple's source API.
 - **Until it ships:** the SDK includes a **stopgap `Observation` module whose API matches the pitch exactly**, so app code compiles unchanged when the toolchain module replaces it:
   - `@Observable` expands stored properties to `access(propertyIndex:)` / `withMutation(propertyIndex:_:)` with indices assigned at macro time; `@ObservationIgnored` excludes a property.
   - `ObservationRegistrar` is a final class with a 64-bit `observedMask` fast path: an unobserved property's write skips the observer table. Indices of 64 or more use the slow path.
-  - `withObservationTracking` uses a global tracking stack, since the guest is single-threaded. No locks or atomics.
+  - `withObservationTracking` uses a global tracking stack, since the guest is single-threaded. No locks or atomics. (Host builds, whose tests run in parallel, keep it in a task-local.)
   - `ObservationTracking.Listener`-style persistent listeners with a coalescing option.
+  - **Implemented** as `DynamicObservation` (macros in `ObservationMacros`). The package can't call it `Observation`: on Apple hosts, Foundation would find it instead of the SDK's. `guest.py` compiles it, and the SwiftUI frontend, under the names `Observation` and `SwiftUI`. Registrar entry points take the subject, like Apple's (`access(_:propertyIndex:)`, `withMutation(of:propertyIndex:_:)`). `Binding` lives in the stopgap, so the generated `Bindings` compile in files that don't import SwiftUI; SwiftUI re-exports it. A property needs a type annotation to get a binding.
 - **Rules for SDK code:** never depend on `Event.matches(_:)`; treat a change notification as "this view is dirty".
 - `ObservableObject` / `@Published` stay supported (Swift-iOS6 already implements them in Embedded) for code ported from older SwiftUI.
 - `@ObservationDerived` (derived state) is adopted once the pitch settles its design.
@@ -700,9 +701,9 @@ Guests check for these at load time (an import module is either present or absen
 - Under an interpreter, GL's many calls per frame can make the import boundary the bottleneck. If profiling shows that, add an **optional command buffer**: the guest encodes GL calls into linear memory and the host runs them in a single `gl_flush`. This is an optimization, not part of the baseline.
 - Apple platforms: the host for modern Apple targets includes an **ANGLE-on-Metal** backend behind the same imports, so removing native GL ES wouldn't affect guests. iOS 6 keeps native GLES.
 
-## 9. User interface (proposed)
+## 9. User interface
 
-**Status:** proposed design, building on two existing projects: PureSwift/AndroidSwiftUI (render IR + Compose interpreter) and colemancda/Swift-iOS6 (Embedded SwiftUI + UIKit backend).
+**Status:** the guest side is implemented: the SwiftUI frontend (`DynamicSwiftUI`), the render IR and its encoding, and the renderer contract (`DynamicUI`). No players exist yet. It builds on two projects: PureSwift/AndroidSwiftUI (render IR + Compose interpreter) and colemancda/Swift-iOS6 (Embedded SwiftUI + UIKit backend). The vocabulary, events and byte format are in `Documentation/RenderIR.md`.
 
 ### 9.1 Split
 
@@ -722,7 +723,7 @@ Adopted from AndroidSwiftUI's `RenderNode`:
 | `children` | eagerly resolved children |
 | `count` | element count for lazy containers (rows fetched on demand) |
 
-- Closures never cross the boundary. The IR carries **callback IDs**, and the guest keeps a callback registry.
+- Closures never cross the boundary. The guest keeps a handler registry keyed by node ID and event kind, and the host reports `event(node, kind, payload)` (§9.3), so the IR carries no callback IDs.
 - The IR uses a compact binary encoding. The vocabulary is **add-only**: a host renders an unknown node type as an empty placeholder and ignores an unknown modifier, so new guests degrade gracefully on older hosts.
 - Defaults that differ between toolkits (stack spacing, padding, font sizes) are written explicitly into the IR so layout stays close across hosts.
 
@@ -760,11 +761,13 @@ Layout is owned by each player. Players for toolkits without a layout system reu
 
 ### 9.5 Update flow
 
-1. The guest evaluates `body` inside an Observation listener (one coalesced listener per view) and sends the tree with `apply`.
+1. The guest evaluates `body` inside an Observation listener and sends the tree with `apply`.
 2. The player builds native views.
 3. The user taps: the player calls `event(node, .tap)` → `rt_dispatch` → the guest runs the registered callback, and state changes.
-4. The listener marks the view dirty. On the next turn the guest re-evaluates only that subtree and sends `replaceSubtree`.
+4. The listener marks the view dirty. Before control returns to the host (`GuestExecutor.whenIdle`), the guest re-evaluates and sends the smallest changed subtrees with `replaceSubtree`.
 5. The player updates in place.
+
+**As implemented:** one coalescing listener for the whole tree, which re-evaluates every `body` and diffs against the last tree it sent, so only changed subtrees cross the boundary. Per-view listeners that re-evaluate only dirty subtrees are an optimization for later. `@State` is observable too, so one mechanism covers state and models. Lazy rows each get their own listener; any update bumps a lazy container's `revision`, so the host re-fetches its visible rows.
 
 **Control sync:** the guest's state is the source of truth. A player sets a control from the IR only when the value differs from what that player last rendered, so a field being typed in, a slider being dragged, or a switch mid-toggle isn't overwritten. Swift-iOS6 already uses this rule.
 

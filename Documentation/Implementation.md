@@ -20,10 +20,12 @@ builds and the first provider contracts:
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
+| Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
+| SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 
-Not in phase one: platform hosts and backends (ObjC, JNI), renderers, the
-manifest packager (`App.swift` → Info.plist / AndroidManifest), wasm2c, GLES,
-the Observation stopgap, the SwiftUI frontend. TCP and UDP are not part of the spec.
+Not in phase one: platform hosts and backends (ObjC, JNI), renderers
+(players), the manifest packager (`App.swift` → Info.plist / AndroidManifest),
+wasm2c, GLES. TCP and UDP are not part of the spec.
 
 ## 2. Layout
 
@@ -70,6 +72,24 @@ the Observation stopgap, the SwiftUI frontend. TCP and UDP are not part of the s
 
 **Implementation choices:**
 
+- **SwiftUI frontend** (§9): ported from Swift-iOS6's Embedded SwiftUI, with
+  its backend calls replaced by render IR. Identity is positional, with no
+  reflection: each composed view's `body` runs in a scope keyed by its
+  parent's scope and its place among its siblings, `@State` takes the next
+  slot in its scope, and each node the next node ID. Containers, `if`
+  branches, `ForEach` elements (by `id`) and `.id(_:)` open their own scopes,
+  so a view behind an `if` doesn't shift its siblings. `@State` is
+  observable, and one coalescing listener around the whole evaluation drives
+  updates; the result is diffed against the last tree, and only changed
+  subtrees go out (§9.5). Navigation follows Swift-iOS6: the path is a list
+  of link IDs, and pushed levels re-render live each update. Without key
+  paths: `@Environment(Model.self)` (not `\.key`), `ForEach(data, id: {…})`
+  (a closure), and `@Bindable` through the generated `Bindings`. Not done
+  yet: pickers, menus, sheets, alerts, tab views, grids, gestures beyond
+  taps, animation, `GeometryReader`.
+- **`GuestExecutor.whenIdle`** runs a handler just before control returns to
+  the host, after jobs drain; the frontend sends its updates there, so an
+  event, a task and a timer all produce one update.
 - **Async wrappers** (§6.2.1) are hand-written, one per contract, in the
   contract modules, under `!EMBEDDED_NO_CONCURRENCY`. Embedded Swift has no
   `any Error` values, so streams are `EventStream<Element, Failure>` (a
@@ -268,6 +288,18 @@ Each of these needs a decision, or is verified only as far as noted:
   their async wrappers against fake Swift hosts through `NativeRuntime`:
   permissions, one-shot calls, streams starting and stopping, failures,
   cancellation, and handle and export leak checks.
+- `DynamicObservationTests`: tracking, nested tracking, the mask fast path
+  and high indices, coalescing listeners, registrars released before their
+  observers, `Bindings`, and the macro's expansion.
+- `DynamicUITests`: the IR's byte format: round trips, determinism, payloads
+  and IDs, and rejection of every truncation and malformed input.
+- `DynamicSwiftUITests`: the frontend against a recording sink: first tree,
+  minimal updates, `@Observable` models and bindings, identity behind `if`s
+  and across `ForEach` reorders, lazy rows, navigation, the environment,
+  appearance; and through `NativeRuntime` with a host `Renderer`.
+- `RuntimeWasmTests` also runs the example UI app (`examples/ExampleUI`) as
+  `App.wasm` (built by `Scripts/build-wasm.sh ExampleUI`; skipped without
+  it), driven like a player: taps, typing, lazy rows, push and pop.
 - `DynamicRuntimeTests/AsyncHelperTests`: `EventStream` buffering,
   failure, and termination on finish, cancellation and release;
   `withCallback`; `PendingCallbacks` ordering; `EventSubscribers` fan-out.
@@ -275,8 +307,10 @@ Each of these needs a decision, or is verified only as far as noted:
 ## 6. Next
 
 1. Settle the review items in §3 (allocator exports, guest error messages).
-2. Stopgap `Observation` module (§5.3) and the Embedded SwiftUI frontend
-   emitting the render IR (§9), both guest code for this repository.
+2. Players that interpret the render IR (§9.4): the iOS 13+ / macOS SwiftUI
+   player, an adapter for AndroidSwiftUI's Compose interpreter, and
+   Swift-iOS6's backend for iOS 6. More of the vocabulary (pickers, sheets,
+   alerts, tab views, grids), and per-view re-evaluation.
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).

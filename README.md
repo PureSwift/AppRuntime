@@ -77,6 +77,46 @@ for try await result in central.scan(services: [.bit16(0x180D)]) {
 }
 ```
 
+## User interface
+
+Guests write SwiftUI. `import SwiftUI` and `import Observation` give guest
+builds the Embedded frontend and the Observation stopgap. The frontend does
+no layout or rendering: it sends the host's renderer a render IR tree, and
+then only what changes (`Documentation/RenderIR.md`).
+
+```swift
+@Observable
+final class Store {
+    var name: String = "World"
+}
+
+struct ContentView: View {
+    @Bindable var store: Store
+
+    var body: some View {
+        VStack {
+            Text("Hello, \(store.name)!")
+            TextField("Name", text: $store.name)
+        }
+    }
+}
+
+struct ExampleApp: App {
+    let store = Store()
+    var body: some Scene {
+        WindowGroup { ContentView(store: store) }
+    }
+}
+
+@_expose(wasm, "rt_main")
+@c(rt_main)
+public func appMain() -> rt_status {
+    Runtime.main { ExampleApp.run() }
+}
+```
+
+`examples/ExampleUI` is a fuller app. No player renders the IR yet.
+
 ## Building
 
 The toolchain is pinned in `.swift-version` (Swift 6.4.2). Install it and

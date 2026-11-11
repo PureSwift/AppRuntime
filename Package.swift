@@ -28,6 +28,12 @@ let package = Package(
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
         .library(name: "DynamicNFC", targets: ["DynamicNFC"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
+        // Shared: Observation stopgap, render IR and renderer contract, and the
+        // SwiftUI frontend (§5.3, §9). Guest builds name the Observation and
+        // SwiftUI modules `Observation` and `SwiftUI`.
+        .library(name: "DynamicObservation", targets: ["DynamicObservation"]),
+        .library(name: "DynamicUI", targets: ["DynamicUI"]),
+        .library(name: "DynamicSwiftUI", targets: ["DynamicSwiftUI"]),
         // Wasm: WasmKit import shim.
         .library(name: "RuntimeWasm", targets: ["RuntimeWasm"]),
         // Linux: bundle model and sandboxing launcher.
@@ -35,6 +41,8 @@ let package = Package(
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
         // Example guest app. Scripts/guest.py builds its slices and bundle.
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
+        // Example UI guest app (§9). Scripts/guest.py builds its slices.
+        .library(name: "ExampleUI", type: .static, targets: ["ExampleUI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
@@ -65,6 +73,23 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
             ]
+        ),
+        .macro(
+            name: "ObservationMacros",
+            dependencies: [
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+            ]
+        ),
+        .target(
+            name: "DynamicObservation",
+            dependencies: ["ObservationMacros"]
+        ),
+        .target(
+            name: "DynamicSwiftUI",
+            dependencies: ["DynamicRuntime", "DynamicObservation", "DynamicUI"]
         ),
         .target(
             name: "DynamicRuntime",
@@ -156,6 +181,11 @@ let package = Package(
             dependencies: ["DynamicNFC", "RuntimeNative"]
         ),
         .target(
+            name: "DynamicUI",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicUI"
+        ),
+        .target(
             name: "DynamicFormatting",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicFormatting"
@@ -208,6 +238,11 @@ let package = Package(
             dependencies: ["ExampleContracts"],
             path: "examples/ExampleApp"
         ),
+        .target(
+            name: "ExampleUI",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI"],
+            path: "examples/ExampleUI"
+        ),
         // MARK: - Tests
 
         .testTarget(
@@ -223,6 +258,24 @@ let package = Package(
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacrosGenericTestSupport", package: "swift-syntax"),
             ]
+        ),
+        .testTarget(
+            name: "DynamicObservationTests",
+            dependencies: [
+                "DynamicObservation",
+                "ObservationMacros",
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacrosGenericTestSupport", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
+            name: "DynamicUITests",
+            dependencies: ["DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "DynamicSwiftUITests",
+            dependencies: ["DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
         ),
         .testTarget(
             name: "RuntimeCoreTests",
@@ -248,6 +301,7 @@ let package = Package(
                 "RuntimeWasm",
                 "RuntimeNative",
                 "ExampleHost",
+                "DynamicUI",
                 .product(name: "WAT", package: "WasmKit"),
             ]
         ),
