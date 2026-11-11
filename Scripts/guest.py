@@ -126,16 +126,18 @@ TARGETS = {
     "visionos-arm64": dict(kind="macho", about="visionOS 1", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="xros", minimum="1.0")]),
     "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
-                        about="Linux arm64, libc-agnostic"),
+                        support=["math.c"], about="Linux arm64, libc-agnostic"),
     "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD,
-                        support=["armv7-eabi.c"], about="Linux armv7 hard-float, libc-agnostic"),
-    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
+                        support=["armv7-eabi.c", "math.c"], about="Linux armv7 hard-float, libc-agnostic"),
+    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+                         support=["x86_64-half.c", "math.c"],
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
     "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
-                              about="Android arm64-v8a"),
+                              support=["math.c"], about="Android arm64-v8a"),
     "android-armeabi-v7a": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_SOFTFP,
-                                support=["armv7-eabi.c"], about="Android armeabi-v7a (softfp)"),
-    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
+                                support=["armv7-eabi.c", "math.c"], about="Android armeabi-v7a (softfp)"),
+    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+                           support=["x86_64-half.c", "math.c"],
                            about="Android x86_64 (SSE4.2 and POPCNT, as the ABI requires)"),
 }
 
@@ -376,6 +378,9 @@ class Compiler:
 
     def common_c_flags(self):
         flags = ["-target", self.triple, "-Os", "-fPIC", "-fno-stack-protector", "-D__EMBEDDED_SWIFT__"] + self.cflags
+        # C sees the same defines as Swift (CRuntime's executor.c checks
+        # EMBEDDED_NO_CONCURRENCY).
+        flags += [f"-D{define}" for define in self.defines]
         if self.cpu:
             flags.append(f"-march={self.cpu}")
         if self.wasm_sdk:
