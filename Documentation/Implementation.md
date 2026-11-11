@@ -23,10 +23,12 @@ builds and the first provider contracts:
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
+| wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 (players), the platform packagers (the portable manifest → an iOS
-`Info.plist` or an `AndroidManifest.xml`), wasm2c, GLES. TCP and UDP are not part of the spec.
+`Info.plist` or an `AndroidManifest.xml`), GLES. TCP and UDP are not part of
+the spec.
 
 ## 2. Layout
 
@@ -182,6 +184,31 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
   be declared `throws` (anything else is a compile error), and an invalid
   string throws `RuntimeError.thrown`. An invalid callback argument fails the
   incoming call the same way.
+- **wasm2c shim.** A host with no slice for its platform translates
+  `App.wasm` with WABT's wasm2c. `Scripts/wasm2c-shim.py shim` generates
+  the import shim from `rt.h`, and `build` translates, compiles and seals
+  the result into a `libapp.a` with the same three exports, the same `rt_*`
+  imports and the module's `rt.abi`, `rt.contracts` and `rt.manifest`
+  sections, so a host links it like a slice.
+  - The generator reads each `RT_IMPORT` and relies on one rule of `rt.h`:
+    every pointer parameter is followed by its count. Pointers become
+    bounds-checked copies (output arrays are copied in, then back), so a
+    call back into the guest that grows its memory can't leave the host
+    holding a stale pointer. `rt_method_decl` arrays and their strings are
+    converted from the guest's 16-byte layout.
+  - `rt_dispatch` places its slots in guest memory with the module's
+    `rt_alloc` / `rt_free`. Each export calls the module with its own trap
+    target and restores the outer one after, since the guest can call the
+    host, which can call the guest again. A trap returns `RT_ERR_THROWN`
+    and is written to stderr; the module stays usable.
+  - wasm-rt is built with explicit bounds checks and stack depth counting,
+    so it installs no signal handlers in the host's process.
+  - WASI preview 1 is minimal: stdout and stderr (`RT_WASM2C_WRITE`, which
+    a host can define to log), clocks, randomness, empty arguments and
+    environment, no files. `proc_exit` traps. A module importing anything
+    else is rejected when the shim is built.
+  - w2c2, which the Darwin packager's design also names, generates a
+    different API; the shim targets WABT's only.
 - **Manifest stage** (§7.1–7.3). `App.swift` defines `let app = App(…)`
   with the `AppManifest` library: full Swift for the build machine, no
   Foundation, no dependencies. `guest.py` (`Scripts/manifest.py`) compiles
@@ -379,14 +406,21 @@ Each of these needs a decision, or is verified only as far as noted:
   (every wire type, callbacks both ways, throws, lists, identity, capability
   gating, leak check).
 - `LinkedSliceTests` (`Packages/LinkedSlice`): a host built like a platform
-  host, with AppRuntime's traits off, linked with `ExampleApp`'s sealed macOS
-  slice (built by `Scripts/guest.py slice --product ExampleApp --target
-  macos`; skipped without it). The app runs through the slice's exports with
-  no capabilities while the host keeps its own; the host's exports belong to
-  `HostGuest`; nothing leaks on either side. With the trait on, the same
+  host, with AppRuntime's traits off, linked with one app library, which
+  the environment picks: `ExampleApp` or `ExampleUI`, as its sealed macOS
+  slice or translated by wasm2c (skipped until it's built; see the
+  package's manifest). The same tests pass for all four. `ExampleApp` runs
+  through the library's exports with no capabilities while the host keeps
+  its own; the host's exports belong to `HostGuest`; nothing leaks on
+  either side. `ExampleUI` is driven like a player, as in the WasmKit test. With the trait on, the same
   link fails with duplicate `rt_dispatch` / `rt_finalize` under SwiftPM's
   native build system. Swift Build, the default, lists the duplicates but
   doesn't fail the link.
+- `Scripts/test_wasm2c_shim.py`: reading `rt.h` and rejecting what the
+  generator has no rule for; the generated wrappers; a hand-written module
+  and a fake C host for string copies both ways, slots, an out-of-bounds
+  offset, a trap after a re-entrant call, and use after traps; rejecting
+  unsupported imports. Needs WABT.
 - `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
   hand-written WAT guests, and the same example app as `App.wasm` (built by
   `Scripts/build-wasm.sh ExampleApp`; skipped without it), including

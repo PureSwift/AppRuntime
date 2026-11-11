@@ -7,8 +7,9 @@ import RuntimeABI
 import RuntimeCore
 import RuntimeNative
 
-/// `ExampleApp`'s sealed macOS slice, linked into a host whose
-/// `DynamicRuntime` is built without `GuestExports`.
+/// `ExampleApp`'s library, linked into a host whose `DynamicRuntime` is
+/// built without `GuestExports`: its sealed macOS slice, or its `App.wasm`
+/// translated by wasm2c, which must behave the same (see `Package.swift`).
 ///
 /// Linking at all shows the duplicate `rt_dispatch` / `rt_finalize` are
 /// gone. The run shows the routing: the app's calls arrive through the C
@@ -17,8 +18,8 @@ import RuntimeNative
 /// C symbols, the runtime would dispatch them into the slice.
 @Suite(.serialized) struct LinkedSliceTests {
 
-    static var hasSlice: Bool {
-        #if LINKED_SLICE
+    static var linksExampleApp: Bool {
+        #if LINKED_EXAMPLEAPP
         true
         #else
         false
@@ -33,9 +34,9 @@ import RuntimeNative
         ExampleHost.register(in: native)
     }
 
-    @Test(.enabled(if: hasSlice, "Build the slice first: Scripts/guest.py slice --product ExampleApp --target macos"))
+    @Test(.enabled(if: linksExampleApp, "Link ExampleApp's library first; see Packages/LinkedSlice/Package.swift"))
     func exampleApp() {
-        #if LINKED_SLICE
+        #if LINKED_EXAMPLEAPP
         // The app may not use Bluetooth; the host may.
         native.capabilities = []
         defer { native.capabilities = nil }
@@ -78,9 +79,10 @@ import RuntimeNative
         #endif
     }
 
-    @Test(.enabled(if: hasSlice, "Build the slice first: Scripts/guest.py slice --product ExampleApp --target macos"))
-    func hostExportsBelongToTheHost() throws {
+    @Test func hostExportsBelongToTheHost() throws {
         let handles = native.runtime.handleCount
+        // Counted from here: an app may hold host exports, such as its renderer.
+        let exports = Exported.liveCount
         do {
             let delegate = RecordingDelegate()
             let counter = CounterProxy.make(start: 41, delegate: delegate)
@@ -92,14 +94,12 @@ import RuntimeNative
             // callback reaches its own delegate.
             counter.increment(by: 1)
             #expect(delegate.values == [42])
-            #expect(Exported.liveCount == 2, "the counter and its delegate")
+            #expect(Exported.liveCount == exports + 2, "the counter and its delegate")
         }
-        #expect(Exported.liveCount == 0)
+        #expect(Exported.liveCount == exports)
         #expect(native.runtime.handleCount == handles)
     }
 }
-
-#if LINKED_SLICE
 
 final class RecordingDelegate: CounterDelegate {
 
@@ -115,5 +115,3 @@ final class RecordingDelegate: CounterDelegate {
 
     func didReset(_ counter: any Counter) { }
 }
-
-#endif
