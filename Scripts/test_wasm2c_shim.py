@@ -163,7 +163,8 @@ class ParseTests(unittest.TestCase):
 @unittest.skipUnless(HAS_WABT, "needs WABT (brew install wabt)")
 class ShimTests(unittest.TestCase):
 
-    def test_conversions_and_traps(self):
+    def run_host(self, defines=(), host=""):
+        """Builds MODULE with the shim and HOST (plus `host`), and runs it."""
         wasm2c, runtime, include = shim.wabt_runtime()
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
@@ -173,19 +174,34 @@ class ShimTests(unittest.TestCase):
             self.assertEqual(shim.check_imports(work / "test.wasm", imports), [])
             subprocess.run([wasm2c, work / "test.wasm", "-n", "app", "-o", work / "app.c"], check=True)
             (work / "rt_wasm2c.c").write_text(shim.generate(imports, "app", "app.h"))
-            (work / "host.c").write_text(HOST)
+            (work / "host.c").write_text(HOST + host)
             includes = ["-I", work, "-I", runtime, "-I", include, "-I", shim.RT_H.parent]
+            macros = [f"-D{define}" for define in defines]
             # The shim itself compiles cleanly.
-            subprocess.run([*shim.compiler(), "-Wall", "-Werror", "-Wno-unused-function", *shim.WASM_RT_DEFINES, *includes,
-                            "-c", work / "rt_wasm2c.c", "-o", work / "rt_wasm2c.o"], check=True)
-            subprocess.run([*shim.compiler(), "-w", "-O1", *shim.WASM_RT_DEFINES, *includes,
+            subprocess.run([*shim.compiler(), "-Wall", "-Werror", "-Wno-unused-function", *shim.WASM_RT_DEFINES,
+                            *macros, *includes, "-c", work / "rt_wasm2c.c", "-o", work / "rt_wasm2c.o"], check=True)
+            subprocess.run([*shim.compiler(), "-w", "-O1", *shim.WASM_RT_DEFINES, *macros, *includes,
                             work / "app.c", work / "rt_wasm2c.c", work / "host.c",
                             runtime / "wasm-rt-impl.c", runtime / "wasm-rt-mem-impl.c",
                             "-o", work / "host"], check=True)
-            result = subprocess.run([work / "host"], capture_output=True, text=True)
-            self.assertEqual(result.stdout.strip(), "ok", result.stdout + result.stderr)
-            self.assertEqual(result.returncode, 0)
-            self.assertIn("guest trapped", result.stderr, "traps are reported")
+            return subprocess.run([work / "host"], capture_output=True, text=True)
+
+    def test_conversions_and_traps(self):
+        result = self.run_host()
+        self.assertEqual(result.stdout.strip(), "ok", result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("guest trapped", result.stderr, "traps are reported")
+
+    def test_write_function_receives_the_guests_output(self):
+        result = self.run_host(defines=["RT_WASM2C_WRITE_FUNCTION=host_write"], host=textwrap.dedent("""
+            void host_write(int fd, const void *data, size_t size) {
+                printf("[%d]%.*s", fd, (int)size, (const char *)data);
+            }
+            """))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "ok")
+        self.assertIn("[2]wasm2c: guest trapped", result.stdout, "traps go to the host function")
+        self.assertNotIn("guest trapped", result.stderr)
 
     def test_rejects_unsupported_imports(self):
         with tempfile.TemporaryDirectory() as directory:
