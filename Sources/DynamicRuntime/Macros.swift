@@ -19,10 +19,14 @@ import RuntimeABI
 /// Rules (checked at compile time): the protocol is class-bound, has only
 /// methods, no overloads, no generics, `async` or variadics; types are
 /// `Bool`, `Int32`, `Int64`, `Float`, `Double`, `String`, `[UInt8]`, other
-/// contracts or callbacks, optionals of object types, and arrays of
-/// `String`, contracts or callbacks. A static method returning `Self` is a
-/// constructor.
-@attached(peer, names: suffixed(Proxy), prefixed(_rt_contract_))
+/// contracts or callbacks, `RawRepresentable` types with `String` raw values,
+/// optionals of object types, and arrays of `String`, contracts, callbacks or
+/// raw string types. A static method returning `Self` is a constructor.
+///
+/// A raw string type travels as its `rawValue`. A method returning one must be
+/// declared `throws`: if the host's string isn't a valid raw value, the call
+/// throws `RuntimeError.thrown`.
+@attached(peer, names: suffixed(Proxy), prefixed(_rt_contract_), named(_rtEncode), named(_rtDecodeRetained), named(_rtDecodeBorrowed), named(_rtResult))
 public macro DynamicRuntime(
     _ name: StaticString,
     version: UInt32 = 1,
@@ -33,7 +37,7 @@ public macro DynamicRuntime(
 /// passes to native code, which calls back through `rt_dispatch` (§6.2).
 ///
 /// Same rules as `@DynamicRuntime`, without static methods.
-@attached(peer, names: suffixed(Proxy), prefixed(_rt_contract_))
+@attached(peer, names: suffixed(Proxy), prefixed(_rt_contract_), named(_rtEncode), named(_rtDecodeRetained), named(_rtDecodeBorrowed), named(_rtResult))
 public macro DynamicCallback(
     _ name: StaticString,
     version: UInt32 = 1

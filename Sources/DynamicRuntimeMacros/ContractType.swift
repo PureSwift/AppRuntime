@@ -13,13 +13,15 @@ indirect enum ContractType: Equatable {
     /// `[UInt8]`, as a host byte buffer.
     case bytes
 
-    /// Another contract or callback protocol, as its proxy.
+    /// A named object type: another contract or callback protocol, or a
+    /// `RawRepresentable` type with `String` raw values. Syntax can't tell
+    /// them apart; the compiler picks the marshaling overload.
     case object(protocolName: String)
 
     /// `[String]`, as a `List` of strings.
     case strings
 
-    /// `[SomeContract]`, as a `List` of objects.
+    /// `[SomeContract]` or `[RawStringType]`, as a `List` of objects.
     case objects(protocolName: String)
 
     /// `T?` of an object type.
@@ -119,8 +121,9 @@ extension ContractType {
             guard name.first?.isUppercase == true else {
                 throw ContractError(.unsupportedType(name, hint: nil), at: type)
             }
-            // Assumed to be another @DynamicRuntime or @DynamicCallback
-            // protocol; the compiler reports it if `<Name>Proxy` is missing.
+            // Another @DynamicRuntime or @DynamicCallback protocol, or a
+            // RawRepresentable string type. If it's neither, the compiler
+            // reports that no `_rtEncode` overload matches.
             return .object(protocolName: name)
         }
     }

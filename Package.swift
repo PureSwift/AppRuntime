@@ -24,7 +24,9 @@ let package = Package(
         .library(name: "DynamicBluetooth", targets: ["DynamicBluetooth"]),
         .library(name: "DynamicDevice", targets: ["DynamicDevice"]),
         .library(name: "DynamicLocation", targets: ["DynamicLocation"]),
+        .library(name: "DynamicMotion", targets: ["DynamicMotion"]),
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
+        .library(name: "DynamicNFC", targets: ["DynamicNFC"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
         // Wasm: WasmKit import shim.
         .library(name: "RuntimeWasm", targets: ["RuntimeWasm"]),
@@ -37,6 +39,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
         .package(url: "https://github.com/swiftwasm/WasmKit.git", from: "0.4.2"),
+        .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.1"),
     ],
     targets: [
 
@@ -100,13 +103,37 @@ let package = Package(
         ),
         .target(
             name: "DynamicBluetooth",
-            dependencies: ["DynamicRuntime"],
+            dependencies: [
+                "DynamicRuntime",
+                .product(name: "Bluetooth", package: "Bluetooth"),
+                .product(name: "BluetoothGATT", package: "Bluetooth"),
+            ],
             path: "Contracts/DynamicBluetooth"
+        ),
+        .testTarget(
+            name: "DynamicBluetoothTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicBluetooth", "RuntimeNative"]
         ),
         .target(
             name: "DynamicLocation",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicLocation"
+        ),
+        .testTarget(
+            name: "DynamicLocationTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicLocation", "RuntimeNative"]
+        ),
+        .target(
+            name: "DynamicMotion",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicMotion"
+        ),
+        .testTarget(
+            name: "DynamicMotionTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicMotion", "RuntimeNative"]
         ),
         .target(
             name: "DynamicNetworking",
@@ -114,9 +141,23 @@ let package = Package(
             path: "Contracts/DynamicNetworking"
         ),
         .target(
+            name: "DynamicNFC",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicNFC"
+        ),
+        .testTarget(
+            name: "DynamicNFCTests",
+            // RuntimeNative supplies the rt_* symbols the proxies link against.
+            dependencies: ["DynamicNFC", "RuntimeNative"]
+        ),
+        .target(
             name: "DynamicFormatting",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicFormatting"
+        ),
+        .testTarget(
+            name: "DynamicFormattingTests",
+            dependencies: ["DynamicFormatting", "RuntimeNative"]
         ),
 
         // MARK: - Wasm
@@ -175,7 +216,7 @@ let package = Package(
                 "RuntimeABI",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
-                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacrosGenericTestSupport", package: "swift-syntax"),
             ]
         ),
         .testTarget(
@@ -193,15 +234,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "ContractsTests",
-            dependencies: [
-                // Supplies the rt_* symbols the contract proxies link against.
-                "RuntimeNative",
-                "DynamicBluetooth",
-                "DynamicLocation",
-                "DynamicNetworking",
-                "DynamicFormatting",
-            ]
+            name: "RawStringContractTests",
+            dependencies: ["DynamicRuntime", "RuntimeNative"]
         ),
         .testTarget(
             name: "RuntimeWasmTests",

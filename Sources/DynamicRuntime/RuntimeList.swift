@@ -64,6 +64,28 @@ public enum RuntimeList {
         return handles
     }
 
+    /// Decodes every element. `wrap` receives a +1 handle and owns it even if
+    /// it throws; after a throw, the remaining handles are released.
+    static func elements<T, E: Error>(
+        _ list: ObjectHandle,
+        _ wrap: (ObjectHandle) throws(E) -> T
+    ) throws(E) -> [T] {
+        let handles = retainedHandles(list)
+        var values = [T]()
+        values.reserveCapacity(handles.count)
+        for (index, handle) in handles.enumerated() {
+            do throws(E) {
+                values.append(try wrap(handle))
+            } catch {
+                for remaining in handles[(index + 1)...] {
+                    Runtime.release(remaining)
+                }
+                throw error
+            }
+        }
+        return values
+    }
+
     /// Copies a list of strings out.
     public static func strings(_ list: ObjectHandle) -> [String] {
         retainedHandles(list).map { handle in
