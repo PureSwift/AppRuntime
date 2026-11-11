@@ -71,3 +71,13 @@ public enum NetworkError: Int32, Error, Sendable {
     /// The session was invalidated before the task ran.
     case sessionInvalidated = 18
 }
+
+public extension NetworkError {
+
+    /// The error for a delegate `error` code: `nil` for `0`, success; codes
+    /// this version doesn't know are `unknown`.
+    init?(code: Int32) {
+        guard code != 0 else { return nil }
+        self = NetworkError(rawValue: code) ?? .unknown
+    }
+}
