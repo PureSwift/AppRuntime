@@ -48,11 +48,12 @@ ALLOWED_UNDEFINED = re.compile(
 )
 # ARM EABI spellings of memcpy/memset; glibc, musl and bionic export them.
 ALLOWED_ARM_EABI = re.compile(r"^__aeabi_mem(cpy|move|set|clr)[48]?$")
-# Apple targets link against libSystem, which also provides bzero and libm,
-# and re-exports compiler-rt (soft-float and 64-bit integer helpers that the
+# Apple targets link against libSystem, which also provides bzero, libm and
+# the stack protector (the x86_64 concurrency runtime is built with it), and
+# re-exports compiler-rt (soft-float and 64-bit integer helpers that the
 # soft-float armv7-apple-none-macho target calls, as Swift-iOS6 does).
 ALLOWED_APPLE = re.compile(
-    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod"
+    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod|__stack_chk_fail|__stack_chk_guard"
     r"|__(ashl|ashr|lshr|mul|div|udiv|mod|umod|neg|add|sub|eq|ne|lt|le|gt|ge|unord|cmp|ucmp"
     r"|fix|fixuns|float|floatun|extend|trunc|pow)[a-z]*[0-9]?)$"
 )
@@ -79,12 +80,14 @@ ARMV7_SOFTFP = ["-mfloat-abi=softfp", "-mfpu=vfpv3-d16"]  # Android armeabi-v7a
 # stdlib at all, so those watches use App.wasm.
 APPLE_ARM64 = "arm64-apple-none-macho"
 
-# Native slices are built without concurrency until the guest executor (§5.4)
-# exists. The prebuilt runtime needs executor hooks and more libc than §7.5
-# allows, and aarch64-none-none-elf has no _Concurrency module at all.
+# Slices link the Embedded concurrency runtime, with DynamicRuntime's guest
+# executor (§5.4) supplying its executor hooks. Native slices also seal in
+# support/concurrency.c, for the few libc calls the runtime makes outside the
+# §7.5 set. The toolchain has no runtime (or _Concurrency module) for
+# aarch64-none-none-elf, so those slices are built without concurrency.
 # canImport(_Concurrency) can't detect that, so packages check this define.
-# wasm32 links the runtime, and its linker strips what's unused.
 NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
+CONCURRENCY_SUPPORT = "concurrency.c"
 TARGETS = {
     "wasm32": dict(kind="wasm", triple="wasm32-unknown-wasip1",
                    about="WASI reactor module, every host"),
@@ -425,11 +428,27 @@ def build_plugins(graph, product, macros):
 # Sealing and checks (§7.5)
 # ---------------------------------------------------------------------------
 
-def runtime_libraries(toolchain, triple, concurrency):
+def has_concurrency(toolchain, triple):
+    """Whether the toolchain ships an Embedded concurrency runtime for a triple."""
+    return toolchain.embedded_library(triple, "swift_Concurrency") is not None
+
+
+def runtime_libraries(toolchain, triple, concurrency, output):
+    """The Embedded runtime libraries a slice links, without their debug info.
+
+    The prebuilt runtimes carry DWARF (megabytes, for the ELF concurrency
+    runtime); the guest's own objects keep theirs.
+    """
     names = ["swiftUnicodeDataTables"]
     if concurrency:
         names.append("swift_Concurrency")
-    return [lib for lib in (toolchain.embedded_library(triple, name) for name in names) if lib]
+    libraries = []
+    for library in (toolchain.embedded_library(triple, name) for name in names):
+        if library:
+            stripped = output / library.name
+            run([toolchain.tool("llvm-objcopy"), "--strip-debug", library, stripped])
+            libraries.append(stripped)
+    return libraries
 
 
 def seal_elf(toolchain, objects, libraries, output):
@@ -667,11 +686,15 @@ class Builder:
 
     def elf_slice(self, config, output):
         triple = config["triple"]
+        concurrency = has_concurrency(self.toolchain, triple)
         compiler = Compiler(self.toolchain, self.graph, self.product, triple, output / "objects",
-                            cflags=config.get("cflags", ()), cpu=config.get("cpu"), defines=NO_CONCURRENCY)
+                            cflags=config.get("cflags", ()), cpu=config.get("cpu"),
+                            defines=() if concurrency else NO_CONCURRENCY)
         objects = compiler.compile(self.targets, self.plugins)
-        objects += compiler.compile_support(config.get("support", []))
-        sealed = seal_elf(self.toolchain, objects, runtime_libraries(self.toolchain, triple, concurrency=True), output)
+        support = [*config.get("support", []), *([CONCURRENCY_SUPPORT] if concurrency else [])]
+        objects += compiler.compile_support(support)
+        libraries = runtime_libraries(self.toolchain, triple, concurrency, output / "objects")
+        sealed = seal_elf(self.toolchain, objects, libraries, output)
         problems = check_sealed(self.toolchain, sealed, macho=False)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
@@ -681,12 +704,14 @@ class Builder:
         archives = []
         for slice_config in config["slices"]:
             directory = output / slice_config["arch"]
+            concurrency = has_concurrency(self.toolchain, slice_config["triple"])
             compiler = Compiler(self.toolchain, self.graph, self.product, slice_config["triple"], directory / "objects",
                                 cflags=slice_config.get("cflags", ()), features=slice_config.get("features", ()),
-                                defines=NO_CONCURRENCY)
+                                defines=() if concurrency else NO_CONCURRENCY)
             objects = compiler.compile(self.targets, self.plugins)
-            objects += compiler.compile_support(slice_config.get("support", []))
-            libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency=True)
+            support = [*slice_config.get("support", []), *([CONCURRENCY_SUPPORT] if concurrency else [])]
+            objects += compiler.compile_support(support)
+            libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency, directory / "objects")
             sealed = seal_macho(self.toolchain, objects, libraries, directory, slice_config)
             problems = check_sealed(self.toolchain, sealed, macho=True)
             if problems:
