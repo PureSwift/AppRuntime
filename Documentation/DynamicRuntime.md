@@ -392,7 +392,7 @@ The hooks are the Embedded runtime's `swift_task_enqueueGlobalImpl` family (`swi
 |---|---|
 | wasm32 | `GuestExecutor`. The wasm runtime defines the isolation checks itself. Build for `wasm32-unknown-wasip1`, not `-threads`. |
 | native (Apple, armv7 and x86_64 ELF) | `GuestExecutor`, plus the isolation-check hooks. The prebuilt runtime's few libc calls outside §7.5 (fatal-error printing, the cooperative executor's sleep), and Swift functions that only a dead-stripping link removes, are sealed in privately (`Scripts/support/concurrency.c`). iOS 6 still needs the Thumb-bit fixup for the prebuilt runtime, a host job. |
-| native `aarch64-none-none-elf` (`linux-arm64`, `android-arm64-v8a`) | none yet: the toolchain ships no `_Concurrency` module or runtime for the triple, so these slices are built without concurrency (`EMBEDDED_NO_CONCURRENCY`). Linux toolchains ship one for `aarch64-unknown-linux-gnu`. |
+| native arm64 ELF (`linux-arm64`, `android-arm64-v8a`) | `GuestExecutor`, as above. The toolchain ships no `_Concurrency` module or runtime for `aarch64-none-none-elf`, so these slices are compiled for `aarch64-unknown-linux-gnu` instead: the same AAPCS64 code, but `os(Linux)` is true. Its modules and runtime come from an arm64 Linux toolchain (`Scripts/fetch-embedded-linux.sh` copies them from the `swift` Docker image). That runtime was built for a hosted Linux, so `Scripts/support/aarch64-linux.c` also seals in outline atomics, libstdc++'s red-black tree, glibc's errno and stderr, and the stack protector. Without the copy, the slices are built without concurrency (`EMBEDDED_NO_CONCURRENCY`). |
 
 ### 5.5 Host languages
 
