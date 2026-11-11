@@ -4,7 +4,7 @@
  * - The rt.abi metadata section (§10). Swift globals placed with @section end
  *   up in the wasm data segment, so the wasm custom section is emitted with
  *   module-level assembly instead.
- * - The wasm32 allocator exports declared in rt_guest.h.
+ * - The wasm32 allocator exports, rt_alloc and rt_free (rt.h).
  *
  * Freestanding: no libc headers. malloc and free are in the allowed libc set
  * (§7.5) and are declared here directly.
