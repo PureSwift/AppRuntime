@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import RuntimeABI
 @testable import RuntimeCore
 
@@ -37,7 +37,7 @@ final class FakeGuest: Guest {
     }
 }
 
-final class HostRuntimeTests: XCTestCase {
+@Suite struct HostRuntimeTests {
 
     static let adder = ContractDescriptor(
         name: "org.example.Adder",
@@ -57,13 +57,12 @@ final class HostRuntimeTests: XCTestCase {
         methods: [MethodDescriptor("heard:", "(I)Z")]
     )
 
-    var runtime: HostRuntime!
+    let runtime = HostRuntime()
 
-    var guest: FakeGuest!
+    let guest = FakeGuest()
 
-    override func setUp() {
-        runtime = HostRuntime()
-        guest = FakeGuest()
+    /// Swift Testing makes a new instance, so a new runtime, for every test.
+    init() {
         runtime.register(Self.adder) { index, arguments, results throws(RuntimeError) in
             switch index {
             case 0:
@@ -99,52 +98,52 @@ final class HostRuntimeTests: XCTestCase {
 
     // MARK: Lookup
 
-    func testClassLookupAndCapabilities() {
-        XCTAssertNotEqual(lookup("org.example.Adder"), 0)
-        XCTAssertEqual(lookup("org.example.Missing"), 0)
-        XCTAssertEqual(lookup("org.example.Adder", guest: FakeGuest(capabilities: [])), 0, "capability not granted")
-        XCTAssertNotEqual(lookup("org.example.Adder", guest: FakeGuest(capabilities: [.bluetooth])), 0)
-        XCTAssertNotEqual(lookup(BuiltinContracts.listName), 0)
+    @Test func classLookupAndCapabilities() {
+        #expect(lookup("org.example.Adder") != 0)
+        #expect(lookup("org.example.Missing") == 0)
+        #expect(lookup("org.example.Adder", guest: FakeGuest(capabilities: [])) == 0, "capability not granted")
+        #expect(lookup("org.example.Adder", guest: FakeGuest(capabilities: [.bluetooth])) != 0)
+        #expect(lookup(BuiltinContracts.listName) != 0)
     }
 
-    func testMethodLookup() {
+    @Test func methodLookup() {
         let cls = lookup("org.example.Adder")
         let add = method(cls, "add:to:", "(II)I", .static)
-        XCTAssertNotEqual(add, 0)
-        XCTAssertEqual(method(cls, "add:to:", "(II)I", .static), add, "IDs are stable")
-        XCTAssertEqual(method(cls, "add:to:", "(IJ)I", .static), 0, "signature mismatch")
-        XCTAssertEqual(method(cls, "add:to:", "(II)I", .instance), 0, "kind mismatch")
-        XCTAssertEqual(method(cls, "subtract:", "(I)I", .static), 0, "absent method")
-        XCTAssertEqual(method(0, "add:to:", "(II)I", .static), 0, "invalid class")
+        #expect(add != 0)
+        #expect(method(cls, "add:to:", "(II)I", .static) == add, "IDs are stable")
+        #expect(method(cls, "add:to:", "(IJ)I", .static) == 0, "signature mismatch")
+        #expect(method(cls, "add:to:", "(II)I", .instance) == 0, "kind mismatch")
+        #expect(method(cls, "subtract:", "(I)I", .static) == 0, "absent method")
+        #expect(method(0, "add:to:", "(II)I", .static) == 0, "invalid class")
     }
 
     // MARK: Calls
 
-    func testStaticCall() {
+    @Test func staticCall() {
         let add = method(lookup("org.example.Adder"), "add:to:", "(II)I", .static)
         let (status, results) = call(0, add, [Int32(2).slot, Int32(-5).slot])
-        XCTAssertEqual(status, .ok)
-        XCTAssertEqual(Int32(slot: results[0]), -3)
-        XCTAssertEqual(call(0, add, [Int32(2).slot]).0, .signature, "wrong argument count")
+        #expect(status == .ok)
+        #expect(Int32(slot: results[0]) == -3)
+        #expect(call(0, add, [Int32(2).slot]).0 == .signature, "wrong argument count")
     }
 
-    func testThrownErrorsCarryMessages() {
+    @Test func thrownErrorsCarryMessages() {
         let make = method(lookup("org.example.Adder"), "make", "()O", .constructor)
-        XCTAssertEqual(call(0, make, []).0, .thrown)
-        XCTAssertEqual(runtime.errorMessage(capacity: 0), Array("no constructor here".utf8), "size query keeps it")
-        XCTAssertEqual(message(), "no constructor here")
-        XCTAssertEqual(message(), "", "reading clears it")
+        #expect(call(0, make, []).0 == .thrown)
+        #expect(runtime.errorMessage(capacity: 0) == Array("no constructor here".utf8), "size query keeps it")
+        #expect(message() == "no constructor here")
+        #expect(message() == "", "reading clears it")
     }
 
-    func testInstanceCallOnNull() {
+    @Test func instanceCallOnNull() {
         let value = method(lookup("org.example.Adder"), "value", "()I", .instance)
-        XCTAssertEqual(call(0, value, []).0, .null)
-        XCTAssertEqual(call(999, value, []).0, .null)
+        #expect(call(0, value, []).0 == .null)
+        #expect(call(999, value, []).0 == .null)
     }
 
     // MARK: rt_implement
 
-    func testImplementDispatchesToGuest() {
+    @Test func implementDispatchesToGuest() {
         let listener = lookup("org.example.Listener")
         let object = runtime.implement(
             interfaces: [listener],
@@ -152,66 +151,66 @@ final class HostRuntimeTests: XCTestCase {
             context: 7,
             guest: guest
         )
-        XCTAssertNotEqual(object, 0)
-        XCTAssertTrue(runtime.isInstance(object, of: listener))
-        XCTAssertFalse(runtime.isInstance(object, of: lookup("org.example.Adder")))
+        #expect(object != 0)
+        #expect(runtime.isInstance(object, of: listener))
+        #expect(!runtime.isInstance(object, of: lookup("org.example.Adder")))
 
         guest.reply = { _, arguments in (.ok, (Int32(slot: arguments[0]) > 0).slot) }
         let heard = method(listener, "heard:", "(I)Z", .instance)
         let (status, results) = call(object, heard, [Int32(3).slot])
-        XCTAssertEqual(status, .ok)
-        XCTAssertTrue(Bool(slot: results[0]))
-        XCTAssertEqual(guest.dispatched.first?.context, 7)
-        XCTAssertEqual(guest.dispatched.first?.index, 0)
+        #expect(status == .ok)
+        #expect(Bool(slot: results[0]))
+        #expect(guest.dispatched.first?.context == 7)
+        #expect(guest.dispatched.first?.index == 0)
 
         // A method of another interface isn't routed to it.
         let value = method(lookup("org.example.Adder"), "value", "()I", .instance)
-        XCTAssertEqual(call(object, value, []).0, .notFound)
+        #expect(call(object, value, []).0 == .notFound)
     }
 
-    func testFinalizeOnLastRelease() {
+    @Test func finalizeOnLastRelease() {
         let object = runtime.implement(interfaces: [lookup("org.example.Listener")], methods: [], context: 3, guest: guest)
         runtime.retain(object)
         runtime.release(object)
-        XCTAssertEqual(guest.finalized, [])
+        #expect(guest.finalized == [])
         runtime.release(object)
-        XCTAssertEqual(guest.finalized, [3])
-        XCTAssertEqual(runtime.handleCount, 0)
+        #expect(guest.finalized == [3])
+        #expect(runtime.handleCount == 0)
     }
 
-    func testImplementRejectsUnknownInterfaces() {
-        XCTAssertEqual(runtime.implement(interfaces: [999], methods: [], context: 1, guest: guest), 0)
-        XCTAssertEqual(runtime.implement(interfaces: [], methods: [], context: 1, guest: guest), 0)
+    @Test func implementRejectsUnknownInterfaces() {
+        #expect(runtime.implement(interfaces: [999], methods: [], context: 1, guest: guest) == 0)
+        #expect(runtime.implement(interfaces: [], methods: [], context: 1, guest: guest) == 0)
     }
 
     // MARK: Identity
 
-    func testSameObject() {
+    @Test func sameObject() {
         let listener = lookup("org.example.Listener")
         let a = runtime.implement(interfaces: [listener], methods: [], context: 1, guest: guest)
         let b = runtime.implement(interfaces: [listener], methods: [], context: 1, guest: guest)
         let c = runtime.implement(interfaces: [listener], methods: [], context: 2, guest: guest)
-        XCTAssertTrue(runtime.same(a, b), "same guest and context")
-        XCTAssertFalse(runtime.same(a, c))
-        XCTAssertFalse(runtime.same(a, runtime.makeString("x")))
-        XCTAssertTrue(runtime.same(0, 0))
+        #expect(runtime.same(a, b), "same guest and context")
+        #expect(!runtime.same(a, c))
+        #expect(!runtime.same(a, runtime.makeString("x")))
+        #expect(runtime.same(0, 0))
     }
 
     // MARK: Builtins
 
-    func testStringsAndBytes() {
+    @Test func stringsAndBytes() {
         let string = runtime.makeString("héllo")
-        XCTAssertEqual(runtime.stringUTF8(string), Array("héllo".utf8))
-        XCTAssertTrue(runtime.isInstance(string, of: lookup(BuiltinContracts.stringName)))
+        #expect(runtime.stringUTF8(string) == Array("héllo".utf8))
+        #expect(runtime.isInstance(string, of: lookup(BuiltinContracts.stringName)))
         let bytes = runtime.makeBytes([1, 2, 3])
-        XCTAssertEqual(runtime.bytes(bytes), [1, 2, 3])
-        XCTAssertNil(runtime.bytes(string))
+        #expect(runtime.bytes(bytes) == [1, 2, 3])
+        #expect(runtime.bytes(string) == nil)
         runtime.release(string)
         runtime.release(bytes)
-        XCTAssertEqual(runtime.handleCount, 0)
+        #expect(runtime.handleCount == 0)
     }
 
-    func testList() {
+    @Test func list() {
         let list = lookup(BuiltinContracts.listName)
         let make = method(list, "make", "()O", .constructor)
         let append = method(list, "append:", "(O)V", .instance)
@@ -220,21 +219,21 @@ final class HostRuntimeTests: XCTestCase {
 
         let handle = call(0, make, []).1[0].handle
         let element = runtime.makeString("a")
-        XCTAssertEqual(call(handle, append, [Slot(handle: element)], results: 0).0, .ok)
+        #expect(call(handle, append, [Slot(handle: element)], results: 0).0 == .ok)
         runtime.release(element)
-        XCTAssertEqual(Int32(slot: call(handle, count, []).1[0]), 1)
+        #expect(Int32(slot: call(handle, count, []).1[0]) == 1)
 
         let first = call(handle, objectAt, [Int32(0).slot]).1[0].handle
-        XCTAssertEqual(runtime.stringUTF8(first), Array("a".utf8), "the list keeps its elements alive")
-        XCTAssertEqual(call(handle, objectAt, [Int32(5).slot]).0, .thrown)
+        #expect(runtime.stringUTF8(first) == Array("a".utf8), "the list keeps its elements alive")
+        #expect(call(handle, objectAt, [Int32(5).slot]).0 == .thrown)
         runtime.release(first)
         runtime.release(handle)
-        XCTAssertEqual(runtime.handleCount, 0)
+        #expect(runtime.handleCount == 0)
     }
 
     // MARK: Re-entrancy
 
-    func testFinalizeMayReenter() {
+    @Test func finalizeMayReenter() {
         // The guest releases another object while being finalized.
         let listener = lookup("org.example.Listener")
         let other = runtime.makeString("held by the guest")
@@ -252,12 +251,12 @@ final class HostRuntimeTests: XCTestCase {
         let releasing = ReleasingGuest(runtime: runtime, held: other)
         let object = runtime.implement(interfaces: [listener], methods: [], context: 1, guest: releasing)
         runtime.release(object)
-        XCTAssertEqual(runtime.handleCount, 0)
+        #expect(runtime.handleCount == 0)
     }
 
     // MARK: Validation
 
-    func testValidation() {
+    @Test func validation() {
         let required = ContractDescriptor(
             name: "org.example.Adder",
             kind: .contract,
@@ -271,14 +270,14 @@ final class HostRuntimeTests: XCTestCase {
         )
         let missing = ContractDescriptor(name: "org.example.Missing", kind: .contract, methods: [])
         let issues = runtime.validate(abiVersion: 2, contracts: [required, missing], capabilities: [])
-        XCTAssertEqual(issues.filter { $0.severity == .error }.count, 4, "\(issues)")
-        XCTAssertTrue(issues.contains { $0.message.contains("rt ABI 2") })
-        XCTAssertTrue(issues.contains { $0.message.contains("capability 'bluetooth'") })
-        XCTAssertTrue(issues.contains { $0.contract == "org.example.Missing" && $0.severity == .error })
-        XCTAssertTrue(issues.contains { $0.message.contains("add:to: is (II)I on this host") })
-        XCTAssertTrue(issues.contains { $0.message.contains("reset is absent") && $0.severity == .warning })
-        XCTAssertTrue(issues.contains { $0.message.contains("version 2") && $0.severity == .warning })
+        #expect(issues.filter { $0.severity == .error }.count == 4, "\(issues)")
+        #expect(issues.contains { $0.message.contains("rt ABI 2") })
+        #expect(issues.contains { $0.message.contains("capability 'bluetooth'") })
+        #expect(issues.contains { $0.contract == "org.example.Missing" && $0.severity == .error })
+        #expect(issues.contains { $0.message.contains("add:to: is (II)I on this host") })
+        #expect(issues.contains { $0.message.contains("reset is absent") && $0.severity == .warning })
+        #expect(issues.contains { $0.message.contains("version 2") && $0.severity == .warning })
 
-        XCTAssertEqual(runtime.validate(abiVersion: 1, contracts: [Self.adder], capabilities: [.bluetooth]), [])
+        #expect(runtime.validate(abiVersion: 1, contracts: [Self.adder], capabilities: [.bluetooth]) == [])
     }
 }

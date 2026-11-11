@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import CRuntime
 import DynamicRuntime
 import ExampleApp
@@ -9,48 +9,50 @@ import RuntimeNative
 
 /// The example app linked as a native slice: the host (this test) owns main,
 /// registers the Swift implementations and calls `rt_main`.
-final class NativeModeTests: XCTestCase {
+///
+/// Serialized: every test shares `NativeRuntime.shared`.
+@Suite(.serialized) struct NativeModeTests {
 
     var native: NativeRuntime { NativeRuntime.shared }
 
-    override func setUp() {
+    init() {
         ExampleHost.lines = []
         native.capabilities = nil
         ExampleHost.register(in: native)
     }
 
-    func testExampleApp() {
+    @Test func exampleApp() {
         let handles = native.runtime.handleCount
         let status = native.start(rt_main)
         let lines = ExampleHost.lines
-        XCTAssertEqual(status, .ok, lines.joined(separator: "\n"))
-        XCTAssertEqual(lines.filter { $0.hasPrefix("FAIL") }, [])
-        XCTAssertTrue(lines.contains("beacon available"))
-        XCTAssertEqual(lines.last, "done")
+        #expect(status == .ok, "\(lines.joined(separator: "\n"))")
+        #expect(lines.filter { $0.hasPrefix("FAIL") } == [])
+        #expect(lines.contains("beacon available"))
+        #expect(lines.last == "done")
         // Every proxy, export and temporary was released.
-        XCTAssertEqual(native.runtime.handleCount, handles)
-        XCTAssertEqual(Exported.liveCount, 0)
+        #expect(native.runtime.handleCount == handles)
+        #expect(Exported.liveCount == 0)
     }
 
-    func testCapabilityGate() {
+    @Test func capabilityGate() {
         native.capabilities = []
-        XCTAssertEqual(Runtime.lookupClass("org.pureswift.example.Beacon"), 0)
-        XCTAssertNotEqual(Runtime.lookupClass("org.pureswift.example.Counter"), 0)
+        #expect(Runtime.lookupClass("org.pureswift.example.Beacon") == 0)
+        #expect(Runtime.lookupClass("org.pureswift.example.Counter") != 0)
         native.capabilities = [.bluetooth]
-        XCTAssertNotEqual(Runtime.lookupClass("org.pureswift.example.Beacon"), 0)
+        #expect(Runtime.lookupClass("org.pureswift.example.Beacon") != 0)
     }
 
-    func testHostRecoversItsOwnObject() {
+    @Test func hostRecoversItsOwnObject() {
         let delegate = RecordingDelegate()
         let counter = CounterProxy.make(start: 41, delegate: delegate)
         let host = native.swiftObject(for: counter) as? HostCounter
-        XCTAssertEqual(host?.value(), 41)
+        #expect(host?.value() == 41)
         counter.increment(by: 1)
-        XCTAssertEqual(delegate.values, [42])
-        XCTAssertNil(native.swiftObject(for: RuntimeList.make()), "not an exported object")
+        #expect(delegate.values == [42])
+        #expect(native.swiftObject(for: RuntimeList.make()) == nil, "not an exported object")
     }
 
-    func testMethodAddedInLaterVersionIsAbsent() {
+    @Test func methodAddedInLaterVersionIsAbsent() {
         // A host that implements an older Counter without `reset`.
         let older = ContractDescriptor(
             name: CounterProxy.descriptor.name,
@@ -60,30 +62,30 @@ final class NativeModeTests: XCTestCase {
         )
         native.register(older, statics: nil)
         defer { ExampleHost.register(in: native) }
-        XCTAssertFalse(MethodReference(CounterProxy.classReference, "reset", "()V").isAvailable)
-        XCTAssertTrue(MethodReference(CounterProxy.classReference, "value", "()J").isAvailable)
+        #expect(!MethodReference(CounterProxy.classReference, "reset", "()V").isAvailable)
+        #expect(MethodReference(CounterProxy.classReference, "value", "()J").isAvailable)
     }
 
-    func testThrowingCallReportsNotFound() {
+    @Test func throwingCallReportsNotFound() {
         // An unknown class: rt_call is never reached, the proxy throws.
         let missing = MethodReference(ClassReference("org.example.Missing"), "run", "()V")
-        XCTAssertThrowsError(try Call(missing).invoke()) { error in
-            XCTAssertEqual(error as? RuntimeError, .notFound)
+        #expect(throws: RuntimeError.notFound) {
+            _ = try Call(missing).invoke()
         }
     }
 
-    func testValidation() {
+    @Test func validation() {
         let contracts = ExampleHost.contracts
-        XCTAssertEqual(native.runtime.validate(abiVersion: runtimeABIVersion, contracts: contracts, capabilities: [.bluetooth]), [])
+        #expect(native.runtime.validate(abiVersion: runtimeABIVersion, contracts: contracts, capabilities: [.bluetooth]) == [])
         let issues = native.runtime.validate(abiVersion: runtimeABIVersion, contracts: contracts, capabilities: [])
-        XCTAssertEqual(issues.map(\.contract), ["org.pureswift.example.Beacon"])
+        #expect(issues.map(\.contract) == ["org.pureswift.example.Beacon"])
     }
 
-    func testMetadataSection() throws {
+    @Test func metadataSection() throws {
         // The macro placed one rt.contracts record per contract in this
         // binary; decode them from the descriptors' encoding.
         let records = ExampleHost.contracts.flatMap(ContractMetadata.encode)
-        XCTAssertEqual(ContractMetadata.decode(records), ExampleHost.contracts)
+        #expect(ContractMetadata.decode(records) == ExampleHost.contracts)
     }
 }
 
