@@ -41,10 +41,19 @@ let package = Package(
         .library(name: "AppManifest", targets: ["AppManifest"]),
         // Example guest app. Scripts/guest.py builds its slices and bundle.
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
+        // The example app's contracts, for the linked-slice tests.
+        .library(name: "ExampleContracts", targets: ["ExampleContracts"]),
         // Example UI guest app (§9). Scripts/guest.py builds its slices.
         .library(name: "ExampleUI", type: .static, targets: ["ExampleUI"]),
         // Example host contracts, for tests in nested packages (Packages/).
         .library(name: "ExampleHost", targets: ["ExampleHost"]),
+    ],
+    traits: [
+        .trait(
+            name: "GuestExports",
+            description: "DynamicRuntime defines the rt_dispatch and rt_finalize exports. Guests need it; a host that links an app's native slice turns it off, because the slice defines them."
+        ),
+        .default(enabledTraits: ["GuestExports"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),

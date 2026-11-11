@@ -83,44 +83,18 @@ public enum Exported {
         context: ContextID
     ) -> ObjectHandle {
         guard !interfaces.contains(0) else { return 0 }
-        // One buffer holds every key and signature, so the declarations can
-        // point into it for the duration of the call.
-        var strings = [UInt8]()
-        var ranges = [(key: Range<Int>, signature: Range<Int>)]()
-        for method in methods {
-            let keyStart = strings.count
-            strings.append(contentsOf: method.key.utf8)
-            let signatureStart = strings.count
-            strings.append(contentsOf: method.signature.utf8)
-            ranges.append((keyStart..<signatureStart, signatureStart..<strings.count))
-        }
-        return strings.withUnsafeBufferPointer { buffer in
-            let base = buffer.cString
-            var declarations = ranges.map { range in
-                rt_method_decl(
-                    name: base.map { $0 + range.key.lowerBound },
-                    name_len: range.key.count,
-                    sig: base.map { $0 + range.signature.lowerBound },
-                    sig_len: range.signature.count
-                )
-            }
-            return interfaces.withUnsafeBufferPointer { interfaces in
-                declarations.withUnsafeMutableBufferPointer { declarations in
-                    rt_implement(
-                        interfaces.baseAddress,
-                        UInt32(truncatingIfNeeded: interfaces.count),
-                        declarations.baseAddress,
-                        UInt32(truncatingIfNeeded: declarations.count),
-                        context
-                    )
-                }
-            }
-        }
+        return Runtime.binding.implement(interfaces: interfaces, methods: methods, context: context)
     }
 
     // MARK: rt_dispatch / rt_finalize
 
-    static func dispatch(
+    /// `rt_dispatch`: the runtime invoked a method of an exported object.
+    /// Object arguments are borrowed; object results are +1. Async work the
+    /// call started runs before it returns.
+    ///
+    /// A guest's `rt_dispatch` export calls this. So does a host's own guest
+    /// in `RuntimeNative`, which reaches its exports directly.
+    public static func dispatch(
         context: ContextID,
         index: UInt32,
         target: ObjectHandle,
@@ -129,25 +103,30 @@ public enum Exported {
         results: UnsafeMutablePointer<Slot>?,
         resultCount: UInt32
     ) -> RuntimeStatus {
-        guard let dispatch = exportEntries[context]?.dispatch else {
-            return .notFound
-        }
-        var arguments = Arguments(arguments, count: Int(argumentCount))
-        let results = ResultWriter(results, count: Int(resultCount))
-        do throws(RuntimeError) {
-            try dispatch(index, target, &arguments, results)
-            return .ok
-        } catch {
-            lastDispatchError = error.message
-            return error.status
+        GuestExecutor.enter {
+            guard let dispatch = exportEntries[context]?.dispatch else {
+                return .notFound
+            }
+            var arguments = Arguments(arguments, count: Int(argumentCount))
+            let results = ResultWriter(results, count: Int(resultCount))
+            do throws(RuntimeError) {
+                try dispatch(index, target, &arguments, results)
+                return .ok
+            } catch {
+                lastDispatchError = error.message
+                return error.status
+            }
         }
     }
 
-    static func finalize(context: ContextID) {
-        guard let entry = exportEntries[context] else { return }
-        entry.nativeCount -= 1
-        if entry.nativeCount <= 0 {
-            remove(context)
+    /// `rt_finalize`: the runtime destroyed the native object for `context`.
+    public static func finalize(context: ContextID) {
+        GuestExecutor.enter {
+            guard let entry = exportEntries[context] else { return }
+            entry.nativeCount -= 1
+            if entry.nativeCount <= 0 {
+                remove(context)
+            }
         }
     }
 
@@ -182,6 +161,12 @@ nonisolated(unsafe) private var nextExportContext: ContextID = 1
 nonisolated(unsafe) private var lastDispatchError: String?
 
 // MARK: - Guest exports
+//
+// The `GuestExports` package trait (on by default) defines them. A host that
+// links an app's native slice turns it off: the slice defines these symbols,
+// and the host's own exports are reached through `Exported.dispatch`.
+
+#if GuestExports
 
 /// `rt_dispatch`: a native caller invoked a method of an exported object.
 @_expose(wasm, "rt_dispatch")
@@ -195,18 +180,15 @@ public func _rt_dispatch(
     _ results: UnsafeMutablePointer<rt_slot>?,
     _ resultCount: UInt32
 ) -> rt_status {
-    // Async work the call started runs before control returns to the host.
-    let status = GuestExecutor.enter {
-        Exported.dispatch(
-            context: context,
-            index: index,
-            target: target,
-            arguments: arguments,
-            argumentCount: argumentCount,
-            results: results,
-            resultCount: resultCount
-        )
-    }
+    let status = Exported.dispatch(
+        context: context,
+        index: index,
+        target: target,
+        arguments: arguments,
+        argumentCount: argumentCount,
+        results: results,
+        resultCount: resultCount
+    )
     return rt_status(rawValue: status.rawValue)
 }
 
@@ -214,7 +196,7 @@ public func _rt_dispatch(
 @_expose(wasm, "rt_finalize")
 @c(rt_finalize)
 public func _rt_finalize(_ context: UInt32) {
-    GuestExecutor.enter {
-        Exported.finalize(context: context)
-    }
+    Exported.finalize(context: context)
 }
+
+#endif

@@ -49,8 +49,9 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
   its own (§3), binds a wasm instance's `rt` imports to any `HostRuntime`, normally the same shared one,
   so host objects and wasm objects live in one handle table.
 - Each object made by `rt_implement` remembers its `Guest`: the wasm instance
-  (`WasmGuest`, called through its exports) or native code in the process
-  (`NativeGuest`, called through the `rt_dispatch` C symbol).
+  (`WasmGuest`, called through its exports), native code in the process
+  (`NativeGuest`, called through its `rt_dispatch` export), or the host's own
+  Swift code once it uses the direct binding (`HostGuest`, §3).
 - **Host Swift code is a native guest.** A Swift implementation of a contract
   is registered as a class with a static-method table. Its instances are
   exported with `rt_implement` through the native `rt_*` symbols, and it
@@ -73,6 +74,30 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 
 **Implementation choices:**
 
+- **Host builds of `DynamicRuntime`.** A host links an app's sealed slice
+  next to its own Swift code, which uses `DynamicRuntime` for its proxies
+  and exports. Both defined `rt_dispatch` and `rt_finalize`, and the host's
+  exports went through the C `rt_implement` the slice uses, so the runtime
+  took them for the app's. Now:
+  - The `GuestExports` package trait (on by default) gates `DynamicRuntime`'s
+    `@c(rt_dispatch)` / `@c(rt_finalize)`. Hosts depend on AppRuntime with
+    `traits: []`. `guest.py` passes each package's default traits to
+    `swiftc`, as SwiftPM does.
+  - `Runtime` and `Exported` call through `Runtime.binding`
+    (`RuntimeBinding`): the `rt_*` functions (`CRuntimeBinding`) by default,
+    or `DirectRuntimeBinding`, which calls a `HostRuntime` as a given guest.
+    `NativeRuntime.bindDirectly()` sets it, with `NativeRuntime.host` (a
+    `HostGuest`, whose `dispatch` calls `Exported.dispatch`) as the guest.
+  - `NativeGuest`, the app, calls the `rt_dispatch` / `rt_finalize` it's
+    given: `start(rt_main, dispatch: rt_dispatch, finalize: rt_finalize)`.
+    With the trait on they default to `DynamicRuntime`'s, so in-process
+    guests (this package's tests) need nothing.
+  - `HostRuntime` keys each implementation by its guest, so the app's and
+    the host's contexts, both numbered from 1, stay apart. Capabilities
+    gate only the app: `HostGuest` is unrestricted.
+  - The thrown-message hand-off (`Exported.takeDispatchErrorMessage()`) works
+    for the host's exports. A sealed slice keeps its own messages, as a wasm
+    guest does.
 - **Platform minimums.** The package supports macOS 12 / iOS 15, the oldest
   deployment targets current Xcode accepts (`.v10_15` and `.v13` are
   deprecated), so a host can depend on it at its own minimum. Swift
@@ -340,7 +365,8 @@ Each of these needs a decision, or is verified only as far as noted:
    Both are host jobs.
 9. **Package settings** (defines, unsafe flags, conditional dependencies)
    aren't read by `guest.py`; every target is compiled as an Embedded Swift
-   library with fixed flags.
+   library with fixed flags, plus its package's default traits as defines.
+   Traits a dependent package sets on its dependencies aren't read either.
 
 ## 5. Tests
 
@@ -352,6 +378,15 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests`: the example app as a native slice, end to end
   (every wire type, callbacks both ways, throws, lists, identity, capability
   gating, leak check).
+- `LinkedSliceTests` (`Packages/LinkedSlice`): a host built like a platform
+  host, with AppRuntime's traits off, linked with `ExampleApp`'s sealed macOS
+  slice (built by `Scripts/guest.py slice --product ExampleApp --target
+  macos`; skipped without it). The app runs through the slice's exports with
+  no capabilities while the host keeps its own; the host's exports belong to
+  `HostGuest`; nothing leaks on either side. With the trait on, the same
+  link fails with duplicate `rt_dispatch` / `rt_finalize` under SwiftPM's
+  native build system. Swift Build, the default, lists the duplicates but
+  doesn't fail the link.
 - `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
   hand-written WAT guests, and the same example app as `App.wasm` (built by
   `Scripts/build-wasm.sh ExampleApp`; skipped without it), including
