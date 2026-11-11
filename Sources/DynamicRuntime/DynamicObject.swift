@@ -37,6 +37,16 @@ open class DynamicObject {
         Runtime.same(handle, other.handle)
     }
 
+    /// Identity of two contract objects: `rt_same` for proxies, `===` for
+    /// anything else. Handles aren't unique per object, so async wrappers
+    /// match delegate callbacks to pending requests with this.
+    public static func same(_ a: AnyObject, _ b: AnyObject) -> Bool {
+        if let a = a as? DynamicObject, let b = b as? DynamicObject {
+            return a.isSame(as: b)
+        }
+        return a === b
+    }
+
     /// Type test through `rt_is_instance`.
     public func isInstance(of cls: ClassReference) -> Bool {
         Runtime.isInstance(handle, of: cls.id)
