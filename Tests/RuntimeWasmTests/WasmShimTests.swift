@@ -86,6 +86,9 @@ import WasmKit
         let native = NativeRuntime.shared
         ExampleHost.lines = []
         ExampleHost.register(in: native)
+        let clock = ManualClock()
+        native.runtime.clock = clock
+        defer { native.runtime.clock = nil }
         let handles = native.runtime.handleCount
 
         let app = try WasmApp(bytes: Array(bytes), runtime: native.runtime, capabilities: [])
@@ -96,11 +99,35 @@ import WasmKit
         #expect(issues.map(\.contract) == ["org.pureswift.example.Beacon"], "only the ungranted capability")
         let status = try app.start()
 
-        let lines = ExampleHost.lines
+        var lines = ExampleHost.lines
         #expect(status == .ok, "\(lines.joined(separator: "\n"))")
-        #expect(lines.filter { $0.hasPrefix("FAIL") } == [])
         #expect(lines.contains("beacon refused"), "the manifest grants no capabilities")
-        #expect(lines.last == "done")
+        // The guest executor ran the app's tasks before rt_main returned,
+        // up to their sleeps.
+        #expect(Array(lines.drop { $0 != "done" }) == [
+            "done",
+            "ok cancel before sleep",
+            "async started",
+            "ok task value",
+        ])
+        #expect(clock.pendingCount == 2, "the 1 ms and 1 s sleeps")
+
+        // The 1 ms timer resumes the main task through rt_dispatch, which
+        // cancels the 1 s sleep.
+        clock.advance(by: 1_000_000)
+        lines = ExampleHost.lines
+        #expect(Array(lines.drop { $0 != "ok task value" }.dropFirst()) == [
+            "ok sleep",
+            "async done",
+            "ok cancel while sleeping",
+        ])
+        #expect(clock.pendingCount == 1)
+
+        // The cancelled sleep's timer still fires, and does nothing.
+        clock.advance(by: 1_000_000_000)
+        #expect(clock.pendingCount == 0)
+        #expect(ExampleHost.lines.count == lines.count)
+        #expect(ExampleHost.lines.filter { $0.hasPrefix("FAIL") } == [])
         #expect(native.runtime.handleCount == handles)
     }
 }
