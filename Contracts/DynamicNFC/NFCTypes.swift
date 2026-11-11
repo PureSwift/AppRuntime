@@ -86,4 +86,17 @@ public enum NFCError: Int32, Error, Sendable {
     case transceiveFailed = 14
     case invalidParameter = 15
     case notAvailableInNDEFSession = 16
+    /// The waiting task was cancelled. The async wrappers throw it; hosts
+    /// never send it.
+    case cancelled = 17
+}
+
+public extension NFCError {
+
+    /// The error for a delegate `error` code: `nil` for `0`, success; codes
+    /// this version doesn't know are `unknown`.
+    init?(code: Int32) {
+        guard code != 0 else { return nil }
+        self = NFCError(rawValue: code) ?? .unknown
+    }
 }
