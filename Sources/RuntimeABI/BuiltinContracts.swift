@@ -58,8 +58,99 @@ public enum BuiltinContracts {
         ]
     )
 
+    /// `Permissions`: one way to ask for any capability (§7.4). Contracts
+    /// keep their own `request…` methods for contract-specific options.
+    public static let permissionsName = "org.pureswift.runtime.Permissions"
+
+    /// `PermissionsDelegate`: the result of a `Permissions` request.
+    public static let permissionsDelegateName = "org.pureswift.runtime.PermissionsDelegate"
+
+    public static let permissions = ContractDescriptor(
+        name: permissionsName,
+        kind: .contract,
+        version: 1,
+        methods: [
+            // A `PermissionStatus` raw value for a `Capability` raw value.
+            // Never prompts.
+            MethodDescriptor("status:", "(O)I", .static),
+            // Asks for a capability, prompting if needed; the result arrives
+            // through the delegate, which the host holds until then.
+            MethodDescriptor("request:delegate:", "(OO)V", .static),
+        ]
+    )
+
+    public static let permissionsDelegate = ContractDescriptor(
+        name: permissionsDelegateName,
+        kind: .callback,
+        version: 1,
+        methods: [
+            MethodDescriptor("didRequest:status:", "(OI)V"),
+        ]
+    )
+
+    /// `Bundle`: the app's metadata and localized strings. The guest reads
+    /// them through the host, never from files (§7.4).
+    public static let bundleName = "org.pureswift.runtime.Bundle"
+
+    public static let bundle = ContractDescriptor(
+        name: bundleName,
+        kind: .contract,
+        version: 1,
+        methods: [
+            MethodDescriptor("identifier", "()O", .static),
+            MethodDescriptor("version", "()O", .static),
+            MethodDescriptor("build", "()O", .static),
+            // The user's languages, most preferred first.
+            MethodDescriptor("preferredLanguages", "()O", .static),
+            // A string from the bundle's tables for the user's language;
+            // `nil` when there's none.
+            MethodDescriptor("localizedString:table:", "(OO)O", .static),
+        ]
+    )
+
+    /// `Application`: the app's lifecycle and incoming URLs.
+    public static let applicationName = "org.pureswift.runtime.Application"
+
+    /// `ApplicationDelegate`: lifecycle events and URLs, from the host.
+    public static let applicationDelegateName = "org.pureswift.runtime.ApplicationDelegate"
+
+    public static let application = ContractDescriptor(
+        name: applicationName,
+        kind: .contract,
+        version: 1,
+        methods: [
+            MethodDescriptor("make:", "(O)O", .constructor),
+            // An `ApplicationState` raw value.
+            MethodDescriptor("state", "()I"),
+        ]
+    )
+
+    public static let applicationDelegate = ContractDescriptor(
+        name: applicationDelegateName,
+        kind: .callback,
+        version: 1,
+        methods: [
+            MethodDescriptor("didChangeState:state:", "(OI)V"),
+            MethodDescriptor("didReceiveMemoryWarning:", "(O)V"),
+            // Whether the app handled the URL.
+            MethodDescriptor("open:url:", "(OO)Z"),
+        ]
+    )
+
     /// Every built-in descriptor.
     public static var all: [ContractDescriptor] {
-        [list, string, bytes, clock, clockDelegate]
+        [
+            list, string, bytes, clock, clockDelegate,
+            permissions, permissionsDelegate, bundle, application, applicationDelegate,
+        ]
+    }
+
+    /// The prefix of every built-in contract's name.
+    public static let namespace = "org.pureswift.runtime."
+
+    /// Whether `name` is a built-in contract's. Every host provides those,
+    /// so apps don't list them in `rt.contracts`.
+    public static func isBuiltin(_ name: String) -> Bool {
+        name.utf8.starts(with: namespace.utf8)
     }
 }

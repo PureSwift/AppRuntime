@@ -14,11 +14,12 @@ builds and the first provider contracts:
 
 | Roadmap item | Status |
 |---|---|
-| `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm`; the example app passes in both modes |
+| `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
+| `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
@@ -44,8 +45,8 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 ```
 
 - `RuntimeCore.HostRuntime` is instance-based. `RuntimeNative` exports the
-  `rt_*` C symbols over `NativeRuntime.shared`; `RuntimeWasm` binds a wasm
-  instance's `rt` imports to any `HostRuntime`, normally the same shared one,
+  `rt_*` C symbols over `NativeRuntime.shared`; `RuntimeWasm`, a package of
+  its own (§3), binds a wasm instance's `rt` imports to any `HostRuntime`, normally the same shared one,
   so host objects and wasm objects live in one handle table.
 - Each object made by `rt_implement` remembers its `Guest`: the wasm instance
   (`WasmGuest`, called through its exports) or native code in the process
@@ -72,6 +73,15 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 
 **Implementation choices:**
 
+- **Platform minimums.** The package supports macOS 12 / iOS 15, the oldest
+  deployment targets current Xcode accepts (`.v10_15` and `.v13` are
+  deprecated), so a host can depend on it at its own minimum. Swift
+  Concurrency, `TaskLocal` included, back-deploys that far, and the shared
+  modules use nothing newer. WasmKit declares macOS 15 / iOS 18, and SwiftPM
+  rejects a product whose minimum is higher than its client's even behind a
+  package trait, so the WasmKit engine and its tests moved to
+  `Packages/RuntimeWasm`, which depends on this package by path. The root
+  package exports `ExampleHost` for those tests.
 - **SwiftUI frontend** (§9): ported from Swift-iOS6's Embedded SwiftUI, with
   its backend calls replaced by render IR. Identity is positional, with no
   reflection: each composed view's `body` runs in a scope keyed by its
@@ -116,6 +126,25 @@ Not in phase one: platform hosts and backends (ObjC, JNI), renderers
   `rt_dispatch` arguments and results in linear memory, which the ABI had no
   other way to do, so every wasm host, including a browser host, uses them.
   Native hosts pass their own pointers and never call them.
+- **`Permissions`, `Bundle` and `Application`** are built-ins every host
+  provides. Unlike `Clock`, the runtime core doesn't implement them: they're
+  `@DynamicRuntime` protocols in `DynamicRuntime`, so a host implements them
+  like any contract (`PermissionsProxy.register(MyPermissions.self, in:
+  native)`). `HostRuntime` registers their descriptors
+  (`BuiltinContracts`) at start, so they resolve before the host registers
+  an implementation, and calls fail with `.notFound` until it does. Their
+  methods throw `RuntimeError`, so a guest can handle a host without them.
+  - Contracts in the `org.pureswift.runtime.` namespace get no `rt.contracts`
+    record: apps don't declare what every host provides, and a record would
+    land in every app that links `DynamicRuntime`.
+  - `Bundle` is `AppBundle` in Swift, so a host that imports Foundation can
+    still write `Bundle`.
+  - `Permissions` takes a `Capability`, which travels as its raw string. A
+    host reports `.denied` for capabilities the app's manifest doesn't
+    declare.
+  - The delegates take their object first, like the provider contracts'
+    (`didChangeState(_:state:)`), and `ApplicationState`'s raw values match
+    `UIApplication.State`.
 - **Contracts are class-bound** (`protocol Central: AnyObject`). Embedded
   Swift only supports existentials of class-bound protocols, and contract
   parameters such as `Peripheral` are existentials. The macro reports a
@@ -198,6 +227,7 @@ and `Scripts/build-bundle.sh`.
 | `wasm32` | `wasm32-unknown-wasip1` | WASI reactor (`-mexec-model=reactor`), debug info stripped, `rt.contracts` added |
 | `ios-armv7` | `armv7-apple-none-macho`, stamped iOS 6.0 | Swift-iOS6 setup: `-marm -ffixed-r9`, soft-float helpers from libSystem, `memset_s` / `__cxa_pure_virtual` sealed in |
 | `ios-arm64` | `arm64-apple-none-macho`, stamped iOS 13.0 | |
+| `ios-simulator` | arm64 none-macho + `x86_64-apple-macos26`, stamped iOS Simulator 13.0 | fat archive; x86_64 objects restamped before sealing (finding 1) |
 | `macos` | arm64 none-macho (11.0) + `x86_64-apple-macos14` stamped 10.15 | fat archive |
 | `tvos-arm64`, `visionos-arm64` | `arm64-apple-none-macho`, stamped tvOS 13 / visionOS 1 | |
 | `watchos-arm64` | `arm64-apple-none-macho`, stamped watchOS 6 | arm64 watches only |
@@ -232,6 +262,18 @@ Each of these needs a decision, or is verified only as far as noted:
    visionOS. Embedded code makes no OS calls, so the slices are built for
    `none-macho` (same Darwin calling convention) and stamped with the
    platform at seal time. They link, but haven't run on devices.
+
+   The simulator's linker rejects objects stamped for iOS devices
+   ("building for 'iOS-simulator', but linking in object file … built for
+   'iOS'"), so `ios-simulator` is its own slice, stamped
+   `PLATFORM_IOSSIMULATOR` (7). x86_64 has no simulator stdlib, so its
+   objects are built for macOS like the `macos` slice, and `guest.py`
+   rewrites the `LC_BUILD_VERSION` of each object and runtime archive member
+   to the simulator before `ld -r`: ld won't mix platforms, and `vtool`
+   can't grow an object's load commands. Both architectures link into an
+   iOS Simulator executable. The arm64 one ran in the iOS 26 simulator
+   (`rt_dispatch` with an unknown context returned `RT_ERR_NOT_FOUND`); the
+   x86_64 one hasn't run, since Apple silicon simulators run arm64.
 2. **watchOS 6 hardware is arm64_32,** for which no Embedded stdlib
    exists. `watchos-arm64` covers arm64 watches only; arm64_32 watches need
    `App.wasm` (wasm2c in the host's packager).
@@ -310,12 +352,13 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests`: the example app as a native slice, end to end
   (every wire type, callbacks both ways, throws, lists, identity, capability
   gating, leak check).
-- `RuntimeWasmTests`: the import shim with hand-written WAT guests, and the
-  same example app as `App.wasm` (built by `Scripts/build-wasm.sh
-  ExampleApp`; skipped without it), including `rt.contracts` validation and
-  its async checks: tasks run before `rt_main` returns, sleeps resume when
-  the test advances a `ManualClock`, and cancellation before and during a
-  sleep. Embedded only: in host tests Swift's own executor runs guest code.
+- `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
+  hand-written WAT guests, and the same example app as `App.wasm` (built by
+  `Scripts/build-wasm.sh ExampleApp`; skipped without it), including
+  `rt.contracts` validation and its async checks: tasks run before
+  `rt_main` returns, sleeps resume when the test advances a `ManualClock`,
+  and cancellation before and during a sleep. Embedded only: in host tests
+  Swift's own executor runs guest code.
 - Contract test targets (`DynamicBluetoothTests`, `DynamicLocationTests`,
   …): names, capabilities, keys and signatures of the provider contracts, and
   their async wrappers against fake Swift hosts through `NativeRuntime`:
@@ -342,6 +385,9 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests/AsyncHelperTests`: `EventStream` buffering,
   failure, and termination on finish, cancellation and release;
   `withCallback`; `PendingCallbacks` ordering; `EventSubscribers` fan-out.
+- `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
+  and `Application` built-ins against fake hosts, calls before a host
+  implements them, and their descriptors against `BuiltinContracts`.
 
 ## 6. Next
 

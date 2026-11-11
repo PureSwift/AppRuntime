@@ -19,6 +19,12 @@ written separately.
 
 ## Packages
 
+The package supports macOS 12 and iOS 15, the oldest deployment targets
+current Xcode accepts. The WasmKit engine needs macOS 15 / iOS 18, so it is
+its own package, [`Packages/RuntimeWasm`](Packages/RuntimeWasm), which
+depends on this one by path. Hosts that ship only native slices or wasm2c
+don't depend on WasmKit.
+
 | Target | Role | Embedded |
 |---|---|---|
 | `CRuntime` | `rt.h`, plus `rt_guest.h` (ABI version, section names, wasm allocator) | C, freestanding |
@@ -27,7 +33,7 @@ written separately.
 | `DynamicRuntimeMacros` | `@DynamicRuntime` / `@DynamicCallback`: proxies, dispatch adapters, metadata records | build machine |
 | `RuntimeCore` | Runtime core: handle table, registry, Swift-registry backend, validation | yes |
 | `RuntimeNative` | `rt_*` as C symbols, for native slices and host Swift code | yes |
-| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore` | host |
+| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `AppRuntime`, `bundle-runtime`, `CBundleRuntime` | Linux bundle model, launcher and sandbox | Linux |
 
@@ -63,6 +69,18 @@ public func appMain() -> rt_status {
 Async code runs on the guest executor: tasks run before each call from the
 host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
 `Task.sleep`, which Embedded Swift doesn't have.
+
+Every host also provides the built-in `Permissions`, `Bundle` (`AppBundle` in
+Swift) and `Application` contracts: one way to ask for any capability, the
+app's metadata and localized strings, and its lifecycle and incoming URLs.
+
+```swift
+let greeting = try AppBundleProxy.localizedString("greeting", table: nil) ?? "Hello"
+if try PermissionsProxy.status(.location) == PermissionStatus.notDetermined.rawValue {
+    try PermissionsProxy.request(.location, delegate: permissionsDelegate)
+}
+let application = try ApplicationProxy.make(lifecycleDelegate)
+```
 
 Each provider contract also has async wrappers for guest code, such as
 `AsyncCentral`, `AsyncLocationManager` and `HTTPSession.data(for:)`. Event
@@ -129,6 +147,13 @@ swift sdk install https://download.swift.org/swift-6.4.2-release/wasm-sdk/swift-
 
 ```sh
 swift build
+swift test
+```
+
+The WasmKit engine's tests run from its own package:
+
+```sh
+cd Packages/RuntimeWasm
 swift test
 ```
 
@@ -202,9 +227,9 @@ Scripts/fetch-embedded-linux.sh
 
 Without it, those two slices are built without concurrency.
 
-`RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
-(`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
-as a native slice.
+`RuntimeWasmTests` (in `Packages/RuntimeWasm`) runs the example app's
+`App.wasm` when it has been built (`Scripts/build-wasm.sh ExampleApp`), the
+same app `DynamicRuntimeTests` runs as a native slice.
 
 ## Linux bundle launcher
 

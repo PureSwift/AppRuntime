@@ -559,6 +559,7 @@ Guest-side SDK libraries (the SwiftUI frontend, the Observation module, contract
 |---|---|
 | `wasm32` | `App.wasm`, a WASI **reactor** module, not a command (required; every host can use it) |
 | `ios-arm64`, `ios-armv7` (iOS 6) | `libapp.a`, Mach-O objects |
+| `ios-simulator` | `libapp.a`, Mach-O objects stamped for the iOS Simulator (arm64 + x86_64 in one archive) |
 | `macos` | `libapp.a`, Mach-O objects (arm64 + x86_64 in one archive allowed) |
 | `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.a`, ELF PIC objects |
 | `android-arm64-v8a`, `android-armeabi-v7a`, `android-x86_64` | `libapp.a`, ELF PIC objects |

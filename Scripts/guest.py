@@ -130,6 +130,13 @@ TARGETS = {
              cflags=["-marm", "-ffixed-r9"], support=["ios6-compat.c"])]),
     "ios-arm64": dict(kind="macho", about="iOS 13", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="ios", minimum="13.0")]),
+    # The simulator rejects objects stamped for devices, so it has its own
+    # slice: the same code, stamped PLATFORM_IOSSIMULATOR (7).
+    # x86_64 has no simulator stdlib: its macOS objects are restamped first.
+    "ios-simulator": dict(kind="macho", about="iOS Simulator 13, arm64 + x86_64 in one archive", slices=[
+        dict(triple=APPLE_ARM64, arch="arm64", platform="ios-simulator", minimum="13.0"),
+        dict(triple="x86_64-apple-macos26", arch="x86_64", platform="ios-simulator", minimum="13.0",
+             restamp=True)]),
     "macos": dict(kind="macho", about="macOS 10.15, arm64 + x86_64 in one archive", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="macos", minimum="11.0"),
         dict(triple="x86_64-apple-macos26", arch="x86_64", platform="macos", minimum="10.15")]),
@@ -157,7 +164,7 @@ TARGETS = {
 
 PLATFORM_GROUPS = {
     "wasm": ["wasm32"],
-    "ios": ["ios-armv7", "ios-arm64"],
+    "ios": ["ios-armv7", "ios-arm64", "ios-simulator"],
     "macos": ["macos"],
     "tvos": ["tvos-arm64"],
     "watchos": ["watchos-arm64"],
@@ -530,8 +537,61 @@ def seal_elf(toolchain, objects, libraries, output):
     return sealed
 
 
+# LC_BUILD_VERSION platform numbers (<mach-o/loader.h>), for restamping.
+MACHO_PLATFORMS = {"ios-simulator": 7}
+
+
+def restamp_macho(path, platform, minimum):
+    """Rewrites the LC_BUILD_VERSION of an object, or of every object in an
+    archive, in place: platform, minimum OS, and no SDK.
+
+    ld won't link objects built for one platform into another, and `vtool`
+    can't rewrite objects, whose load commands have no room to grow. The
+    command keeps its size, so archive offsets stay valid.
+    """
+    data = bytearray(Path(path).read_bytes())
+    major, _, minor = minimum.partition(".")
+    version = (int(major) << 16) | (int(minor or 0) << 8)
+
+    def patch(start):
+        magic, = struct.unpack_from("<I", data, start)
+        if magic != 0xFEEDFACF:  # 64-bit little-endian Mach-O
+            return 0
+        ncmds, = struct.unpack_from("<I", data, start + 16)
+        offset, patched = start + 32, 0
+        for _ in range(ncmds):
+            command, size = struct.unpack_from("<II", data, offset)
+            if command == 0x32:  # LC_BUILD_VERSION
+                struct.pack_into("<III", data, offset + 8, platform, version, 0)
+                patched += 1
+            elif command in (0x24, 0x25, 0x2F, 0x30):  # LC_VERSION_MIN_*
+                raise BuildError(f"{path}: LC_VERSION_MIN can't be restamped")
+            offset += size
+        return patched
+
+    if data.startswith(b"!<arch>\n"):
+        offset, patched = 8, 0
+        while offset + 60 <= len(data):
+            name = data[offset:offset + 16].decode("ascii").strip()
+            size = int(data[offset + 48:offset + 58].decode("ascii").strip())
+            start = offset + 60
+            if name.startswith("#1/"):  # BSD long name, stored before the data
+                start += int(name[3:])
+            patched += patch(start)
+            offset += 60 + size + (size & 1)
+    else:
+        patched = patch(0)
+    if not patched:
+        raise BuildError(f"{path}: no LC_BUILD_VERSION to restamp")
+    Path(path).write_bytes(data)
+
+
 def seal_macho(toolchain, objects, libraries, output, slice_config):
     sealed = output / f"app-{slice_config['arch']}.o"
+    if slice_config.get("restamp"):
+        platform = MACHO_PLATFORMS[slice_config["platform"]]
+        for path in [*objects, *libraries]:
+            restamp_macho(path, platform, slice_config["minimum"])
     exports = output / "exports.txt"
     exports.write_text("".join(f"_{s}\n" for s in GUEST_EXPORTS))
     minimum = slice_config["minimum"]
