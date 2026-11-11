@@ -45,9 +45,12 @@ enum ContractExpansion {
             return []
         }
         let generator = ContractGenerator(model: model)
-        let declarations = [generator.proxyDeclaration()]
-            + generator.marshalingDeclarations()
-            + [generator.metadataDeclaration()]
+        var declarations = [generator.proxyDeclaration()] + generator.marshalingDeclarations()
+        // Every host provides the built-in contracts, so apps don't list
+        // them in `rt.contracts`.
+        if !BuiltinContracts.isBuiltin(model.runtimeName) {
+            declarations.append(generator.metadataDeclaration())
+        }
         return declarations.map { DeclSyntax(stringLiteral: $0) }
     }
 }
