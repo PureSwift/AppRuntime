@@ -530,12 +530,13 @@ def seal_elf(toolchain, objects, libraries, output):
     return sealed
 
 
-def seal_macho(toolchain, objects, libraries, output, slice_config, manifest=None):
+def seal_macho(toolchain, objects, libraries, output, slice_config):
     sealed = output / f"app-{slice_config['arch']}.o"
     exports = output / "exports.txt"
     exports.write_text("".join(f"_{s}\n" for s in GUEST_EXPORTS))
     minimum = slice_config["minimum"]
     sections = []
+    manifest = slice_config.get("manifest")  # rt.manifest's bytes
     if manifest is not None:
         manifest_file = output / "rt.manifest.json"
         manifest_file.write_bytes(manifest)
@@ -821,7 +822,8 @@ class Builder:
             support = [*slice_config.get("support", []), *([CONCURRENCY_SUPPORT] if concurrency else [])]
             objects += compiler.compile_support(support)
             libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency, directory / "objects")
-            sealed = seal_macho(self.toolchain, objects, libraries, directory, slice_config, self.manifest)
+            sealed = seal_macho(self.toolchain, objects, libraries, directory,
+                                dict(slice_config, manifest=self.manifest))
             problems = check_sealed(self.toolchain, sealed, macho=True, manifest=self.manifest)
             if problems:
                 raise BuildError(f"{output.name} ({slice_config['arch']}):\n  " + "\n  ".join(problems))
