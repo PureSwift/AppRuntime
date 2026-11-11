@@ -78,6 +78,14 @@ frontend. TCP and UDP are not part of the spec.
   Swift only supports existentials of class-bound protocols, and contract
   parameters such as `Peripheral` are existentials. The macro reports a
   missing `AnyObject` with a fix-it. The design's examples omit it.
+- **Raw string types.** A contract can declare a `RawRepresentable` type with
+  `String` raw values, such as `BluetoothUUID`; it travels as its `rawValue`.
+  A macro only sees syntax, so generated code calls `_rtEncode` and
+  `_rtDecode…` by name and the compiler picks between each contract's overloads
+  and the generic ones in `DynamicRuntime`. A method returning such a type must
+  be declared `throws` (anything else is a compile error), and an invalid
+  string throws `RuntimeError.thrown`. An invalid callback argument fails the
+  incoming call the same way.
 - **Method keys:** the base name, `:` for the first parameter, then
   `label:` per later parameter (`connect(_:timeout:)` → `connect:timeout:`,
   `replaceSubtree(_:_:)` → `replaceSubtree::`). See `RuntimeABI.MethodKey`.
@@ -168,11 +176,19 @@ Each of these needs a decision, or is verified only as far as noted:
    It is in the allowed set as "random", but **musl doesn't provide it**.
    On a musl distro, `librt.so` (or a shim at install-time link) has to
    supply it.
-7. **iOS 6** still needs the host's stack realignment on calls into the
+7. **No concurrency in native slices yet.** Native slices are compiled with
+   `EMBEDDED_NO_CONCURRENCY`, because the prebuilt concurrency runtime needs
+   the guest executor's hooks (§5.4), which don't exist yet, and more libc than
+   §7.5 allows. Separately, the toolchain ships no `_Concurrency` module at
+   all for `aarch64-none-none-elf`, so `linux-arm64` and `android-arm64-v8a`
+   will still need a runtime built for them. `canImport(_Concurrency)`
+   returns true on that triple, because the module exists for others, so
+   packages check the define. wasm32 links the runtime.
+8. **iOS 6** still needs the host's stack realignment on calls into the
    slice, and the Thumb-bit fixup for the prebuilt concurrency runtime after
    the final link (Swift-iOS6's `objcrt_call_aligned` and `thumbfix.py`).
    Both are host jobs.
-8. **Package settings** (defines, unsafe flags, conditional dependencies)
+9. **Package settings** (defines, unsafe flags, conditional dependencies)
    aren't read by `guest.py`; every target is compiled as an Embedded Swift
    library with fixed flags.
 
