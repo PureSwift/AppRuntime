@@ -377,20 +377,23 @@ Guests use `@Observable` / `@Bindable` with Apple's source API.
 
 `async`/`await` and `AsyncStream` are guest-side sugar over delegate contracts (§6.2.1). The Embedded concurrency runtime (`libswift_Concurrency.a`) assumes a single thread, which matches the guest model.
 
-**Executor:** the guest **replaces the default cooperative executor**. Its drain loop never returns, and under WASI it would block the host thread while waiting on sleeps. The replacement:
+**Executor:** the guest **replaces the default cooperative executor**. Its drain loop never returns, and under WASI it would block the host thread while waiting on sleeps. The replacement (`GuestExecutor` in `DynamicRuntime`):
 
-- **Immediate jobs:** queued and drained before the guest returns from `rt_dispatch` and from its entry point. The host never blocks waiting on a task.
-- **Delayed jobs** (`Task.sleep(nanoseconds:)`): scheduled through the built-in `Clock` contract (`after(nanoseconds, delegate)`). The timer fires through `rt_dispatch`, which enqueues the job and drains.
-- **Deadline jobs** (clock-based `sleep(until:)` / `sleep(for:)`): Embedded Swift doesn't have clocks yet, so the executor treats them as immediate. Guest code uses `Task.sleep(nanoseconds:)`.
+- **Immediate jobs:** queued inside the guest and drained just before control returns to the host: when `rt_main` (through `Runtime.main`), `rt_dispatch` or `rt_finalize` returns. The host never blocks waiting on a task. A call that re-enters the guest while a job runs (guest → host → guest) doesn't drain, so jobs never interleave.
+- **Sleeping:** Embedded Swift 6.4 has no clocks and no `Task.sleep`, so guests call `RuntimeClock.sleep(nanoseconds:)`. It suspends on a continuation, schedules a timer through the built-in `Clock` contract (§7.4) and throws `CancellationError` if the task is cancelled first. The timer fires through `rt_dispatch`, which resumes the task and drains.
+- **Delayed jobs** (the runtime's delay hook): scheduled through the same `Clock` contract.
+- **Deadline jobs:** without clocks there's nothing to set a deadline with, so the executor treats them as immediate.
 - **Main actor:** the main executor and the global executor are the same queue.
+
+The hooks are the Embedded runtime's `swift_task_enqueueGlobalImpl` family (`swift/ExecutorImpl.h`), written in Swift with `@_silgen_name`, the same set Swift-iOS6's `Executor.c` defines. They're compiled only for Embedded builds; in host tests, Swift's own executor runs guest code.
 
 **Per mode:**
 
 | Mode | Executor implementation |
 |---|---|
-| native armv7 / iOS 6 | C hooks (`swift_task_enqueueGlobalImpl`, …) compiled for the bare-metal target, posting to the main queue. This is Swift-iOS6's `Executor.c`. It also needs the `memset_s` and `__cxa_pure_virtual` shims and the Thumb-bit fixup for the prebuilt runtime. |
-| native, other platforms | the same hooks, posting to the platform main loop (main queue / Android `Looper` / the Linux runtime loop) |
-| wasm32 | Swift executor via the default-executor API (`DefaultExecutorFactory`); delayed jobs go through the `Clock` contract. Supported by the pinned Swift 6.4 toolchain. Build for `wasm32-unknown-wasip1`, not `-threads`. |
+| wasm32 | `GuestExecutor`. The wasm runtime defines the isolation checks itself. Build for `wasm32-unknown-wasip1`, not `-threads`. |
+| native (Apple, armv7 and x86_64 ELF) | `GuestExecutor`, plus the isolation-check hooks. The prebuilt runtime's few libc calls outside §7.5 (fatal-error printing, the cooperative executor's sleep), and Swift functions that only a dead-stripping link removes, are sealed in privately (`Scripts/support/concurrency.c`). iOS 6 still needs the Thumb-bit fixup for the prebuilt runtime, a host job. |
+| native arm64 ELF (`linux-arm64`, `android-arm64-v8a`) | `GuestExecutor`, as above. The toolchain ships no `_Concurrency` module or runtime for `aarch64-none-none-elf`, so these slices are compiled for `aarch64-unknown-linux-gnu` instead: the same AAPCS64 code, but `os(Linux)` is true. Its modules and runtime come from an arm64 Linux toolchain (`Scripts/fetch-embedded-linux.sh` copies them from the `swift` Docker image). That runtime was built for a hosted Linux, so `Scripts/support/aarch64-linux.c` also seals in outline atomics, libstdc++'s red-black tree, glibc's errno and stderr, and the stack protector. Without the copy, the slices are built without concurrency (`EMBEDDED_NO_CONCURRENCY`). |
 
 ### 5.5 Host languages
 
@@ -449,8 +452,8 @@ Swift concurrency is a convenience layer that exists **only in the guest**, buil
 Why:
 - One callback model for every backend. Java, ObjC, Swift and C implementations all look the same.
 - Synchronous native→guest requests (data sources, `should…` methods) need delegates anyway, so delegates are required regardless.
-- No dependency on Embedded Swift concurrency or a guest executor in the core. Apps that use the async layer bring a single-threaded executor that runs its jobs before returning from `rt_dispatch`.
-- Timers for `Task.sleep` come from a built-in `Clock` contract (`now()`, `after(nanoseconds, delegate)`), also delegate-based.
+- No dependency on Embedded Swift concurrency or a guest executor in the core. Apps that use the async layer get `GuestExecutor` (§5.4), a single-threaded executor that runs its jobs before returning from `rt_dispatch`.
+- Timers for `RuntimeClock.sleep` come from a built-in `Clock` contract (`now()`, `after(nanoseconds, delegate)`), also delegate-based.
 
 ### 6.3 Object handles and memory
 
@@ -532,6 +535,7 @@ Expanding capabilities into native entries:
 - **`Permissions`**: `status(capability)` and `request(capability, callback)`. It hides the difference between iOS's implicit prompts and Android's explicit `requestPermissions`.
 - **`List`**: a host-owned ordered collection (`count()`, `object(at:)`, `string(at:)`, `append…`), backed by `NSArray` / `java.util.List` / a C vector. The macros convert contract parameters and results of type `[String]` / `[SomeContract]` to and from `List`, so contracts declare plain Swift arrays. It's the only collection type the runtime knows.
 - **`Bundle`**: id, version, preferred languages, localized strings. The guest reads metadata through this contract and never parses platform files itself.
+- **`Clock`** (`org.pureswift.runtime.Clock`): `now()`, monotonic nanoseconds, and `after(nanoseconds, delegate)`, which calls `delegate.fire()` once (`org.pureswift.runtime.ClockDelegate`) on the main thread. The host holds the delegate until it fires. It's the guest's only source of time (§5.4). `HostRuntime` serves it from a `HostClock` the host supplies (`ManualClock` for tests and self-pumped loops).
 
 The manifest is also embedded in the `.wasm` custom section so the host can validate it at load time.
 

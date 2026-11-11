@@ -104,5 +104,11 @@ import Testing
     @Test func builtinContracts() {
         #expect(BuiltinContracts.list.name == BuiltinContracts.listName)
         #expect(BuiltinContracts.list.method(key: "objectAt:", kind: .instance)?.signature == Signature("(I)O"))
+        #expect(BuiltinContracts.clock.name == BuiltinContracts.clockName)
+        #expect(BuiltinContracts.clock.method(key: "after:delegate:", kind: .static)?.signature == Signature("(JO)V"))
+        #expect(BuiltinContracts.clock.instanceMethods.isEmpty)
+        #expect(BuiltinContracts.clockDelegate.kind == .callback)
+        #expect(BuiltinContracts.clockDelegate.instanceMethods.map(\.key) == ["fire"])
+        #expect(BuiltinContracts.all.map(\.name).contains(BuiltinContracts.clockDelegateName))
     }
 }

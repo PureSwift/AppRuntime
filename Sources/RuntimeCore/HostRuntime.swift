@@ -35,10 +35,20 @@ public final class HostRuntime {
 
     private var bytesClass: ClassID = 0
 
+    private var clockClass: ClassID = 0
+
+    private var clockDelegateClass: ClassID = 0
+
+    /// Time source for the built-in `Clock` contract. Without one, `Clock`
+    /// calls fail with `.thrown`.
+    public var clock: HostClock?
+
     public init() {
         listClass = register(BuiltinContracts.list)
         stringClass = register(BuiltinContracts.string)
         bytesClass = register(BuiltinContracts.bytes)
+        clockClass = register(BuiltinContracts.clock)
+        clockDelegateClass = register(BuiltinContracts.clockDelegate)
     }
 
     // MARK: Registry
@@ -154,6 +164,9 @@ public final class HostRuntime {
             results[0] = Slot(handle: insert(HostObject(.list(ListStorage()))))
             return .ok
         }
+        if method.cls == clockClass {
+            return callClock(method.key, arguments: arguments, results: results)
+        }
         guard let entry = classEntry(method.cls),
               let statics = entry.statics,
               let index = entry.descriptor.staticMethods.firstIndex(where: { $0.key == method.key && $0.kind == method.kind }) else {
@@ -219,6 +232,40 @@ public final class HostRuntime {
             list.elements.append(handle == 0 ? nil : objects[handle]?.object)
         default:
             return fail(.notFound, "List has no method \(key)")
+        }
+        return .ok
+    }
+
+    private func callClock(
+        _ key: String,
+        arguments: UnsafeBufferPointer<Slot>,
+        results: UnsafeMutableBufferPointer<Slot>
+    ) -> RuntimeStatus {
+        guard let clock else {
+            return fail(.thrown, "This host has no clock")
+        }
+        switch key {
+        case "now":
+            results[0] = clock.now().slot
+        case "after:delegate:":
+            let delegate = arguments[1].handle
+            guard let implementation = objects[delegate]?.object.implementation,
+                  implementation.interfaces.contains(clockDelegateClass) else {
+                return fail(.null, "Clock.after needs a ClockDelegate")
+            }
+            let fire = lookupMethod(clockDelegateClass, key: Array("fire".utf8), signature: Array("()V".utf8), flags: MethodKind.instance.rawValue)
+            // The timer owns a reference until it fires.
+            retain(delegate)
+            clock.schedule(after: Int64(slot: arguments[0])) { [weak self] in
+                guard let self else { return }
+                var none = [Slot]()
+                _ = none.withUnsafeMutableBufferPointer { results in
+                    self.call(target: delegate, method: fire, arguments: UnsafeBufferPointer(start: nil, count: 0), results: results)
+                }
+                self.release(delegate)
+            }
+        default:
+            return fail(.notFound, "Clock has no method \(key)")
         }
         return .ok
     }

@@ -18,11 +18,12 @@ builds and the first provider contracts:
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
+| Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers, the
 manifest packager (`App.swift` → Info.plist / AndroidManifest), wasm2c, GLES,
-the Observation stopgap, the guest executor and async wrappers, the SwiftUI
-frontend. TCP and UDP are not part of the spec.
+the Observation stopgap, async wrappers over the provider contracts, the
+SwiftUI frontend. TCP and UDP are not part of the spec.
 
 ## 2. Layout
 
@@ -130,7 +131,7 @@ and `Scripts/build-bundle.sh`.
 | `macos` | arm64 none-macho (11.0) + `x86_64-apple-macos14` stamped 10.15 | fat archive |
 | `tvos-arm64`, `visionos-arm64` | `arm64-apple-none-macho`, stamped tvOS 13 / visionOS 1 | |
 | `watchos-arm64` | `arm64-apple-none-macho`, stamped watchOS 6 | arm64 watches only |
-| `linux-arm64`, `android-arm64-v8a` | `aarch64-none-none-elf` | |
+| `linux-arm64`, `android-arm64-v8a` | `aarch64-none-none-elf`; `aarch64-unknown-linux-gnu` for concurrency | see finding 7 |
 | `linux-armv7` | `armv7-none-none-eabi`, `-mfloat-abi=hard` | armhf |
 | `android-armeabi-v7a` | `armv7-none-none-eabi`, `-mfloat-abi=softfp` | |
 | `linux-x86_64`, `android-x86_64` | `x86_64-unknown-none-elf`, CPU `nehalem` (x86-64-v2) | |
@@ -176,14 +177,43 @@ Each of these needs a decision, or is verified only as far as noted:
    It is in the allowed set as "random", but **musl doesn't provide it**.
    On a musl distro, `librt.so` (or a shim at install-time link) has to
    supply it.
-7. **No concurrency in native slices yet.** Native slices are compiled with
-   `EMBEDDED_NO_CONCURRENCY`, because the prebuilt concurrency runtime needs
-   the guest executor's hooks (§5.4), which don't exist yet, and more libc than
-   §7.5 allows. Separately, the toolchain ships no `_Concurrency` module at
-   all for `aarch64-none-none-elf`, so `linux-arm64` and `android-arm64-v8a`
-   will still need a runtime built for them. `canImport(_Concurrency)`
-   returns true on that triple, because the module exists for others, so
-   packages check the define. wasm32 links the runtime.
+7. **Concurrency.** Every slice links the Embedded concurrency runtime, and
+   `GuestExecutor` supplies its executor hooks (§5.4). Native slices also seal
+   in `Scripts/support/concurrency.c`: the runtime calls a little libc outside
+   §7.5 on paths a guest never takes (fatal-error printing, the replaced
+   cooperative executor's sleep), and references Swift functions that only a
+   dead-stripping link removes, which a relocatable seal can't do on Mach-O.
+   The runtime libraries are linked without their debug info (2.6 MB of DWARF
+   in the ELF one). The runtime adds about 125 KB to an arm64 Mach-O slice
+   and 200 KB to an ELF one. Apple slices may reference the stack protector,
+   which libSystem provides.
+
+   **arm64 ELF.** The toolchain has no `_Concurrency` module or runtime for
+   `aarch64-none-none-elf`, and won't load the `aarch64-unknown-linux-gnu`
+   module under it ("created for incompatible target", even with
+   `-disable-target-os-checking`). So `linux-arm64` and `android-arm64-v8a`
+   are compiled for `aarch64-unknown-linux-gnu` when that triple's Embedded
+   modules and runtime are available: in an arm64 Linux toolchain, or copied
+   from the `swift` Docker image by `Scripts/fetch-embedded-linux.sh` (28 MB,
+   into `~/.cache/appruntime/swift-<version>/embedded`, or `RT_EMBEDDED_DIR`).
+   The code is the same AAPCS64 code, compiled freestanding, with no TLS, but
+   **`os(Linux)` is true** in these two slices and nowhere else. That runtime
+   was built for a hosted Linux, so `Scripts/support/aarch64-linux.c` seals
+   in what libgcc, libstdc++ and glibc would provide:
+   - outline atomics;
+   - the red-black tree that task groups and task locals use. It was written
+     from the textbook algorithm and tested against libstdc++'s `std::set` in
+     the `swift` image.
+   - `__errno_location` and `stderr`;
+   - a private stack protector canary.
+
+   A probe guest's sealed `linux-arm64` slice ran in the `swift:6.4.2` arm64
+   image (glibc) under a minimal C host. It ran a task group, a sleep resumed
+   by the host's timer, and finished with no live handles. musl and bionic
+   haven't been run. Without the copy, these slices are built with
+   `EMBEDDED_NO_CONCURRENCY`, and `guest.py` says so. `canImport(_Concurrency)`
+   returns true on `aarch64-none-none-elf`, because the module exists for
+   other triples, so packages check the define.
 8. **iOS 6** still needs the host's stack realignment on calls into the
    slice, and the Thumb-bit fixup for the prebuilt concurrency runtime after
    the final link (Swift-iOS6's `objcrt_call_aligned` and `thumbfix.py`).
@@ -198,21 +228,24 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeMacrosTests`: model, expansion shape and contract-rule
   diagnostics.
 - `RuntimeCoreTests`: registry, calls, `rt_implement`, finalization and
-  re-entrancy, `List`, errors, validation.
+  re-entrancy, `List`, `Clock` and `ManualClock`, errors, validation.
 - `DynamicRuntimeTests`: the example app as a native slice, end to end
   (every wire type, callbacks both ways, throws, lists, identity, capability
   gating, leak check).
 - `RuntimeWasmTests`: the import shim with hand-written WAT guests, and the
   same example app as `App.wasm` (built by `Scripts/build-wasm.sh
-  ExampleApp`; skipped without it), including `rt.contracts` validation.
+  ExampleApp`; skipped without it), including `rt.contracts` validation and
+  its async checks: tasks run before `rt_main` returns, sleeps resume when
+  the test advances a `ManualClock`, and cancellation before and during a
+  sleep. Embedded only: in host tests Swift's own executor runs guest code.
 - `ContractsTests`: names, capabilities, keys and signatures of the provider
   contracts.
 
 ## 6. Next
 
 1. Settle the review items in §3 (allocator exports, guest error messages).
-2. Guest-side executor and `Clock` contract (§5.4); async wrappers over the
-   provider contracts.
+2. Async wrappers over the provider contracts (`AsyncStream` over delegates,
+   §6.2.1).
 3. Stopgap `Observation` module (§5.3) and the Embedded SwiftUI frontend
    emitting the render IR (§9), both guest code for this repository.
 4. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.

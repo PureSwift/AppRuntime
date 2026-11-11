@@ -1,5 +1,9 @@
 import DynamicRuntime
 import ExampleContracts
+#if hasFeature(Embedded) && !EMBEDDED_NO_CONCURRENCY
+// Embedded Swift doesn't import the concurrency module implicitly.
+import _Concurrency
+#endif
 
 /// The example guest app. It builds unchanged as a native slice
 /// (`libapp.a`) and as a wasm reactor module; the host links or loads it and
@@ -78,10 +82,67 @@ public enum ExampleApp {
         check(Runtime.lookupClass("org.pureswift.example.Missing") == 0, "missing contract resolves to 0")
         reporter.record("beacon " + (BeaconProxy.isAvailable ? "available" : "refused"))
 
+        #if hasFeature(Embedded) && !EMBEDDED_NO_CONCURRENCY
+        startAsyncChecks()
+        #endif
+
         reporter.record("done")
         return failures == 0 ? .ok : .thrown
     }
 }
+
+#if hasFeature(Embedded) && !EMBEDDED_NO_CONCURRENCY
+extension ExampleApp {
+
+    /// Async checks on the guest executor (§5.4). Embedded builds only: in
+    /// host tests Swift's own executor would run them on other threads.
+    ///
+    /// The tasks run after `run()` returns, before `rt_main` returns. Then
+    /// the host advances its clock by 1 ms, which finishes them, and by 1 s,
+    /// which fires the last timer.
+    static func startAsyncChecks() {
+        // Cancelled before it first runs: the sleep throws without a timer.
+        let early = Task {
+            let reporter = ReporterProxy.make()
+            do {
+                try await RuntimeClock.sleep(nanoseconds: 1_000_000)
+                reporter.record("FAIL cancel before sleep")
+            } catch {
+                reporter.record("ok cancel before sleep")
+            }
+        }
+        early.cancel()
+
+        // Sleeps for 1 s, but the next task cancels it after 1 ms.
+        let long = Task {
+            let reporter = ReporterProxy.make()
+            do {
+                try await RuntimeClock.sleep(nanoseconds: 1_000_000_000)
+                reporter.record("FAIL cancel while sleeping")
+            } catch {
+                reporter.record("ok cancel while sleeping")
+            }
+        }
+
+        Task {
+            let reporter = ReporterProxy.make()
+            reporter.record("async started")
+            let value = await Task { 41 }.value + 1
+            reporter.record(value == 42 ? "ok task value" : "FAIL task value")
+            do {
+                let start = try RuntimeClock.now()
+                try await RuntimeClock.sleep(nanoseconds: 1_000_000)
+                let elapsed = try RuntimeClock.now() - start
+                reporter.record(elapsed >= 1_000_000 ? "ok sleep" : "FAIL sleep \(elapsed)")
+            } catch {
+                reporter.record("FAIL sleep")
+            }
+            long.cancel()
+            reporter.record("async done")
+        }
+    }
+}
+#endif
 
 /// Guest-side implementation of the callback interface.
 final class AppDelegate: CounterDelegate {
@@ -107,5 +168,5 @@ final class AppDelegate: CounterDelegate {
 @_expose(wasm, "rt_main")
 @c(rt_main)
 public func exampleAppMain() -> rt_status {
-    rt_status(rawValue: ExampleApp.run().rawValue)
+    Runtime.main { ExampleApp.run() }
 }

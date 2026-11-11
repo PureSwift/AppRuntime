@@ -18,7 +18,10 @@ to <package>/.build/guest/<product>/<id>.app unless --output is given.
 
 Requirements: the Swift toolchain selected for the package (.swift-version),
 the matching Embedded wasm Swift SDK for wasm32, and Xcode command line tools
-for the Apple targets.
+for the Apple targets. For concurrency in the linux-arm64 and
+android-arm64-v8a slices, the Embedded modules and runtime for
+aarch64-unknown-linux-gnu: arm64 Linux toolchains include them, and
+Scripts/fetch-embedded-linux.sh copies them from the swift Docker image.
 
 Limitations: target settings from Package.swift (defines, unsafe flags,
 platform-conditional dependencies) are not read, apart from dependencies
@@ -48,11 +51,12 @@ ALLOWED_UNDEFINED = re.compile(
 )
 # ARM EABI spellings of memcpy/memset; glibc, musl and bionic export them.
 ALLOWED_ARM_EABI = re.compile(r"^__aeabi_mem(cpy|move|set|clr)[48]?$")
-# Apple targets link against libSystem, which also provides bzero and libm,
-# and re-exports compiler-rt (soft-float and 64-bit integer helpers that the
+# Apple targets link against libSystem, which also provides bzero, libm and
+# the stack protector (the x86_64 concurrency runtime is built with it), and
+# re-exports compiler-rt (soft-float and 64-bit integer helpers that the
 # soft-float armv7-apple-none-macho target calls, as Swift-iOS6 does).
 ALLOWED_APPLE = re.compile(
-    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod"
+    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod|__stack_chk_fail|__stack_chk_guard"
     r"|__(ashl|ashr|lshr|mul|div|udiv|mod|umod|neg|add|sub|eq|ne|lt|le|gt|ge|unord|cmp|ucmp"
     r"|fix|fixuns|float|floatun|extend|trunc|pow)[a-z]*[0-9]?)$"
 )
@@ -79,12 +83,25 @@ ARMV7_SOFTFP = ["-mfloat-abi=softfp", "-mfpu=vfpv3-d16"]  # Android armeabi-v7a
 # stdlib at all, so those watches use App.wasm.
 APPLE_ARM64 = "arm64-apple-none-macho"
 
-# Native slices are built without concurrency until the guest executor (§5.4)
-# exists. The prebuilt runtime needs executor hooks and more libc than §7.5
-# allows, and aarch64-none-none-elf has no _Concurrency module at all.
-# canImport(_Concurrency) can't detect that, so packages check this define.
-# wasm32 links the runtime, and its linker strips what's unused.
+# Slices link the Embedded concurrency runtime, with DynamicRuntime's guest
+# executor (§5.4) supplying its executor hooks. Native slices also seal in
+# support/concurrency.c, for the few libc calls the runtime makes outside the
+# §7.5 set. The toolchain has no runtime (or _Concurrency module) for
+# aarch64-none-none-elf, so the arm64 ELF slices are compiled for
+# aarch64-unknown-linux-gnu when its Embedded modules and runtime are
+# available (same AAPCS64 code; os(Linux) is true there), and without
+# concurrency otherwise. canImport(_Concurrency) can't detect that, so
+# packages check this define.
 NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
+CONCURRENCY_SUPPORT = "concurrency.c"
+# For a Linux triple, the Clang importer looks for glibc headers to map, and
+# warns without a sysroot. Guest code never includes libc headers.
+LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'",)
+# The concurrency triple for arm64 ELF slices. Its runtime was built for a
+# hosted Linux: aarch64-linux.c supplies outline atomics, libstdc++'s tree,
+# glibc's errno and stderr, and the stack protector.
+AARCH64_LINUX = dict(triple="aarch64-unknown-linux-gnu", cflags=["-mno-outline-atomics"],
+                     support=["aarch64-linux.c"])
 TARGETS = {
     "wasm32": dict(kind="wasm", triple="wasm32-unknown-wasip1",
                    about="WASI reactor module, every host"),
@@ -108,12 +125,14 @@ TARGETS = {
         dict(triple=APPLE_ARM64, arch="arm64", platform="watchos", minimum="6.0")]),
     "visionos-arm64": dict(kind="macho", about="visionOS 1", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="xros", minimum="1.0")]),
-    "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", about="Linux arm64, libc-agnostic"),
+    "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
+                        about="Linux arm64, libc-agnostic"),
     "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD,
                         support=["armv7-eabi.c"], about="Linux armv7 hard-float, libc-agnostic"),
     "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
-    "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", about="Android arm64-v8a"),
+    "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
+                              about="Android arm64-v8a"),
     "android-armeabi-v7a": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_SOFTFP,
                                 support=["armv7-eabi.c"], about="Android armeabi-v7a (softfp)"),
     "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
@@ -170,11 +189,35 @@ class Toolchain:
             raise BuildError(f"{name} not found in {self.bin}")
         return path
 
+    @property
+    def embedded_directory(self):
+        """The toolchain's Embedded Swift modules and runtime libraries."""
+        return self.usr / "lib" / "swift" / "embedded"
+
+    def embedded_directories(self):
+        """Where Embedded modules and runtimes are found: the toolchain's
+        own, then a copy of another toolchain's for the same version
+        (Scripts/fetch-embedded-linux.sh)."""
+        directories = [self.embedded_directory]
+        extra = embedded_cache(self.version)
+        if extra.is_dir():
+            directories.append(extra)
+        return directories
+
     def embedded_library(self, triple, name):
-        """A prebuilt Embedded runtime library for a triple, if the toolchain has one."""
-        directory = self.usr / "lib" / "swift" / "embedded" / normalize_embedded(triple)
-        path = directory / f"lib{name}.a"
-        return path if path.exists() else None
+        """A prebuilt Embedded runtime library for a triple, if there is one."""
+        for directory in self.embedded_directories():
+            path = directory / normalize_embedded(triple) / f"lib{name}.a"
+            if path.exists():
+                return path
+        return None
+
+    def embedded_modules(self, triple, module="Swift"):
+        """The Embedded directory holding a module for a triple, if any."""
+        for directory in self.embedded_directories():
+            if (directory / f"{module}.swiftmodule" / f"{normalize_embedded(triple)}.swiftmodule").exists():
+                return directory
+        return None
 
     def wasm_sdk(self):
         """The wasm32-unknown-wasip1 directory of the matching Swift SDK."""
@@ -189,6 +232,14 @@ class Toolchain:
         raise BuildError(
             f"no Embedded wasm Swift SDK for Swift {self.version}; install it with "
             "`swift sdk install <swift.org wasm SDK URL> --checksum <checksum>` or set RT_WASM_SDK")
+
+
+def embedded_cache(version):
+    """Embedded modules and runtimes copied from another toolchain."""
+    if "RT_EMBEDDED_DIR" in os.environ:
+        return Path(os.environ["RT_EMBEDDED_DIR"])
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return cache / "appruntime" / f"swift-{version}" / "embedded"
 
 
 def normalize_embedded(triple):
@@ -309,8 +360,10 @@ class PackageGraph:
 class Compiler:
     """Compiles every target of a closure for one triple into objects."""
 
-    def __init__(self, toolchain, graph, product, triple, output, cflags=(), features=(), wasm_sdk=None, cpu=None, defines=()):
+    def __init__(self, toolchain, graph, product, triple, output, cflags=(), features=(), wasm_sdk=None, cpu=None, defines=(),
+                 module_paths=()):
         self.cpu = cpu
+        self.module_paths = list(module_paths)
         self.defines = list(defines)
         self.toolchain = toolchain
         self.graph = graph
@@ -344,6 +397,8 @@ class Compiler:
         ]
         if self.cpu:
             flags += ["-target-cpu", self.cpu]
+        for path in self.module_paths:
+            flags += ["-I", path]
         for define in self.defines:
             flags += ["-D", define]
         if self.wasm_sdk:
@@ -402,7 +457,7 @@ class Compiler:
             flags += ["-load-plugin-executable", f"{plugin}#{module}"]
         run([self.toolchain.tool("swiftc"), *flags, "-module-name", target.c99name, *sources,
              "-emit-module", "-emit-module-path", self.output / f"{target.c99name}.swiftmodule",
-             "-c", "-o", obj], filter_warnings=("remark:",))
+             "-c", "-o", obj], filter_warnings=("remark:", *LIBC_WARNINGS))
         return obj
 
 
@@ -425,11 +480,28 @@ def build_plugins(graph, product, macros):
 # Sealing and checks (§7.5)
 # ---------------------------------------------------------------------------
 
-def runtime_libraries(toolchain, triple, concurrency):
+def has_concurrency(toolchain, triple):
+    """Whether there is an Embedded concurrency module and runtime for a triple."""
+    return (toolchain.embedded_library(triple, "swift_Concurrency") is not None
+            and toolchain.embedded_modules(triple, "_Concurrency") is not None)
+
+
+def runtime_libraries(toolchain, triple, concurrency, output):
+    """The Embedded runtime libraries a slice links, without their debug info.
+
+    The prebuilt runtimes carry DWARF (megabytes, for the ELF concurrency
+    runtime); the guest's own objects keep theirs.
+    """
     names = ["swiftUnicodeDataTables"]
     if concurrency:
         names.append("swift_Concurrency")
-    return [lib for lib in (toolchain.embedded_library(triple, name) for name in names) if lib]
+    libraries = []
+    for library in (toolchain.embedded_library(triple, name) for name in names):
+        if library:
+            stripped = output / library.name
+            run([toolchain.tool("llvm-objcopy"), "--strip-debug", library, stripped])
+            libraries.append(stripped)
+    return libraries
 
 
 def seal_elf(toolchain, objects, libraries, output):
@@ -667,11 +739,31 @@ class Builder:
 
     def elf_slice(self, config, output):
         triple = config["triple"]
+        cflags = list(config.get("cflags", ()))
+        support = list(config.get("support", []))
+        module_paths = []
+        concurrency = has_concurrency(self.toolchain, triple)
+        alternative = config.get("concurrency")
+        if not concurrency and alternative:
+            if has_concurrency(self.toolchain, alternative["triple"]):
+                triple = alternative["triple"]
+                cflags += alternative.get("cflags", [])
+                support += alternative.get("support", [])
+                modules = self.toolchain.embedded_modules(triple)
+                if modules != self.toolchain.embedded_directory:
+                    module_paths.append(modules)
+                concurrency = True
+            else:
+                print(f"note: {output.name} is built without concurrency: no Embedded runtime for "
+                      f"{triple} or {alternative['triple']} (Scripts/fetch-embedded-linux.sh fetches one)")
         compiler = Compiler(self.toolchain, self.graph, self.product, triple, output / "objects",
-                            cflags=config.get("cflags", ()), cpu=config.get("cpu"), defines=NO_CONCURRENCY)
+                            cflags=cflags, cpu=config.get("cpu"),
+                            defines=() if concurrency else NO_CONCURRENCY, module_paths=module_paths)
         objects = compiler.compile(self.targets, self.plugins)
-        objects += compiler.compile_support(config.get("support", []))
-        sealed = seal_elf(self.toolchain, objects, runtime_libraries(self.toolchain, triple, concurrency=True), output)
+        support += [CONCURRENCY_SUPPORT] if concurrency else []
+        objects += compiler.compile_support(support)
+        libraries = runtime_libraries(self.toolchain, triple, concurrency, output / "objects")
+        sealed = seal_elf(self.toolchain, objects, libraries, output)
         problems = check_sealed(self.toolchain, sealed, macho=False)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
@@ -681,12 +773,14 @@ class Builder:
         archives = []
         for slice_config in config["slices"]:
             directory = output / slice_config["arch"]
+            concurrency = has_concurrency(self.toolchain, slice_config["triple"])
             compiler = Compiler(self.toolchain, self.graph, self.product, slice_config["triple"], directory / "objects",
                                 cflags=slice_config.get("cflags", ()), features=slice_config.get("features", ()),
-                                defines=NO_CONCURRENCY)
+                                defines=() if concurrency else NO_CONCURRENCY)
             objects = compiler.compile(self.targets, self.plugins)
-            objects += compiler.compile_support(slice_config.get("support", []))
-            libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency=True)
+            support = [*slice_config.get("support", []), *([CONCURRENCY_SUPPORT] if concurrency else [])]
+            objects += compiler.compile_support(support)
+            libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency, directory / "objects")
             sealed = seal_macho(self.toolchain, objects, libraries, directory, slice_config)
             problems = check_sealed(self.toolchain, sealed, macho=True)
             if problems:

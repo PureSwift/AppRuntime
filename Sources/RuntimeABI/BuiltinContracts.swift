@@ -28,8 +28,38 @@ public enum BuiltinContracts {
 
     public static let bytes = ContractDescriptor(name: bytesName, kind: .contract, methods: [])
 
+    /// `Clock`: monotonic time and one-shot timers, the guest's only source
+    /// of time (§5.4). Timers fire on the main thread, through
+    /// `rt_dispatch`.
+    public static let clockName = "org.pureswift.runtime.Clock"
+
+    /// `ClockDelegate`: the callback a `Clock` timer fires.
+    public static let clockDelegateName = "org.pureswift.runtime.ClockDelegate"
+
+    public static let clock = ContractDescriptor(
+        name: clockName,
+        kind: .contract,
+        version: 1,
+        methods: [
+            // Monotonic nanoseconds since an arbitrary start.
+            MethodDescriptor("now", "()J", .static),
+            // Calls `delegate.fire()` once, after at least `nanoseconds`.
+            // The host holds the delegate until then.
+            MethodDescriptor("after:delegate:", "(JO)V", .static),
+        ]
+    )
+
+    public static let clockDelegate = ContractDescriptor(
+        name: clockDelegateName,
+        kind: .callback,
+        version: 1,
+        methods: [
+            MethodDescriptor("fire", "()V"),
+        ]
+    )
+
     /// Every built-in descriptor.
     public static var all: [ContractDescriptor] {
-        [list, string, bytes]
+        [list, string, bytes, clock, clockDelegate]
     }
 }

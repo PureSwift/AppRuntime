@@ -195,15 +195,18 @@ public func _rt_dispatch(
     _ results: UnsafeMutablePointer<rt_slot>?,
     _ resultCount: UInt32
 ) -> rt_status {
-    let status = Exported.dispatch(
-        context: context,
-        index: index,
-        target: target,
-        arguments: arguments,
-        argumentCount: argumentCount,
-        results: results,
-        resultCount: resultCount
-    )
+    // Async work the call started runs before control returns to the host.
+    let status = GuestExecutor.enter {
+        Exported.dispatch(
+            context: context,
+            index: index,
+            target: target,
+            arguments: arguments,
+            argumentCount: argumentCount,
+            results: results,
+            resultCount: resultCount
+        )
+    }
     return rt_status(rawValue: status.rawValue)
 }
 
@@ -211,5 +214,7 @@ public func _rt_dispatch(
 @_expose(wasm, "rt_finalize")
 @c(rt_finalize)
 public func _rt_finalize(_ context: UInt32) {
-    Exported.finalize(context: context)
+    GuestExecutor.enter {
+        Exported.finalize(context: context)
+    }
 }

@@ -81,6 +81,43 @@ import RuntimeNative
         #expect(issues.map(\.contract) == ["org.pureswift.example.Beacon"])
     }
 
+    // MARK: Clock and executor
+
+    @Test func clockTimerThroughTheRuntime() throws {
+        let clock = ManualClock()
+        native.runtime.clock = clock
+        defer { native.runtime.clock = nil }
+        let handles = native.runtime.handleCount
+        var fired = 0
+        try RuntimeClock.after(nanoseconds: 500) { fired += 1 }
+        #expect(Exported.liveCount == 1, "the timer's ClockDelegate")
+        clock.advance(by: 499)
+        #expect(fired == 0)
+        clock.advance(by: 1)
+        #expect(fired == 1)
+        #expect(Exported.liveCount == 0, "the host released the delegate after firing")
+        #expect(native.runtime.handleCount == handles)
+        #expect(try RuntimeClock.now() == 500)
+    }
+
+    @Test func clockWithoutAHostClockThrows() {
+        native.runtime.clock = nil
+        #expect(throws: RuntimeError.thrown("This host has no clock")) {
+            _ = try RuntimeClock.now()
+        }
+        #expect(throws: RuntimeError.thrown("This host has no clock")) {
+            try RuntimeClock.after(nanoseconds: 1) { }
+        }
+        #expect(Exported.liveCount == 0, "the refused timer's export was finalized")
+    }
+
+    @Test func executorEntryOutsideEmbedded() {
+        // Swift's own executor runs jobs here, so entering only runs the body.
+        #expect(GuestExecutor.enter { 42 } == 42)
+        #expect(GuestExecutor.pendingCount == 0)
+        #expect(Runtime.main { .thrown }.rawValue == RuntimeStatus.thrown.rawValue)
+    }
+
     @Test func metadataSection() throws {
         // The macro placed one rt.contracts record per contract in this
         // binary; decode them from the descriptors' encoding.

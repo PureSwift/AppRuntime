@@ -49,13 +49,20 @@ and an `rt.contracts` record, plus adapters that export a Swift
 implementation to the runtime. Guest code uses `CentralProxy.make(delegate)`;
 a Swift host registers `CentralProxy.register(MyCentral.self, in: registrar)`.
 
-An app exports one entry point and no `main`:
+An app exports one entry point and no `main`. `Runtime.main` runs the async
+work it starts before returning to the host:
 
 ```swift
 @_expose(wasm, "rt_main")
 @c(rt_main)
-public func appMain() -> rt_status { … }
+public func appMain() -> rt_status {
+    Runtime.main { App.start() }
+}
 ```
+
+Async code runs on the guest executor: tasks run before each call from the
+host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
+`Task.sleep`, which Embedded Swift doesn't have.
 
 ## Building
 
@@ -96,6 +103,17 @@ Scripts/build-bundle.sh --product ExampleApp --id org.pureswift.example \
 
 `Scripts/guest.py targets` lists every target ID. Output goes to
 `.build/guest/<product>/`.
+
+The toolchain has no Embedded concurrency runtime for the arm64 ELF slices'
+bare-metal triple, so `linux-arm64` and `android-arm64-v8a` use the one for
+`aarch64-unknown-linux-gnu`. arm64 Linux toolchains include it. Elsewhere,
+copy it from the `swift` Docker image once per Swift version:
+
+```sh
+Scripts/fetch-embedded-linux.sh
+```
+
+Without it, those two slices are built without concurrency.
 
 `RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
 (`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
