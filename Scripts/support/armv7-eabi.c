@@ -9,6 +9,8 @@
  * would call back into these helpers on cores without hardware divide.
  */
 
+#include "half-float.h"
+
 typedef unsigned int u32;
 typedef int s32;
 typedef unsigned long long u64;
@@ -116,6 +118,66 @@ u64 __aeabi_lasr(u64 value, int shift) {
 }
 
 /*
+ * 64-bit unsigned division, by shift and subtract on the 32-bit shifts above.
+ */
+u64 rt_udivmod64(u64 n, u64 d, u64 *remainder) {
+    if (d == 0) {
+        __builtin_trap();
+    }
+    u64_parts number = { n }, divisor = { d };
+    u32 q_low = 0, q_high = 0, rest_low = 0, rest_high = 0;
+    for (int bit = 63; bit >= 0; bit--) {
+        /* rest = (rest << 1) | bit of n */
+        rest_high = (rest_high << 1) | (rest_low >> 31);
+        u32 word = bit >= 32 ? number.half.high >> (bit - 32) : number.half.low >> bit;
+        rest_low = (rest_low << 1) | (word & 1);
+        /* rest >= divisor */
+        if (rest_high > divisor.half.high
+            || (rest_high == divisor.half.high && rest_low >= divisor.half.low)) {
+            u32 borrow = rest_low < divisor.half.low;
+            rest_low -= divisor.half.low;
+            rest_high -= divisor.half.high + borrow;
+            if (bit >= 32) {
+                q_high |= 1u << (bit - 32);
+            } else {
+                q_low |= 1u << bit;
+            }
+        }
+    }
+    u64_parts quotient, rest;
+    quotient.half.low = q_low;
+    quotient.half.high = q_high;
+    rest.half.low = rest_low;
+    rest.half.high = rest_high;
+    *remainder = rest.value;
+    return quotient.value;
+}
+
+/* Returns the quotient in r0:r1 and the remainder in r2:r3, which C can't
+ * express. The pointer argument goes on the stack, per AAPCS. */
+__attribute__((naked)) void __aeabi_uldivmod(void) {
+    __asm__(
+        "push {r11, lr}\n"
+        "sub sp, sp, #16\n"
+        "add r12, sp, #8\n"
+        "str r12, [sp]\n"
+        "bl rt_udivmod64\n"
+        "ldrd r2, r3, [sp, #8]\n"
+        "add sp, sp, #16\n"
+        "pop {r11, pc}\n");
+}
+
+/* Half-precision conversions. Integer signatures use core registers under
+ * both the soft-float and hard-float AAPCS variants, as the EABI requires. */
+u32 __aeabi_f2h(u32 value) {
+    return rt_float_to_half(value);
+}
+
+u32 __aeabi_h2f(u32 value) {
+    return rt_half_to_float(value);
+}
+
+/*
  * Personality routines referenced by the unwind tables of the prebuilt
  * Embedded runtime archives. Guest code never throws C++ exceptions, so
  * nothing unwinds through it; report failure (_URC_FAILURE) if asked.
@@ -155,4 +217,32 @@ double ceil(double x) {
     }
     value.bits &= ~fraction;
     return value.d;
+}
+
+/*
+ * roundf (round half away from zero), for the same reason: VFPv3 has no
+ * rounding instruction and it isn't in the allowed libc set.
+ */
+float roundf(float x) {
+    union { float f; u32 bits; } value = { x };
+    int exponent = (int)((value.bits >> 23) & 0xFF) - 127;
+    if (exponent >= 23) {
+        return x;                       /* integral, infinite or NaN */
+    }
+    u32 sign = value.bits & 0x80000000u;
+    if (exponent < -1) {
+        value.bits = sign;              /* |x| < 0.5 */
+        return value.f;
+    }
+    if (exponent == -1) {
+        value.bits = sign | 0x3F800000u; /* 0.5 <= |x| < 1 rounds to ±1 */
+        return value.f;
+    }
+    u32 fraction = 0x007FFFFFu >> exponent;
+    if ((value.bits & fraction) == 0) {
+        return x;
+    }
+    value.bits += 0x00400000u >> exponent;  /* add one half */
+    value.bits &= ~fraction;
+    return value.f;
 }
