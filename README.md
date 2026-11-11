@@ -23,10 +23,10 @@ written separately.
 |---|---|---|
 | `CRuntime` | `rt.h`, plus `rt_guest.h` (ABI version, section names, wasm allocator) | C, freestanding |
 | `RuntimeABI` | Wire types, signatures, status codes, contract descriptors, `rt.contracts` encoding | yes |
-| `DynamicRuntime` | Guest library: `rt_*` wrappers, proxies, marshaling, `rt_dispatch` / `rt_finalize`, `List`, macros | yes |
+| `DynamicRuntime` | Guest library: `rt_*` wrappers, proxies, marshaling, `rt_dispatch` / `rt_finalize` (the `GuestExports` trait), `List`, macros | yes |
 | `DynamicRuntimeMacros` | `@DynamicRuntime` / `@DynamicCallback`: proxies, dispatch adapters, metadata records | build machine |
 | `RuntimeCore` | Runtime core: handle table, registry, Swift-registry backend, validation | yes |
-| `RuntimeNative` | `rt_*` as C symbols, for native slices and host Swift code | yes |
+| `RuntimeNative` | `rt_*` as C symbols for native slices, and a direct binding for host Swift code | yes |
 | `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore` | host |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `AppRuntime`, `bundle-runtime`, `CBundleRuntime` | Linux bundle model, launcher and sandbox | Linux |
@@ -171,6 +171,34 @@ Without it, those two slices are built without concurrency.
 `RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
 (`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
 as a native slice.
+
+### Linking a slice into a host
+
+A host links the app's `libapp.a` next to its own Swift code. The slice
+defines `rt_dispatch` and `rt_finalize`, so the host depends on AppRuntime
+without the `GuestExports` trait, and binds its own `DynamicRuntime` to the
+runtime directly:
+
+```swift
+.package(url: "https://github.com/PureSwift/AppRuntime.git", from: "…", traits: [])
+```
+
+```swift
+let native = NativeRuntime.shared
+native.bindDirectly()
+MyContractProxy.register(MyImplementation.self, in: native)
+native.start(rt_main, dispatch: rt_dispatch, finalize: rt_finalize)
+```
+
+The app's calls arrive through the `rt_*` C symbols; the host's proxies and
+exports never use them. `Packages/LinkedSlice` tests this with the example
+app's macOS slice:
+
+```sh
+Scripts/guest.py slice --product ExampleApp --target macos
+cd Packages/LinkedSlice
+swift test
+```
 
 ## Linux bundle launcher
 
