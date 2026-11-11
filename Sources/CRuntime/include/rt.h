@@ -196,6 +196,20 @@ rt_status rt_dispatch(uint32_t context, uint32_t index, rt_obj self,
 RT_EXPORT(rt_finalize)
 void rt_finalize(uint32_t context);
 
+#if defined(__wasm__)
+/* wasm32 only. A wasm host can't pass native pointers to rt_dispatch, so it
+ * places the arguments and results in the guest's linear memory: it calls
+ * rt_alloc for a block of nargs + nret slots, writes the arguments, calls
+ * rt_dispatch with offsets into the block, reads the results and calls rt_free.
+ * Blocks are 8-byte aligned; rt_alloc returns 0 on failure. A native host
+ * passes its own pointers and never calls these. */
+RT_EXPORT(rt_alloc)
+void *rt_alloc(size_t size);
+
+RT_EXPORT(rt_free)
+void rt_free(void *ptr);
+#endif
+
 /* ------------------------------------------------------------------------- */
 /* Rules                                                                      */
 /* ------------------------------------------------------------------------- */
