@@ -178,6 +178,7 @@ and `Scripts/build-bundle.sh`.
 | `wasm32` | `wasm32-unknown-wasip1` | WASI reactor (`-mexec-model=reactor`), debug info stripped, `rt.contracts` added |
 | `ios-armv7` | `armv7-apple-none-macho`, stamped iOS 6.0 | Swift-iOS6 setup: `-marm -ffixed-r9`, soft-float helpers from libSystem, `memset_s` / `__cxa_pure_virtual` sealed in |
 | `ios-arm64` | `arm64-apple-none-macho`, stamped iOS 13.0 | |
+| `ios-simulator` | arm64 none-macho + `x86_64-apple-macos26`, stamped iOS Simulator 13.0 | fat archive; x86_64 objects restamped before sealing (finding 1) |
 | `macos` | arm64 none-macho (11.0) + `x86_64-apple-macos14` stamped 10.15 | fat archive |
 | `tvos-arm64`, `visionos-arm64` | `arm64-apple-none-macho`, stamped tvOS 13 / visionOS 1 | |
 | `watchos-arm64` | `arm64-apple-none-macho`, stamped watchOS 6 | arm64 watches only |
@@ -208,6 +209,18 @@ Each of these needs a decision, or is verified only as far as noted:
    visionOS. Embedded code makes no OS calls, so the slices are built for
    `none-macho` (same Darwin calling convention) and stamped with the
    platform at seal time. They link, but haven't run on devices.
+
+   The simulator's linker rejects objects stamped for iOS devices
+   ("building for 'iOS-simulator', but linking in object file … built for
+   'iOS'"), so `ios-simulator` is its own slice, stamped
+   `PLATFORM_IOSSIMULATOR` (7). x86_64 has no simulator stdlib, so its
+   objects are built for macOS like the `macos` slice, and `guest.py`
+   rewrites the `LC_BUILD_VERSION` of each object and runtime archive member
+   to the simulator before `ld -r`: ld won't mix platforms, and `vtool`
+   can't grow an object's load commands. Both architectures link into an
+   iOS Simulator executable. The arm64 one ran in the iOS 26 simulator
+   (`rt_dispatch` with an unknown context returned `RT_ERR_NOT_FOUND`); the
+   x86_64 one hasn't run, since Apple silicon simulators run arm64.
 2. **watchOS 6 hardware is arm64_32,** for which no Embedded stdlib
    exists. `watchos-arm64` covers arm64 watches only; arm64_32 watches need
    `App.wasm` (wasm2c in the host's packager).
