@@ -81,7 +81,7 @@ All three link the same runtime core, so contracts, handles, renderer IR, manife
 - native: plain `extern` symbols exported by the runtime library.
 
 **Guest exports (runtime → app).** `rt_dispatch` and `rt_finalize`:
-- wasm32: module exports, called through the engine.
+- wasm32: module exports, called through the engine. A wasm guest also exports `rt_alloc` and `rt_free`, so the host can place `rt_dispatch` arguments and results in linear memory.
 - native: ordinary symbols defined by the app and resolved at link time.
 - armv7 iOS native builds: calls from the runtime into Embedded Swift code go through stack realignment (`objcrt_call_aligned` in Swift-iOS6). The wasm and wasm2c modes don't need this, because wasm2c output is plain C compiled for the iOS ABI.
 
@@ -136,6 +136,7 @@ The full header is in Appendix A. Summary:
 | `rt_main()` | Entry point, called once by the host after loading; the app sets up and returns |
 | `rt_dispatch(context, index, self, args, ret)` | Native code calling a guest-implemented method |
 | `rt_finalize(context)` | Native object from `rt_implement` was destroyed |
+| `rt_alloc(size)` / `rt_free(ptr)` | wasm32 only: guest memory for `rt_dispatch` arguments and results |
 
 ### 3.1 Wire types
 
@@ -557,7 +558,7 @@ Guest-side SDK libraries (the SwiftUI frontend, the Observation module, contract
 
 Native slices are optional. A host without a matching slice uses `App.wasm`.
 
-**No slice is an executable.** Both forms are libraries with the same three exports (`rt_main`, `rt_dispatch`, `rt_finalize`) and the same imports. The host always owns `main` and the run loop:
+**No slice is an executable.** Both forms are libraries with the same three exports (`rt_main`, `rt_dispatch`, `rt_finalize`) and the same imports; `App.wasm` adds `rt_alloc` and `rt_free`. The host always owns `main` and the run loop:
 - `App.wasm` is built as a WASI reactor (`-mexec-model=reactor`): no `_start`, an `_initialize` the host calls once, then `rt_main`. It needs no link step because it's already self-contained.
 - `libapp.a` is the same thing in native object form, linked by the host.
 - Apps have no `@main`. The entry point is an exported `rt_main` (via `@c`), which sets up the app and returns.
@@ -1094,6 +1095,20 @@ rt_status rt_dispatch(uint32_t context, uint32_t index, rt_obj self,
  * (dealloc / Proxy collected / host destroy). Free guest state for `context`. */
 RT_EXPORT(rt_finalize)
 void rt_finalize(uint32_t context);
+
+#if defined(__wasm__)
+/* wasm32 only. A wasm host can't pass native pointers to rt_dispatch, so it
+ * places the arguments and results in the guest's linear memory: it calls
+ * rt_alloc for a block of nargs + nret slots, writes the arguments, calls
+ * rt_dispatch with offsets into the block, reads the results and calls rt_free.
+ * Blocks are 8-byte aligned; rt_alloc returns 0 on failure. A native host
+ * passes its own pointers and never calls these. */
+RT_EXPORT(rt_alloc)
+void *rt_alloc(size_t size);
+
+RT_EXPORT(rt_free)
+void rt_free(void *ptr);
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* Rules                                                                      */
