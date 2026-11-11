@@ -39,6 +39,8 @@ let package = Package(
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
+        // Build machine: the types App.swift manifests use (§7.1).
+        .library(name: "AppManifest", targets: ["AppManifest"]),
         // Example guest app. Scripts/guest.py builds its slices and bundle.
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
         // Example UI guest app (§9). Scripts/guest.py builds its slices.
@@ -221,6 +223,13 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
 
+        // MARK: - Manifest
+
+        // Full Swift, no dependencies: guest.py compiles it with App.swift.
+        .target(
+            name: "AppManifest"
+        ),
+
         // MARK: - Example
 
         .target(
@@ -309,6 +318,10 @@ let package = Package(
             name: "AppRuntimeTests",
             dependencies: ["AppRuntime"],
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "AppManifestTests",
+            dependencies: ["AppManifest"]
         ),
     ]
 )
