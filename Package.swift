@@ -36,7 +36,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
         .package(url: "https://github.com/swiftwasm/WasmKit.git", from: "0.4.2"),
-        .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.0"),
+        .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.1"),
     ],
     targets: [
 
