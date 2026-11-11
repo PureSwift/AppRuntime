@@ -290,7 +290,8 @@ Each of these needs a decision, or is verified only as far as noted:
    Both are host jobs.
 9. **Package settings** (defines, unsafe flags, conditional dependencies)
    aren't read by `guest.py`; every target is compiled as an Embedded Swift
-   library with fixed flags.
+   library with fixed flags, plus its package's default traits as defines.
+   Traits a dependent package sets on its dependencies aren't read either.
 
 ## 5. Tests
 
