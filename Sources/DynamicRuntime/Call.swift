@@ -183,15 +183,16 @@ public struct Results {
         return RuntimeList.strings(handle)
     }
 
-    /// Unpacks a returned `List`. `wrap` receives a +1 handle per element.
-    public func list<T>(_ wrap: (ObjectHandle) -> T) -> [T] {
-        optionalList(wrap) ?? []
+    /// Unpacks a returned `List`. `wrap` receives a +1 handle per element and
+    /// owns it even if it throws.
+    public func list<T, E: Error>(_ wrap: (ObjectHandle) throws(E) -> T) throws(E) -> [T] {
+        try optionalList(wrap) ?? []
     }
 
-    public func optionalList<T>(_ wrap: (ObjectHandle) -> T) -> [T]? {
+    public func optionalList<T, E: Error>(_ wrap: (ObjectHandle) throws(E) -> T) throws(E) -> [T]? {
         let handle = handle()
         guard handle != 0 else { return nil }
         defer { Runtime.release(handle) }
-        return RuntimeList.retainedHandles(handle).map(wrap)
+        return try RuntimeList.elements(handle, wrap)
     }
 }
