@@ -19,11 +19,11 @@ builds and the first provider contracts:
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
+| Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers, the
 manifest packager (`App.swift` → Info.plist / AndroidManifest), wasm2c, GLES,
-the Observation stopgap, async wrappers over the provider contracts, the
-SwiftUI frontend. TCP and UDP are not part of the spec.
+the Observation stopgap, the SwiftUI frontend. TCP and UDP are not part of the spec.
 
 ## 2. Layout
 
@@ -70,6 +70,27 @@ SwiftUI frontend. TCP and UDP are not part of the spec.
 
 **Implementation choices:**
 
+- **Async wrappers** (§6.2.1) are hand-written, one per contract, in the
+  contract modules, under `!EMBEDDED_NO_CONCURRENCY`. Embedded Swift has no
+  `any Error` values, so streams are `EventStream<Element, Failure>` (a
+  typed-failure `AsyncSequence`) instead of `AsyncThrowingStream`, and
+  one-shot calls use `withCallback`, a typed-throws continuation. Its
+  continuation and the request lists (`PendingCallbacks`, `EventSubscribers`)
+  are classes. As structs kept in a delegate's properties, finishing a stream
+  would hold an access to the property while its `onTermination` cleared it,
+  which is an exclusivity violation. A stream's consumer side releases it,
+  so dropping a stream stops the native work. `LocationError`, `MotionError`
+  and `NFCError` gained a guest-side `cancelled` code (hosts never send it),
+  like `BluetoothError.operationCancelled` and `NetworkError.cancelled`.
+- **Executor hooks are C** (`CRuntime/executor.c`, compiled only under
+  `__EMBEDDED_SWIFT__` without `EMBEDDED_NO_CONCURRENCY`). As Swift
+  `@_silgen_name` functions they were serialized into `DynamicRuntime`'s
+  module, and every module importing it failed to build without
+  optimization ("linkage mismatch of function
+  'swift_task_enqueueGlobalWithDelayImpl'"), which broke
+  `swift build --swift-sdk …wasm-embedded` for the contract modules.
+  `guest.py` builds weren't affected. `guest.py` now passes its defines to
+  clang too.
 - **wasm allocator.** `rt.h` declares two more wasm32 exports, `rt_alloc`
   and `rt_free` (defined in `rt.c` over `malloc`). A wasm host has to place
   `rt_dispatch` arguments and results in linear memory, which the ABI had no
@@ -171,6 +192,10 @@ Each of these needs a decision, or is verified only as far as noted:
    `__aeabi_mem*` names are allowed as the EABI spelling of
    memcpy/memset, which glibc, musl and bionic export. The helpers match
    libc results in a host test. They haven't run on armv7 hardware.
+   Every ELF slice also seals `sqrt` and `sqrtf` (`Scripts/support/math.c`):
+   Swift's `squareRoot()` calls `sqrt`, which isn't in the §7.5 set. Each
+   compiles to the architecture's square root instruction. Apple slices get
+   libm from libSystem.
 5. **x86_64** uses the x86-64-v2 baseline (SSE4.2, POPCNT; Android x86_64
    requires it), so `ceil` compiles to an instruction instead of a libm call.
 6. **`arc4random_buf`.** The Embedded stdlib calls it to seed hashing.
@@ -238,16 +263,20 @@ Each of these needs a decision, or is verified only as far as noted:
   its async checks: tasks run before `rt_main` returns, sleeps resume when
   the test advances a `ManualClock`, and cancellation before and during a
   sleep. Embedded only: in host tests Swift's own executor runs guest code.
-- `ContractsTests`: names, capabilities, keys and signatures of the provider
-  contracts.
+- Contract test targets (`DynamicBluetoothTests`, `DynamicLocationTests`,
+  …): names, capabilities, keys and signatures of the provider contracts, and
+  their async wrappers against fake Swift hosts through `NativeRuntime`:
+  permissions, one-shot calls, streams starting and stopping, failures,
+  cancellation, and handle and export leak checks.
+- `DynamicRuntimeTests/AsyncHelperTests`: `EventStream` buffering,
+  failure, and termination on finish, cancellation and release;
+  `withCallback`; `PendingCallbacks` ordering; `EventSubscribers` fan-out.
 
 ## 6. Next
 
 1. Settle the review items in §3 (allocator exports, guest error messages).
-2. Async wrappers over the provider contracts (`AsyncStream` over delegates,
-   §6.2.1).
-3. Stopgap `Observation` module (§5.3) and the Embedded SwiftUI frontend
+2. Stopgap `Observation` module (§5.3) and the Embedded SwiftUI frontend
    emitting the render IR (§9), both guest code for this repository.
-4. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
-5. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
+3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
+4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
