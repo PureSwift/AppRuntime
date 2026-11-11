@@ -3,11 +3,11 @@ import SwiftParser
 import SwiftSyntax
 import SwiftSyntaxMacroExpansion
 import SwiftSyntaxMacros
-import SwiftSyntaxMacrosTestSupport
-import XCTest
+import SwiftSyntaxMacrosGenericTestSupport
+import Testing
 @testable import DynamicRuntimeMacros
 
-final class DynamicRuntimeMacrosTests: XCTestCase {
+@Suite struct DynamicRuntimeMacrosTests {
 
     let macros: [String: Macro.Type] = [
         "DynamicRuntime": DynamicRuntimeMacro.self,
@@ -17,19 +17,19 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
     /// Parses the first protocol in `source` with its first attribute.
     func model(_ source: String, kind: ContractKind = .contract) throws -> ContractModel {
         let file = Parser.parse(source: source)
-        let proto = try XCTUnwrap(file.statements.first?.item.as(ProtocolDeclSyntax.self))
-        let attribute = try XCTUnwrap(proto.attributes.first?.as(AttributeSyntax.self))
+        let proto = try #require(file.statements.first?.item.as(ProtocolDeclSyntax.self))
+        let attribute = try #require(proto.attributes.first?.as(AttributeSyntax.self))
         do {
             return try ContractModel.parse(attribute: attribute, declaration: proto, kind: kind)
         } catch {
-            XCTFail("unexpected diagnostics: \(error.diagnostics.map(\.message))")
+            Issue.record("unexpected diagnostics: \(error.diagnostics.map(\.message))")
             throw error
         }
     }
 
     // MARK: Model
 
-    func testCentralContract() throws {
+    @Test func centralContract() throws {
         let model = try model("""
             @DynamicRuntime("org.pureswift.bluetooth.Central", version: 2, requires: .bluetooth)
             public protocol Central: AnyObject {
@@ -44,13 +44,13 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
                 func ratio(_ x: Float) -> Double
             }
             """)
-        XCTAssertEqual(model.runtimeName, "org.pureswift.bluetooth.Central")
-        XCTAssertEqual(model.proxyName, "CentralProxy")
-        XCTAssertEqual(model.version, 2)
-        XCTAssertEqual(model.capability, "bluetooth")
-        XCTAssertEqual(model.access, "public ")
+        #expect(model.runtimeName == "org.pureswift.bluetooth.Central")
+        #expect(model.proxyName == "CentralProxy")
+        #expect(model.version == 2)
+        #expect(model.capability == "bluetooth")
+        #expect(model.access == "public ")
         let descriptor = model.descriptor
-        XCTAssertEqual(descriptor.methods, [
+        #expect(descriptor.methods == [
             MethodDescriptor("make:", "(O)O", .constructor),
             MethodDescriptor("state", "()I"),
             MethodDescriptor("scan:allowDuplicates:", "(OZ)V"),
@@ -61,28 +61,28 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
             MethodDescriptor("peripherals", "()O"),
             MethodDescriptor("ratio:", "(F)D"),
         ])
-        XCTAssertEqual(model.methods.map(\.dispatchIndex), [0, 0, 1, 2, 3, 4, 5, 6, 7])
-        XCTAssertEqual(model.methods[4].throwsClause, "throws")
+        #expect(model.methods.map(\.dispatchIndex) == [0, 0, 1, 2, 3, 4, 5, 6, 7])
+        #expect(model.methods[4].throwsClause == "throws")
     }
 
-    func testTypes() throws {
+    @Test func types() throws {
         let model = try model("""
             @DynamicRuntime("t")
             protocol T: AnyObject {
                 func a(_ x: Swift.Int32, _ y: Optional<String>, _ z: Array<UInt8>?, _ w: (any T)?, _ v: [T]?)
             }
             """)
-        XCTAssertEqual(model.methods[0].parameters.map(\.type), [
+        #expect(model.methods[0].parameters.map(\.type) == [
             .scalar(name: "Int32", wire: .int32),
             .optional(.string),
             .optional(.bytes),
             .optional(.object(protocolName: "T")),
             .optional(.objects(protocolName: "T")),
         ])
-        XCTAssertEqual(model.access, "")
+        #expect(model.access == "")
     }
 
-    func testOverloadsByArityGetDistinctReferences() throws {
+    @Test func overloadsByArityGetDistinctReferences() throws {
         let model = try model("""
             @DynamicRuntime("t")
             protocol T: AnyObject {
@@ -90,10 +90,10 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
                 func connect(_ a: T, timeout: Int32)
             }
             """)
-        XCTAssertEqual(model.methods.map(\.referenceName), ["connect_1", "connect_2"])
+        #expect(model.methods.map(\.referenceName) == ["connect_1", "connect_2"])
     }
 
-    func testGeneratedProxyShape() throws {
+    @Test func generatedProxyShape() throws {
         let generator = ContractGenerator(model: try model("""
             @DynamicCallback("org.example.Delegate")
             public protocol Delegate: AnyObject {
@@ -101,19 +101,16 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
             }
             """, kind: .callback))
         let proxy = generator.proxyDeclaration()
-        XCTAssertTrue(proxy.contains("public final class DelegateProxy: DynamicObject, Delegate, DynamicInterface"))
-        XCTAssertTrue(proxy.contains("MethodDescriptor(\"didChange:\", \"(J)Z\", .instance)"))
-        XCTAssertTrue(proxy.contains("kind: .callback"))
-        XCTAssertFalse(proxy.contains("dispatchStatic"), "callbacks have no static methods")
+        #expect(proxy.contains("public final class DelegateProxy: DynamicObject, Delegate, DynamicInterface"))
+        #expect(proxy.contains("MethodDescriptor(\"didChange:\", \"(J)Z\", .instance)"))
+        #expect(proxy.contains("kind: .callback"))
+        #expect(!proxy.contains("dispatchStatic"), "callbacks have no static methods")
         let metadata = generator.metadataDeclaration()
-        XCTAssertTrue(metadata.contains("@section(\"__DATA,__rt_contracts\")"))
-        XCTAssertTrue(metadata.contains("@section(\".rt_contracts\")"))
-        XCTAssertTrue(metadata.contains("internal let _rt_contract_Delegate"))
+        #expect(metadata.contains("@section(\"__DATA,__rt_contracts\")"))
+        #expect(metadata.contains("@section(\".rt_contracts\")"))
+        #expect(metadata.contains("internal let _rt_contract_Delegate"))
         // The section record decodes back to the descriptor.
-        XCTAssertEqual(
-            ContractMetadata.decode(ContractMetadata.encode(generator.model.descriptor)),
-            [generator.model.descriptor]
-        )
+        #expect(ContractMetadata.decode(ContractMetadata.encode(generator.model.descriptor)) == [generator.model.descriptor])
     }
 
     // MARK: Diagnostics
@@ -125,7 +122,7 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
         return context.diagnostics.map(\.message)
     }
 
-    func testRequiresClassBound() {
+    @Test func requiresClassBound() {
         assertMacroExpansion(
             """
             @DynamicRuntime("t")
@@ -146,11 +143,22 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
                     fixIts: [FixItSpec(message: "add ': AnyObject'")]
                 ),
             ],
-            macros: macros
+            macroSpecs: macros.mapValues { MacroSpec(type: $0) },
+            failureHandler: { failure in
+                Issue.record(
+                    "\(failure.message)",
+                    sourceLocation: SourceLocation(
+                        fileID: failure.location.fileID,
+                        filePath: failure.location.filePath,
+                        line: failure.location.line,
+                        column: failure.location.column
+                    )
+                )
+            }
         )
     }
 
-    func testRejectsUnsupportedTypes() {
+    @Test func rejectsUnsupportedTypes() {
         let messages = diagnostics("""
             @DynamicRuntime("t")
             protocol T: AnyObject {
@@ -165,45 +173,45 @@ final class DynamicRuntimeMacrosTests: XCTestCase {
                 func i() throws(MyError)
             }
             """)
-        XCTAssertEqual(messages.count, 9, "\(messages)")
-        XCTAssertTrue(messages.contains { $0.contains("'Int'") && $0.contains("Int32 or Int64") })
-        XCTAssertTrue(messages.contains { $0.contains("'UInt32'") })
-        XCTAssertTrue(messages.contains { $0.contains("arrays may hold String or object types only") })
-        XCTAssertTrue(messages.contains { $0.contains("async") })
-        XCTAssertTrue(messages.contains(ContractDiagnostic.unsupportedMember.message))
-        XCTAssertTrue(messages.contains { $0.contains("'Self' is only allowed") })
-        XCTAssertTrue(messages.contains { $0.contains("generic") })
-        XCTAssertTrue(messages.contains { $0.contains("may only throw 'RuntimeError'") })
+        #expect(messages.count == 9, "\(messages)")
+        #expect(messages.contains { $0.contains("'Int'") && $0.contains("Int32 or Int64") })
+        #expect(messages.contains { $0.contains("'UInt32'") })
+        #expect(messages.contains { $0.contains("arrays may hold String or object types only") })
+        #expect(messages.contains { $0.contains("async") })
+        #expect(messages.contains(ContractDiagnostic.unsupportedMember.message))
+        #expect(messages.contains { $0.contains("'Self' is only allowed") })
+        #expect(messages.contains { $0.contains("generic") })
+        #expect(messages.contains { $0.contains("may only throw 'RuntimeError'") })
     }
 
-    func testRejectsOverloadsAndStaticCallbacks() {
-        XCTAssertEqual(diagnostics("""
+    @Test func rejectsOverloadsAndStaticCallbacks() {
+        #expect(diagnostics("""
             @DynamicRuntime("t")
             protocol T: AnyObject {
                 func a(_ x: Int32)
                 func a(y: Bool)
             }
-            """), [ContractDiagnostic.overload("a", 1).message])
-        XCTAssertEqual(diagnostics("""
+            """) == [ContractDiagnostic.overload("a", 1).message])
+        #expect(diagnostics("""
             @DynamicCallback("t")
             protocol T: AnyObject {
                 static func make() -> Self
             }
-            """), [ContractDiagnostic.staticInCallback("make").message])
+            """) == [ContractDiagnostic.staticInCallback("make").message])
     }
 
-    func testRejectsBadArguments() {
-        XCTAssertEqual(diagnostics("""
+    @Test func rejectsBadArguments() {
+        #expect(diagnostics("""
             @DynamicRuntime(name)
             protocol T: AnyObject { }
-            """), [ContractDiagnostic.missingName("DynamicRuntime").message])
-        XCTAssertEqual(diagnostics("""
+            """) == [ContractDiagnostic.missingName("DynamicRuntime").message])
+        #expect(diagnostics("""
             @DynamicRuntime("t", version: 0)
             protocol T: AnyObject { }
-            """), [ContractDiagnostic.invalidVersion.message])
-        XCTAssertEqual(diagnostics("""
+            """) == [ContractDiagnostic.invalidVersion.message])
+        #expect(diagnostics("""
             @DynamicRuntime("t")
             struct T { }
-            """), [ContractDiagnostic.notAProtocol("DynamicRuntime").message])
+            """) == [ContractDiagnostic.notAProtocol("DynamicRuntime").message])
     }
 }

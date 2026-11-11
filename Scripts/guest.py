@@ -21,7 +21,9 @@ the matching Embedded wasm Swift SDK for wasm32, and Xcode command line tools
 for the Apple targets.
 
 Limitations: target settings from Package.swift (defines, unsafe flags,
-conditional dependencies) are not read; every target is compiled as an
+platform-conditional dependencies) are not read, apart from dependencies
+gated on a trait that isn't enabled by default, which are left out; every
+target is compiled as an
 Embedded Swift library with the settings below.
 """
 
@@ -50,7 +52,7 @@ ALLOWED_ARM_EABI = re.compile(r"^__aeabi_mem(cpy|move|set|clr)[48]?$")
 # and re-exports compiler-rt (soft-float and 64-bit integer helpers that the
 # soft-float armv7-apple-none-macho target calls, as Swift-iOS6 does).
 ALLOWED_APPLE = re.compile(
-    r"^(bzero|__bzero|ceil|floor|trunc|round|sqrt|fmod"
+    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod"
     r"|__(ashl|ashr|lshr|mul|div|udiv|mod|umod|neg|add|sub|eq|ne|lt|le|gt|ge|unord|cmp|ucmp"
     r"|fix|fixuns|float|floatun|extend|trunc|pow)[a-z]*[0-9]?)$"
 )
@@ -72,9 +74,17 @@ ARMV7_SOFTFP = ["-mfloat-abi=softfp", "-mfpu=vfpv3-d16"]  # Android armeabi-v7a
 # makes no OS calls, so arm64 slices are compiled for arm64-apple-none-macho
 # (the same Darwin calling convention) and stamped with the platform and
 # minimum OS when sealed. x86_64 has no none-macho stdlib; it is compiled for
-# macOS 14 and stamped 10.15. arm64_32 (watchOS 6 hardware) has no Embedded
+# macOS 26, which folds away #available checks (their runtime helper isn't in
+# the allowed symbols), and stamped 10.15. arm64_32 (watchOS 6 hardware) has no Embedded
 # stdlib at all, so those watches use App.wasm.
 APPLE_ARM64 = "arm64-apple-none-macho"
+
+# Native slices are built without concurrency until the guest executor (§5.4)
+# exists. The prebuilt runtime needs executor hooks and more libc than §7.5
+# allows, and aarch64-none-none-elf has no _Concurrency module at all.
+# canImport(_Concurrency) can't detect that, so packages check this define.
+# wasm32 links the runtime, and its linker strips what's unused.
+NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
 TARGETS = {
     "wasm32": dict(kind="wasm", triple="wasm32-unknown-wasip1",
                    about="WASI reactor module, every host"),
@@ -91,7 +101,7 @@ TARGETS = {
         dict(triple=APPLE_ARM64, arch="arm64", platform="ios", minimum="13.0")]),
     "macos": dict(kind="macho", about="macOS 10.15, arm64 + x86_64 in one archive", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="macos", minimum="11.0"),
-        dict(triple="x86_64-apple-macos14", arch="x86_64", platform="macos", minimum="10.15")]),
+        dict(triple="x86_64-apple-macos26", arch="x86_64", platform="macos", minimum="10.15")]),
     "tvos-arm64": dict(kind="macho", about="tvOS 13", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="tvos", minimum="13.0")]),
     "watchos-arm64": dict(kind="macho", about="watchOS 6 on arm64 hardware (arm64_32 watches use App.wasm)", slices=[
@@ -101,12 +111,12 @@ TARGETS = {
     "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", about="Linux arm64, libc-agnostic"),
     "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD,
                         support=["armv7-eabi.c"], about="Linux armv7 hard-float, libc-agnostic"),
-    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
     "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", about="Android arm64-v8a"),
     "android-armeabi-v7a": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_SOFTFP,
                                 support=["armv7-eabi.c"], about="Android armeabi-v7a (softfp)"),
-    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", support=["x86_64-half.c"],
                            about="Android x86_64 (SSE4.2 and POPCNT, as the ABI requires)"),
 }
 
@@ -204,12 +214,34 @@ class Target:
         self.package_path = Path(package_path)
 
 
+def disabled_trait_dependencies(manifest):
+    """Dependencies gated on traits the package doesn't enable by default.
+
+    `swift package describe` lists them unconditionally, but a trait that's
+    off means the dependency isn't part of the build.
+    """
+    enabled = set()
+    for trait in manifest.get("traits", []):
+        if trait.get("name") == "default":
+            enabled.update(trait.get("enabledTraits", []))
+    disabled = {}
+    for target in manifest.get("targets", []):
+        for dependency in target.get("dependencies", []):
+            for details in dependency.values():
+                condition = next((d for d in details if isinstance(d, dict)), None) if details else None
+                traits = (condition or {}).get("traits") or []
+                if traits and not enabled.intersection(traits):
+                    disabled.setdefault(target["name"], set()).add(details[0])
+    return disabled
+
+
 class PackageGraph:
 
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.targets = {}    # (package path, name) -> Target
         self.products = {}   # product name -> (package path, [target names])
+        self.uses_build_plugins = False
         self.load(self.root)
         dependencies = json.loads(run(["swift", "package", "show-dependencies", "--format", "json"], cwd=self.root, quiet=True))
         pending = list(dependencies.get("dependencies", []))
@@ -222,10 +254,21 @@ class PackageGraph:
         if any(key[0] == path for key in self.targets):
             return
         description = json.loads(run(["swift", "package", "describe", "--type", "json"], cwd=path, quiet=True))
+        manifest = json.loads(run(["swift", "package", "dump-package"], cwd=path, quiet=True))
+        disabled = disabled_trait_dependencies(manifest)
         for target in description["targets"]:
-            self.targets[(path, target["name"])] = Target(path, target)
+            model = Target(path, target)
+            excluded = disabled.get(model.name, set())
+            model.target_dependencies = [d for d in model.target_dependencies if d not in excluded]
+            model.product_dependencies = [d for d in model.product_dependencies if d not in excluded]
+            self.targets[(path, target["name"])] = model
         for product in description["products"]:
             self.products.setdefault(product["name"], (path, product["targets"]))
+
+    def generated_sources(self, target):
+        """Swift sources a build-tool plugin generated for `target` during the host build."""
+        outputs = self.root / ".build/plugins/outputs" / target.package_path.name.lower() / target.name / "destination"
+        return sorted(outputs.glob("*/*.swift"))
 
     def closure(self, product):
         """Targets of a product in dependency order, plus the macro targets they use."""
@@ -242,6 +285,10 @@ class PackageGraph:
             if target.type == "macro":
                 macros.append(target)
                 return
+            if target.type == "plugin":
+                self.uses_build_plugins = True
+            if target.type in ("plugin", "executable", "test"):
+                return  # build tools, not guest code
             for name in target.target_dependencies:
                 visit(self.targets[(target.package_path, name)])
             for name in target.product_dependencies:
@@ -262,8 +309,9 @@ class PackageGraph:
 class Compiler:
     """Compiles every target of a closure for one triple into objects."""
 
-    def __init__(self, toolchain, graph, product, triple, output, cflags=(), features=(), wasm_sdk=None, cpu=None):
+    def __init__(self, toolchain, graph, product, triple, output, cflags=(), features=(), wasm_sdk=None, cpu=None, defines=()):
         self.cpu = cpu
+        self.defines = list(defines)
         self.toolchain = toolchain
         self.graph = graph
         self.product = product
@@ -296,6 +344,8 @@ class Compiler:
         ]
         if self.cpu:
             flags += ["-target-cpu", self.cpu]
+        for define in self.defines:
+            flags += ["-D", define]
         if self.wasm_sdk:
             flags += ["-sdk", self.wasm_sdk / "WASI.sdk",
                       "-resource-dir", self.wasm_sdk / "swift.xctoolchain/usr/lib/swift"]
@@ -342,8 +392,10 @@ class Compiler:
 
     def compile_swift(self, target, plugins, module_maps):
         sources = [s for s in target.sources if s.suffix == ".swift"]
+        sources += self.graph.generated_sources(target)
         obj = self.output / f"{target.c99name}.o"
         flags = self.swift_flags()
+        flags += ["-package-name", target.package_path.name.lower()]
         for include, module_map in module_maps:
             flags += ["-Xcc", f"-I{include}", "-Xcc", f"-fmodule-map-file={module_map}"]
         for plugin, module in plugins:
@@ -356,7 +408,7 @@ class Compiler:
 
 def build_plugins(graph, product, macros):
     """Builds the product's macro plugins for the build machine."""
-    if not macros:
+    if not macros and not graph.uses_build_plugins:
         return []
     run(["swift", "build", "--product", product], cwd=graph.root, quiet=True)
     plugins = []
@@ -616,7 +668,7 @@ class Builder:
     def elf_slice(self, config, output):
         triple = config["triple"]
         compiler = Compiler(self.toolchain, self.graph, self.product, triple, output / "objects",
-                            cflags=config.get("cflags", ()), cpu=config.get("cpu"))
+                            cflags=config.get("cflags", ()), cpu=config.get("cpu"), defines=NO_CONCURRENCY)
         objects = compiler.compile(self.targets, self.plugins)
         objects += compiler.compile_support(config.get("support", []))
         sealed = seal_elf(self.toolchain, objects, runtime_libraries(self.toolchain, triple, concurrency=True), output)
@@ -630,7 +682,8 @@ class Builder:
         for slice_config in config["slices"]:
             directory = output / slice_config["arch"]
             compiler = Compiler(self.toolchain, self.graph, self.product, slice_config["triple"], directory / "objects",
-                                cflags=slice_config.get("cflags", ()), features=slice_config.get("features", ()))
+                                cflags=slice_config.get("cflags", ()), features=slice_config.get("features", ()),
+                                defines=NO_CONCURRENCY)
             objects = compiler.compile(self.targets, self.plugins)
             objects += compiler.compile_support(slice_config.get("support", []))
             libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency=True)
@@ -652,7 +705,9 @@ class Builder:
             directory = self.root / ".metadata"
             if directory.exists():
                 shutil.rmtree(directory)
-            compiler = Compiler(self.toolchain, self.graph, self.product, "aarch64-none-none-elf", directory)
+            # Any ELF triple works; this one ships the Embedded concurrency
+            # module, which aarch64-none-none-elf doesn't.
+            compiler = Compiler(self.toolchain, self.graph, self.product, "x86_64-unknown-none-elf", directory)
             objects = compiler.compile(self.targets, self.plugins)
             sealed = seal_elf(self.toolchain, objects, [], directory)
             self._contracts = dump_section(self.toolchain, sealed, ".rt_contracts")
