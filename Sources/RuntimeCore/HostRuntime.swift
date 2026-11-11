@@ -49,6 +49,14 @@ public final class HostRuntime {
         bytesClass = register(BuiltinContracts.bytes)
         clockClass = register(BuiltinContracts.clock)
         clockDelegateClass = register(BuiltinContracts.clockDelegate)
+        // Hosts implement these by registering them again with their own
+        // implementations (`PermissionsProxy.register(…)`, …). Until then,
+        // their calls fail with `.notFound`.
+        register(BuiltinContracts.permissions)
+        register(BuiltinContracts.permissionsDelegate)
+        register(BuiltinContracts.bundle)
+        register(BuiltinContracts.application)
+        register(BuiltinContracts.applicationDelegate)
     }
 
     // MARK: Registry
