@@ -97,6 +97,21 @@ app and isn't portable), download-to-file tasks, streamed request bodies,
 suspending tasks, WebSockets, certificate pinning, and a reachability or
 network-path contract.
 
+## Async/await
+
+Guest code can use the `HTTPSession` extensions instead of a task delegate
+(§6.2.1). They are guest-side only; hosts never see them.
+
+| Call | Returns |
+|---|---|
+| `data(for:followRedirects:challenge:)` | `HTTPResult`: the response and the whole body |
+| `upload(for:body:followRedirects:challenge:)` | `HTTPResult` |
+| `events(for:body:followRedirects:challenge:)` | `EventStream<HTTPEvent, NetworkError>`: upload progress, the response, body chunks |
+
+Cancelling the task, or releasing an event stream, cancels the request.
+`challenge` answers authentication challenges with an `HTTPCredential`;
+without one, the host handles them by default.
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4).
