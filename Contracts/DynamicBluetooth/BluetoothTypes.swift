@@ -76,3 +76,20 @@ public enum BluetoothError: Int32, Error, Sendable {
     /// the ATT error code.
     case attribute = 256
 }
+
+public extension BluetoothError {
+
+    /// The error for a delegate `error` code: `nil` for `0`, success. Codes
+    /// from 256 to 511 (`attribute` plus an ATT error code) are `attribute`;
+    /// codes this version doesn't know are `unknown`.
+    init?(code: Int32) {
+        guard code != 0 else { return nil }
+        if let error = BluetoothError(rawValue: code) {
+            self = error
+        } else if (256..<512).contains(code) {
+            self = .attribute
+        } else {
+            self = .unknown
+        }
+    }
+}

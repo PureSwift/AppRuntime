@@ -76,6 +76,17 @@ hold a `PROXIMITY_SCREEN_OFF_WAKE_LOCK` for the same behavior.
 - carrier and network type, which belong to a future network-path contract;
 - haptics.
 
+## Async/await
+
+Guest code can use `AsyncDevice` instead of the delegate (§6.2.1). It's
+guest-side only; hosts never see it.
+
+`events(battery:orientation:proximity:)` returns an
+`EventStream<DeviceEvent, Never>` of battery, low power, thermal,
+orientation and proximity changes. It turns on the monitoring it asks for,
+and turns it off again, and removes the delegate, when the stream is
+released.
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4).

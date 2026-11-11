@@ -98,6 +98,23 @@ process runs. The contract promises foreground delivery only.
 compass and a light sensor on some hardware. Hosts report what they can and
 `isAvailable` is `false` for the rest.
 
+## Async/await
+
+Guest code can use the async wrappers instead of delegates (§6.2.1). They
+are guest-side only; hosts never see them.
+
+| Wrapper | Streams and calls |
+|---|---|
+| `AsyncMotionManager` | `acceleration`, `rotationRate` (`MotionSample`), `magneticField` (`MagneticFieldSample`), `deviceMotion` (`DeviceMotion`), each with an interval and a buffering policy |
+| `AsyncPedometer` | `requestAuthorization()`, `updates(from:)` (`PedometerData`), `query(from:to:)` |
+| `AsyncAltimeter` | `requestAuthorization()`, `updates()` (`AltitudeSample`) |
+| `AsyncActivityRecognizer` | `requestAuthorization()`, `updates()` (`ActivitySample`) |
+
+Streams are `EventStream<…, MotionError>`; a sensor runs while its stream
+is alive. `.newest(n)` buffering keeps only recent samples when the
+consumer falls behind. `cancelled` (6) is a guest-side code: the wrappers
+throw it, hosts never send it.
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4). Hosts hop from

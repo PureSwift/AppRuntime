@@ -136,6 +136,45 @@ in that case.
 BlueZ parity for the central API yet), PHY selection, connection priority,
 extended advertising details, and CoreBluetooth state restoration.
 
+## Async/await
+
+Guest code can use `AsyncCentral` and `AsyncPeripheral` instead of
+delegates (§6.2.1). They are guest-side only; hosts implement the
+delegate contract above and never see them.
+
+| Call | Returns |
+|---|---|
+| `AsyncCentral.authorization` | current authorization, never prompts |
+| `requestAuthorization()` | the outcome; prompts only if undecided |
+| `waitUntilPoweredOn()` | once powered on; throws `unauthorized` or `unsupported` |
+| `states()` | `EventStream<CentralState, Never>` |
+| `scan(services:allowDuplicates:mode:)` | `EventStream<ScanResult, BluetoothError>`; releasing it stops the scan |
+| `connect(_:timeout:)` | `AsyncPeripheral`; cancelling the task cancels the attempt |
+| `disconnect(_:)` | once the host reports it |
+| `AsyncPeripheral.discoverServices`, `discoverCharacteristics`, `discoverDescriptors` | the discovered objects |
+| `read`, `write` (characteristics and descriptors), `readRSSI()` | the value |
+| `notifications(for:)` | `EventStream<[UInt8], BluetoothError>`; releasing it unsubscribes |
+
+Failures are `BluetoothError`; `BluetoothError(code:)` maps a delegate
+code. Requests about the same attribute complete in order. A cancelled
+GATT request throws `operationCancelled` at once; the native request still
+completes and its result is discarded. When a peripheral disconnects,
+pending calls throw the reason and notification streams finish with it.
+
+```swift
+let central = AsyncCentral()
+guard await central.requestAuthorization() == .allowed else { return }
+try await central.waitUntilPoweredOn()
+for try await result in central.scan(services: [.bit16(0x180D)]) {
+    let peripheral = try await central.connect(result.peripheral, timeout: 10_000)
+    let service = try await peripheral.discoverServices([.bit16(0x180D)])[0]
+    let measurement = try await peripheral.discoverCharacteristics([.bit16(0x2A37)], for: service)[0]
+    for try await value in peripheral.notifications(for: measurement) {
+        print(value)
+    }
+}
+```
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4). Hosts hop from

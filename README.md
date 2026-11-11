@@ -64,6 +64,19 @@ Async code runs on the guest executor: tasks run before each call from the
 host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
 `Task.sleep`, which Embedded Swift doesn't have.
 
+Each provider contract also has async wrappers for guest code, such as
+`AsyncCentral`, `AsyncLocationManager` and `HTTPSession.data(for:)`. Event
+sequences are `EventStream`s, which stop the native work when released:
+
+```swift
+let central = AsyncCentral()
+guard await central.requestAuthorization() == .allowed else { return }
+for try await result in central.scan(services: [.bit16(0x180D)]) {
+    let peripheral = try await central.connect(result.peripheral)
+    // …
+}
+```
+
 ## Building
 
 The toolchain is pinned in `.swift-version` (Swift 6.4.2). Install it and

@@ -60,7 +60,20 @@ public enum MotionError: Int32, Error, Sendable {
     case historyUnavailable = 4
     /// The app is in the background, where updates stop.
     case suspended = 5
+    /// The waiting task was cancelled. The async wrappers throw it; hosts
+    /// never send it.
+    case cancelled = 6
 }
 
 /// Standard gravity in m/s², used to convert from g.
 public let standardGravity = 9.80665
+
+public extension MotionError {
+
+    /// The error for a delegate `error` code: `nil` for `0`, success; codes
+    /// this version doesn't know are `unknown`.
+    init?(code: Int32) {
+        guard code != 0 else { return nil }
+        self = MotionError(rawValue: code) ?? .unknown
+    }
+}

@@ -54,4 +54,17 @@ public enum LocationError: Int32, Error, Sendable {
     /// The request needs background authorization or a manifest
     /// declaration the app lacks.
     case backgroundNotAllowed = 7
+    /// The waiting task was cancelled. The async wrappers throw it; hosts
+    /// never send it.
+    case cancelled = 8
+}
+
+public extension LocationError {
+
+    /// The error for a delegate `error` code: `nil` for `0`, success; codes
+    /// this version doesn't know are `unknown`.
+    init?(code: Int32) {
+        guard code != 0 else { return nil }
+        self = LocationError(rawValue: code) ?? .unknown
+    }
 }

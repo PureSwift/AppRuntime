@@ -89,6 +89,23 @@ backend), region monitoring and geofencing (limits of 20 regions on iOS,
 100 on Android, plus Play services), significant-change and visit
 monitoring, indoor floors.
 
+## Async/await
+
+Guest code can use `AsyncLocationManager` instead of the delegate (§6.2.1).
+It's guest-side only; hosts never see it.
+
+| Call | Returns |
+|---|---|
+| `AsyncLocationManager.authorization`, `accuracyAuthorization` | current values, never prompt |
+| `requestWhenInUseAuthorization()`, `requestAlwaysAuthorization()` | the outcome; prompt only when the host would |
+| `requestFullAccuracy(_:)` | the accuracy authorization afterwards |
+| `currentLocation()` | one fix; throws `LocationError`, `cancelled` if the task is cancelled |
+| `locations()` | `EventStream<any Location, LocationError>`; `locationUnknown` doesn't end it |
+| `headings()` | `EventStream<any Heading, LocationError>` |
+
+Releasing a stream stops its updates. `cancelled` (8) is a guest-side code:
+the wrapper throws it, hosts never send it.
+
 ## Threading
 
 Every delegate method runs on the main thread (§6.4).
