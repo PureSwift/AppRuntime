@@ -58,22 +58,22 @@ frontend. TCP and UDP are not part of the spec.
 
 **Need your review:**
 
-1. **wasm allocator exports.** `rt.h` is verbatim. A wasm host has to place
-   `rt_dispatch` arguments and results in linear memory, which the ABI has
-   no way to do, so the guest also exports `rt_alloc` / `rt_free`
-   (`rt_guest.h`, defined in `rt.c`). Every wasm host, including a browser
-   host, needs them or an equivalent.
-2. **Error messages from guests.** A guest-implemented method that throws
+1. **Error messages from guests.** A guest-implemented method that throws
    returns `RT_ERR_THROWN`, but `rt.h` gives a guest no way to pass a
    message. In native mode the message crosses in-process
    (`Exported.takeDispatchErrorMessage()`); from a wasm guest it is lost.
    This belongs with the error-model open question (§15).
-3. **`rt_error_message` with `cap == 0`** reports the length without
+2. **`rt_error_message` with `cap == 0`** reports the length without
    clearing the message, so a caller can size its buffer and read it.
    Any read with `cap > 0` clears it.
 
 **Implementation choices:**
 
+- **wasm allocator.** `rt.h` declares two more wasm32 exports, `rt_alloc`
+  and `rt_free` (defined in `rt.c` over `malloc`). A wasm host has to place
+  `rt_dispatch` arguments and results in linear memory, which the ABI had no
+  other way to do, so every wasm host, including a browser host, uses them.
+  Native hosts pass their own pointers and never call them.
 - **Contracts are class-bound** (`protocol Central: AnyObject`). Embedded
   Swift only supports existentials of class-bound protocols, and contract
   parameters such as `Peripheral` are existentials. The macro reports a
