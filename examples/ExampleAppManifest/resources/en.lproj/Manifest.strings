@@ -1,0 +1,5 @@
+/* The example app's name. */
+"app.name" = "Example";
+
+/* Why the app asks for Bluetooth. */
+"perm.bluetooth" = "The example app looks for nearby beacons.";

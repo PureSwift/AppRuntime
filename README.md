@@ -174,9 +174,43 @@ Scripts/build-linux.sh ExampleApp       # armv7, arm64, x86_64
 Scripts/build-android.sh ExampleApp     # armeabi-v7a, arm64-v8a, x86_64
 ```
 
+An app's manifest is Swift, like `Package.swift`
+([`examples/ExampleAppManifest/App.swift`](examples/ExampleAppManifest/App.swift)):
+
+```swift
+import AppManifest
+
+let app = App(
+    id: "org.pureswift.example",
+    name: .localized("app.name"),
+    version: "1.0", build: 1,
+    languages: ["en", "es"],
+    product: "ExampleApp",
+    capabilities: [.bluetooth(usage: .localized("perm.bluetooth"))],
+    platforms: [.iOS("15.0"), .macOS("12.0"), .android(minSDK: 26, targetSDK: 35), .linux]
+)
+```
+
+```sh
+Scripts/build-bundle.sh --manifest examples/ExampleAppManifest/App.swift
+```
+
+`guest.py` compiles the manifest with the `AppManifest` library and runs it
+sandboxed. It checks the manifest against the app's contracts, its
+`resources/<language>.lproj/Manifest.strings` and the slices' minimum OS
+versions. It writes the portable `Info.plist` keys, and embeds the manifest
+in every slice's `rt.manifest` section. Without a manifest, flags describe
+the app:
+
 ```sh
 Scripts/build-bundle.sh --product ExampleApp --id org.pureswift.example \
     --name Example --version 1.0 --build 1 --capability bluetooth
+```
+
+The scripts' own tests:
+
+```sh
+python3 -m unittest discover -s Scripts -p 'test_*.py'
 ```
 
 `Scripts/guest.py targets` lists every target ID. Output goes to

@@ -25,8 +25,8 @@ builds and the first provider contracts:
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
-(players), the manifest packager (`App.swift` → Info.plist / AndroidManifest),
-wasm2c, GLES. TCP and UDP are not part of the spec.
+(players), the platform packagers (the portable manifest → an iOS
+`Info.plist` or an `AndroidManifest.xml`), wasm2c, GLES. TCP and UDP are not part of the spec.
 
 ## 2. Layout
 
@@ -157,6 +157,35 @@ wasm2c, GLES. TCP and UDP are not part of the spec.
   be declared `throws` (anything else is a compile error), and an invalid
   string throws `RuntimeError.thrown`. An invalid callback argument fails the
   incoming call the same way.
+- **Manifest stage** (§7.1–7.3). `App.swift` defines `let app = App(…)`
+  with the `AppManifest` library: full Swift for the build machine, no
+  Foundation, no dependencies. `guest.py` (`Scripts/manifest.py`) compiles
+  it with the library into a throwaway executable and runs it, which prints
+  the manifest as JSON with sorted keys, as SwiftPM does with
+  `Package.swift`. On macOS it runs under `sandbox-exec` with no network
+  and no writes outside its temporary directory; on Linux under `unshare
+  --user --net` when unprivileged namespaces are allowed (no network, but
+  writes aren't confined), otherwise unsandboxed with a warning.
+  - Checks: reverse-DNS `id`; a 1–3 part `version`; a positive `build`;
+    every `.localized` key in each language's
+    `resources/<language>.lproj/Manifest.strings`; capabilities against
+    the contracts' (missing is an error, unused a warning); each platform's
+    minimum against its slices' (`ios-arm64`: 13.0; `macos`: 10.15); known
+    platforms, no duplicates, Android's `targetSDK` ≥ `minSDK`; an icon
+    (a warning without one).
+  - Without `--target`, the bundle has the manifest's platforms, leaving out
+    targets past their last OS (`ios-armv7` stops at iOS 10.3).
+  - `RTCapabilityUsage` maps each capability to its usage text's key in
+    `Manifest.strings`. A written-out usage text gets the key
+    `RTCapabilityUsage.<capability>`, added to the bundle's copy of every
+    language's file. `CFBundleDisplayName` is the development language's
+    name, and `RTDisplayNameKey` its key.
+  - Every slice embeds the same JSON as `rt.manifest`: a Mach-O section
+    (`ld -r -sectcreate __DATA __rt_manifest`), an ELF section added with
+    `llvm-objcopy`, or a wasm custom section. The sealed-slice checks read
+    it back.
+  - With `--manifest`, the flags override its fields, except
+    `--capability`, which is an error: capabilities need usage texts.
 - **Method keys:** the base name, `:` for the first parameter, then
   `label:` per later parameter (`connect(_:timeout:)` → `connect:timeout:`,
   `replaceSubtree(_:_:)` → `replaceSubtree::`). See `RuntimeABI.MethodKey`.
@@ -215,9 +244,13 @@ Every native slice is one `ld -r` object in `libapp.a`. Only `rt_main`,
 
 `App.wasm` is checked for `rt` / WASI-only imports and the reactor exports.
 The bundle step:
-- validates contract capabilities against `--capability` (§7.3);
+- with `--manifest App.swift`, evaluates the manifest (below) and runs its
+  checks; otherwise validates contract capabilities against `--capability`
+  (§7.3);
 - writes `Info.plist` (`RTTargets`, `RTABIVersion`, `RTCapabilities`,
-  `RTContracts`);
+  `RTContracts`, and with a manifest `RTPlatforms`, `RTCapabilityUsage`,
+  `RTCapabilityOptions`, `RTDisplayNameKey`, `RTIcon`,
+  `RTPlatformExtras`);
 - writes per-file SHA-256 hashes to `_CodeSignature/CodeResources` (unsigned).
 
 ### Findings
@@ -334,6 +367,12 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicObservationTests`: tracking, nested tracking, the mask fast path
   and high indices, coalescing listeners, registrars released before their
   observers, `Bindings`, and the macro's expansion.
+- `AppManifestTests`: the manifest's JSON for the design's example, left
+  out optional fields, escaping and property list values.
+  `Scripts/test_manifest.py`: `.strings` parsing, every manifest check,
+  default targets, the `Info.plist` keys and usage strings, evaluating the
+  example manifest, and on macOS a manifest whose file write the sandbox
+  blocks.
 - `DynamicUITests`: the IR's byte format: round trips, determinism, payloads
   and IDs, and rejection of every truncation and malformed input.
 - `DynamicSwiftUITests`: the frontend against a recording sink: first tree,
