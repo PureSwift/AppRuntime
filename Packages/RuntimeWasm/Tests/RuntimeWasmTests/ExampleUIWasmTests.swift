@@ -78,6 +78,8 @@ extension WasmShimTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+            .deletingLastPathComponent() // Packages/RuntimeWasm
+            .deletingLastPathComponent()
             .appendingPathComponent(".build/guest/ExampleUI/wasm32/App.wasm")
     }
 

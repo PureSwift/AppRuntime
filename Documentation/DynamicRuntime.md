@@ -480,14 +480,15 @@ Why:
 ### 7.1 Portable manifest
 
 ```swift
-// App.swift — read by the build plugin
+// App.swift — read by Scripts/guest.py bundle --manifest
+import AppManifest
+
 let app = App(
     id: "org.pureswift.blescanner",
     name: .localized("app.name"),
     version: "1.4.0", build: 42,            // integer: Android versionCode
     languages: ["en", "es"],
-    executable: "BLEScanner",
-    targets: [.wasm32, .ios(.arm64, .armv7), .macos, .linux(.arm64, .armv7, .x86_64), .android(.arm64, .armv7)],   // missing native slices are filled by wasm2c
+    product: "BLEScanner",                  // the guest library product
     capabilities: [
         .bluetooth(usage: .localized("perm.bluetooth")),
         .location(.whenInUse, usage: .localized("perm.location")),
@@ -500,7 +501,7 @@ let app = App(
 )
 ```
 
-The manifest only has fields that exist on every platform. Platform-only settings go in escape hatches (`.iOS(extraInfoPlist:)`, `.android(extraManifest:)`).
+The manifest only has fields that exist on every platform. Platform-only settings go in escape hatches (`apple: .init(category:extraInfoPlist:)`, `android: .init(extraManifest:)`). The slices built are those of the listed platforms; missing native slices are filled by wasm2c.
 
 ### 7.2 Generated outputs
 
@@ -558,6 +559,7 @@ Guest-side SDK libraries (the SwiftUI frontend, the Observation module, contract
 |---|---|
 | `wasm32` | `App.wasm`, a WASI **reactor** module, not a command (required; every host can use it) |
 | `ios-arm64`, `ios-armv7` (iOS 6) | `libapp.a`, Mach-O objects |
+| `ios-simulator` | `libapp.a`, Mach-O objects stamped for the iOS Simulator (arm64 + x86_64 in one archive) |
 | `macos` | `libapp.a`, Mach-O objects (arm64 + x86_64 in one archive allowed) |
 | `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.a`, ELF PIC objects |
 | `android-arm64-v8a`, `android-armeabi-v7a`, `android-x86_64` | `libapp.a`, ELF PIC objects |
@@ -793,7 +795,7 @@ In wasm32 builds these are wasm custom sections. In native builds they are objec
 | `rt.abi` | rt ABI version the module was built against |
 | `rt.contracts` | per contract: name, version, required capability, method keys plus wire signatures |
 | `rt.classes` | guest-defined classes (platform layer): superclass, overridden methods |
-| `rt.manifest` | serialized app manifest |
+| `rt.manifest` | the app manifest as JSON with sorted keys (`App.manifestJSON()`) |
 
 Load-time validation:
 1. The host's ABI version must be at least the module's `rt.abi`.

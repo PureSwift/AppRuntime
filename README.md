@@ -19,6 +19,12 @@ written separately.
 
 ## Packages
 
+The package supports macOS 12 and iOS 15, the oldest deployment targets
+current Xcode accepts. The WasmKit engine needs macOS 15 / iOS 18, so it is
+its own package, [`Packages/RuntimeWasm`](Packages/RuntimeWasm), which
+depends on this one by path. Hosts that ship only native slices or wasm2c
+don't depend on WasmKit.
+
 | Target | Role | Embedded |
 |---|---|---|
 | `CRuntime` | `rt.h`, plus `rt_guest.h` (ABI version, section names, wasm allocator) | C, freestanding |
@@ -27,7 +33,7 @@ written separately.
 | `DynamicRuntimeMacros` | `@DynamicRuntime` / `@DynamicCallback`: proxies, dispatch adapters, metadata records | build machine |
 | `RuntimeCore` | Runtime core: handle table, registry, Swift-registry backend, validation | yes |
 | `RuntimeNative` | `rt_*` as C symbols for native slices, and a direct binding for host Swift code | yes |
-| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore` | host |
+| `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `AppRuntime`, `bundle-runtime`, `CBundleRuntime` | Linux bundle model, launcher and sandbox | Linux |
 
@@ -63,6 +69,18 @@ public func appMain() -> rt_status {
 Async code runs on the guest executor: tasks run before each call from the
 host returns, and `RuntimeClock.sleep(nanoseconds:)` stands in for
 `Task.sleep`, which Embedded Swift doesn't have.
+
+Every host also provides the built-in `Permissions`, `Bundle` (`AppBundle` in
+Swift) and `Application` contracts: one way to ask for any capability, the
+app's metadata and localized strings, and its lifecycle and incoming URLs.
+
+```swift
+let greeting = try AppBundleProxy.localizedString("greeting", table: nil) ?? "Hello"
+if try PermissionsProxy.status(.location) == PermissionStatus.notDetermined.rawValue {
+    try PermissionsProxy.request(.location, delegate: permissionsDelegate)
+}
+let application = try ApplicationProxy.make(lifecycleDelegate)
+```
 
 Each provider contract also has async wrappers for guest code, such as
 `AsyncCentral`, `AsyncLocationManager` and `HTTPSession.data(for:)`. Event
@@ -132,6 +150,13 @@ swift build
 swift test
 ```
 
+The WasmKit engine's tests run from its own package:
+
+```sh
+cd Packages/RuntimeWasm
+swift test
+```
+
 ### Guest slices and bundles
 
 `Scripts/guest.py` compiles a package's guest library product for each
@@ -149,9 +174,43 @@ Scripts/build-linux.sh ExampleApp       # armv7, arm64, x86_64
 Scripts/build-android.sh ExampleApp     # armeabi-v7a, arm64-v8a, x86_64
 ```
 
+An app's manifest is Swift, like `Package.swift`
+([`examples/ExampleAppManifest/App.swift`](examples/ExampleAppManifest/App.swift)):
+
+```swift
+import AppManifest
+
+let app = App(
+    id: "org.pureswift.example",
+    name: .localized("app.name"),
+    version: "1.0", build: 1,
+    languages: ["en", "es"],
+    product: "ExampleApp",
+    capabilities: [.bluetooth(usage: .localized("perm.bluetooth"))],
+    platforms: [.iOS("15.0"), .macOS("12.0"), .android(minSDK: 26, targetSDK: 35), .linux]
+)
+```
+
+```sh
+Scripts/build-bundle.sh --manifest examples/ExampleAppManifest/App.swift
+```
+
+`guest.py` compiles the manifest with the `AppManifest` library and runs it
+sandboxed. It checks the manifest against the app's contracts, its
+`resources/<language>.lproj/Manifest.strings` and the slices' minimum OS
+versions. It writes the portable `Info.plist` keys, and embeds the manifest
+in every slice's `rt.manifest` section. Without a manifest, flags describe
+the app:
+
 ```sh
 Scripts/build-bundle.sh --product ExampleApp --id org.pureswift.example \
     --name Example --version 1.0 --build 1 --capability bluetooth
+```
+
+The scripts' own tests:
+
+```sh
+python3 -m unittest discover -s Scripts -p 'test_*.py'
 ```
 
 `Scripts/guest.py targets` lists every target ID. Output goes to
@@ -168,9 +227,9 @@ Scripts/fetch-embedded-linux.sh
 
 Without it, those two slices are built without concurrency.
 
-`RuntimeWasmTests` runs the example app's `App.wasm` when it has been built
-(`Scripts/build-wasm.sh ExampleApp`), the same app `DynamicRuntimeTests` runs
-as a native slice.
+`RuntimeWasmTests` (in `Packages/RuntimeWasm`) runs the example app's
+`App.wasm` when it has been built (`Scripts/build-wasm.sh ExampleApp`), the
+same app `DynamicRuntimeTests` runs as a native slice.
 
 ### Linking a slice into a host
 

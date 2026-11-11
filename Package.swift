@@ -9,8 +9,8 @@ import CompilerPluginSupport
 let package = Package(
     name: "AppRuntime",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18),
+        .macOS(.v12),
+        .iOS(.v15),
     ],
     products: [
         // Shared: C ABI, wire model, guest library and macros.
@@ -34,11 +34,11 @@ let package = Package(
         .library(name: "DynamicObservation", targets: ["DynamicObservation"]),
         .library(name: "DynamicUI", targets: ["DynamicUI"]),
         .library(name: "DynamicSwiftUI", targets: ["DynamicSwiftUI"]),
-        // Wasm: WasmKit import shim.
-        .library(name: "RuntimeWasm", targets: ["RuntimeWasm"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
+        // Build machine: the types App.swift manifests use (§7.1).
+        .library(name: "AppManifest", targets: ["AppManifest"]),
         // Example guest app. Scripts/guest.py builds its slices and bundle.
         .library(name: "ExampleApp", type: .static, targets: ["ExampleApp"]),
         // The example app's contracts, for the linked-slice tests.
@@ -57,7 +57,6 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
-        .package(url: "https://github.com/swiftwasm/WasmKit.git", from: "0.4.2"),
         .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.1"),
     ],
     targets: [
@@ -206,17 +205,6 @@ let package = Package(
             dependencies: ["DynamicFormatting", "RuntimeNative"]
         ),
 
-        // MARK: - Wasm
-
-        .target(
-            name: "RuntimeWasm",
-            dependencies: [
-                "RuntimeCore",
-                .product(name: "WasmKit", package: "WasmKit"),
-                .product(name: "WasmKitWASI", package: "WasmKit"),
-            ]
-        ),
-
         // MARK: - Linux bundle and sandbox
 
         .target(
@@ -230,6 +218,13 @@ let package = Package(
             name: "BundleRuntime",
             dependencies: ["AppRuntime", "CBundleRuntime"],
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+
+        // MARK: - Manifest
+
+        // Full Swift, no dependencies: guest.py compiles it with App.swift.
+        .target(
+            name: "AppManifest"
         ),
 
         // MARK: - Example
@@ -307,19 +302,13 @@ let package = Package(
             dependencies: ["DynamicRuntime", "RuntimeNative"]
         ),
         .testTarget(
-            name: "RuntimeWasmTests",
-            dependencies: [
-                "RuntimeWasm",
-                "RuntimeNative",
-                "ExampleHost",
-                "DynamicUI",
-                .product(name: "WAT", package: "WasmKit"),
-            ]
-        ),
-        .testTarget(
             name: "AppRuntimeTests",
             dependencies: ["AppRuntime"],
             swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "AppManifestTests",
+            dependencies: ["AppManifest"]
         ),
     ]
 )

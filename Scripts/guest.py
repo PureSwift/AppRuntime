@@ -8,10 +8,17 @@ No host code is built. The host picks a slice, links or loads it, and checks
 SDK compatibility.
 
     guest.py targets
-    guest.py slice  --product ExampleApp --target linux-arm64 [--package PATH]
+    guest.py slice  --product ExampleApp --target linux-arm64 [--manifest App.swift] [--package PATH]
+    guest.py bundle --manifest App.swift [--target ID ...] [--output DIR]
     guest.py bundle --product ExampleApp --id org.example.app --name Example
                     --version 1.0 --build 1 [--target ID ...] [--capability bluetooth ...]
                     [--resources DIR] [--icon FILE] [--output DIR]
+
+With --manifest, App.swift (DynamicRuntime.md §7.1) supplies the product,
+identity, capabilities, platforms and icon; it's compiled with the
+AppManifest library and run sandboxed (manifest.py). Its checks must pass,
+its JSON goes into every slice's rt.manifest section, and the other flags
+override it. Without --target, the bundle has the manifest's platforms.
 
 Slices are written to <package>/.build/guest/<product>/<target>/ and bundles
 to <package>/.build/guest/<product>/<id>.app unless --output is given.
@@ -41,6 +48,8 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+import manifest as app_manifest
 
 ABI_VERSION = 1
 
@@ -116,11 +125,18 @@ TARGETS = {
     # libSystem. The host still realigns the stack on calls into the slice
     # (iOS keeps it 4-byte aligned, AAPCS expects 8) and fixes Thumb bits
     # in the prebuilt concurrency runtime after its final link.
-    "ios-armv7": dict(kind="macho", about="iOS 6, Embedded Swift armv7 (Swift-iOS6 setup)", slices=[
+    "ios-armv7": dict(kind="macho", about="iOS 6, Embedded Swift armv7 (Swift-iOS6 setup)", maximum="10.3", slices=[
         dict(triple="armv7-apple-none-macho", arch="armv7", platform="ios", minimum="6.0",
              cflags=["-marm", "-ffixed-r9"], support=["ios6-compat.c"])]),
     "ios-arm64": dict(kind="macho", about="iOS 13", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="ios", minimum="13.0")]),
+    # The simulator rejects objects stamped for devices, so it has its own
+    # slice: the same code, stamped PLATFORM_IOSSIMULATOR (7).
+    # x86_64 has no simulator stdlib: its macOS objects are restamped first.
+    "ios-simulator": dict(kind="macho", about="iOS Simulator 13, arm64 + x86_64 in one archive", slices=[
+        dict(triple=APPLE_ARM64, arch="arm64", platform="ios-simulator", minimum="13.0"),
+        dict(triple="x86_64-apple-macos26", arch="x86_64", platform="ios-simulator", minimum="13.0",
+             restamp=True)]),
     "macos": dict(kind="macho", about="macOS 10.15, arm64 + x86_64 in one archive", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="macos", minimum="11.0"),
         dict(triple="x86_64-apple-macos26", arch="x86_64", platform="macos", minimum="10.15")]),
@@ -148,7 +164,7 @@ TARGETS = {
 
 PLATFORM_GROUPS = {
     "wasm": ["wasm32"],
-    "ios": ["ios-armv7", "ios-arm64"],
+    "ios": ["ios-armv7", "ios-arm64", "ios-simulator"],
     "macos": ["macos"],
     "tvos": ["tvos-arm64"],
     "watchos": ["watchos-arm64"],
@@ -540,13 +556,72 @@ def seal_elf(toolchain, objects, libraries, output):
     return sealed
 
 
+# LC_BUILD_VERSION platform numbers (<mach-o/loader.h>), for restamping.
+MACHO_PLATFORMS = {"ios-simulator": 7}
+
+
+def restamp_macho(path, platform, minimum):
+    """Rewrites the LC_BUILD_VERSION of an object, or of every object in an
+    archive, in place: platform, minimum OS, and no SDK.
+
+    ld won't link objects built for one platform into another, and `vtool`
+    can't rewrite objects, whose load commands have no room to grow. The
+    command keeps its size, so archive offsets stay valid.
+    """
+    data = bytearray(Path(path).read_bytes())
+    major, _, minor = minimum.partition(".")
+    version = (int(major) << 16) | (int(minor or 0) << 8)
+
+    def patch(start):
+        magic, = struct.unpack_from("<I", data, start)
+        if magic != 0xFEEDFACF:  # 64-bit little-endian Mach-O
+            return 0
+        ncmds, = struct.unpack_from("<I", data, start + 16)
+        offset, patched = start + 32, 0
+        for _ in range(ncmds):
+            command, size = struct.unpack_from("<II", data, offset)
+            if command == 0x32:  # LC_BUILD_VERSION
+                struct.pack_into("<III", data, offset + 8, platform, version, 0)
+                patched += 1
+            elif command in (0x24, 0x25, 0x2F, 0x30):  # LC_VERSION_MIN_*
+                raise BuildError(f"{path}: LC_VERSION_MIN can't be restamped")
+            offset += size
+        return patched
+
+    if data.startswith(b"!<arch>\n"):
+        offset, patched = 8, 0
+        while offset + 60 <= len(data):
+            name = data[offset:offset + 16].decode("ascii").strip()
+            size = int(data[offset + 48:offset + 58].decode("ascii").strip())
+            start = offset + 60
+            if name.startswith("#1/"):  # BSD long name, stored before the data
+                start += int(name[3:])
+            patched += patch(start)
+            offset += 60 + size + (size & 1)
+    else:
+        patched = patch(0)
+    if not patched:
+        raise BuildError(f"{path}: no LC_BUILD_VERSION to restamp")
+    Path(path).write_bytes(data)
+
+
 def seal_macho(toolchain, objects, libraries, output, slice_config):
     sealed = output / f"app-{slice_config['arch']}.o"
+    if slice_config.get("restamp"):
+        platform = MACHO_PLATFORMS[slice_config["platform"]]
+        for path in [*objects, *libraries]:
+            restamp_macho(path, platform, slice_config["minimum"])
     exports = output / "exports.txt"
     exports.write_text("".join(f"_{s}\n" for s in GUEST_EXPORTS))
     minimum = slice_config["minimum"]
+    sections = []
+    manifest = slice_config.get("manifest")  # rt.manifest's bytes
+    if manifest is not None:
+        manifest_file = output / "rt.manifest.json"
+        manifest_file.write_bytes(manifest)
+        sections = ["-sectcreate", "__DATA", "__rt_manifest", manifest_file]
     run(["xcrun", "ld", "-r", "-arch", slice_config["arch"],
-         "-platform_version", slice_config["platform"], minimum, minimum,
+         "-platform_version", slice_config["platform"], minimum, minimum, *sections,
          "-exported_symbols_list", exports, *objects, *libraries, "-o", sealed],
         filter_warnings=("no platform load command", "was built for newer"))
     return sealed
@@ -558,9 +633,13 @@ def symbols(toolchain, obj, undefined):
     return sorted(set(names))
 
 
-def check_sealed(toolchain, obj, macho):
+def check_sealed(toolchain, obj, macho, manifest=None):
     """Returns a list of problems with a sealed object."""
     problems = []
+    if manifest is not None:
+        section = "__DATA,__rt_manifest" if macho else ".rt_manifest"
+        if dump_section(toolchain, obj, section) != manifest:
+            problems.append(f"the {section} section doesn't hold the manifest")
     strip = (lambda s: s[1:] if s.startswith("_") else s) if macho else (lambda s: s)
     for symbol in map(strip, symbols(toolchain, obj, undefined=True)):
         if symbol in GUEST_EXPORTS:
@@ -695,7 +774,7 @@ def wasm_sections(data):
     return imports, exports, custom
 
 
-def build_wasm(toolchain, graph, product, targets, plugins, output, contracts_section):
+def build_wasm(toolchain, graph, product, targets, plugins, output, contracts_section, manifest=None):
     sdk = toolchain.wasm_sdk()
     compiler = Compiler(toolchain, graph, product, TARGETS["wasm32"]["triple"], output, wasm_sdk=sdk)
     objects = compiler.compile(targets, plugins)
@@ -715,6 +794,10 @@ def build_wasm(toolchain, graph, product, targets, plugins, output, contracts_se
         section_file = output / "rt.contracts.bin"
         section_file.write_bytes(contracts_section)
         arguments += ["--add-section", f"rt.contracts={section_file}"]
+    if manifest is not None:
+        manifest_file = output / "rt.manifest.json"
+        manifest_file.write_bytes(manifest)
+        arguments += ["--add-section", f"rt.manifest={manifest_file}"]
     run([*arguments, linked, wasm])
     linked.unlink()
 
@@ -730,6 +813,8 @@ def build_wasm(toolchain, graph, product, targets, plugins, output, contracts_se
         problems.append("module is a command (_start), not a reactor")
     if "rt.abi" not in custom:
         problems.append("missing rt.abi section")
+    if manifest is not None and "rt.manifest" not in custom:
+        problems.append("missing rt.manifest section")
     if problems:
         raise BuildError("App.wasm:\n  " + "\n  ".join(problems))
     return wasm
@@ -750,6 +835,8 @@ class Builder:
         self.plugins = build_plugins(self.graph, product, macros)
         self.root = self.package / ".build" / "guest" / product
         self._contracts = None
+        # The canonical manifest JSON, embedded as rt.manifest in every slice.
+        self.manifest = None
 
     def slice(self, target_id, output=None):
         """Builds one slice; returns the path of libapp.a or App.wasm."""
@@ -761,7 +848,7 @@ class Builder:
         print(f"==> {target_id}: {config['about']}")
         if config["kind"] == "wasm":
             return build_wasm(self.toolchain, self.graph, self.product, self.targets, self.plugins,
-                              output, self.contracts_section())
+                              output, self.contracts_section(), self.manifest)
         if config["kind"] == "elf":
             return self.elf_slice(config, output)
         return self.macho_slice(config, output)
@@ -793,7 +880,11 @@ class Builder:
         objects += compiler.compile_support(support)
         libraries = runtime_libraries(self.toolchain, triple, concurrency, output / "objects")
         sealed = seal_elf(self.toolchain, objects, libraries, output)
-        problems = check_sealed(self.toolchain, sealed, macho=False)
+        if self.manifest is not None:
+            manifest_file = output / "rt.manifest.json"
+            manifest_file.write_bytes(self.manifest)
+            run([self.toolchain.tool("llvm-objcopy"), "--add-section", f".rt_manifest={manifest_file}", sealed])
+        problems = check_sealed(self.toolchain, sealed, macho=False, manifest=self.manifest)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
         return archive(self.toolchain, sealed, output / "libapp.a")
@@ -810,8 +901,9 @@ class Builder:
             support = [*slice_config.get("support", []), *([CONCURRENCY_SUPPORT] if concurrency else [])]
             objects += compiler.compile_support(support)
             libraries = runtime_libraries(self.toolchain, slice_config["triple"], concurrency, directory / "objects")
-            sealed = seal_macho(self.toolchain, objects, libraries, directory, slice_config)
-            problems = check_sealed(self.toolchain, sealed, macho=True)
+            sealed = seal_macho(self.toolchain, objects, libraries, directory,
+                                dict(slice_config, manifest=self.manifest))
+            problems = check_sealed(self.toolchain, sealed, macho=True, manifest=self.manifest)
             if problems:
                 raise BuildError(f"{output.name} ({slice_config['arch']}):\n  " + "\n  ".join(problems))
             archives.append(archive(self.toolchain, sealed, directory / "libapp.a"))
@@ -860,22 +952,101 @@ def code_resources(bundle):
     return {"files": files}
 
 
+def load_manifest(arguments):
+    """Evaluates --manifest and applies the command-line overrides."""
+    try:
+        manifest = app_manifest.evaluate(arguments.manifest, Toolchain(Path(arguments.package)).tool("swiftc"))
+    except app_manifest.ManifestError as error:
+        raise BuildError(str(error))
+    if getattr(arguments, "capability", None):
+        raise BuildError("with --manifest, declare capabilities in the manifest")
+    for field in ("id", "version", "build", "languages"):
+        value = getattr(arguments, field, None)
+        if value is not None:
+            manifest[field] = value
+    if getattr(arguments, "name", None):
+        manifest["name"] = {"value": arguments.name}
+    return manifest
+
+
+def prepare_manifest(arguments, builder, targets, resources):
+    """Checks the manifest and sets it on the builder. Returns the icon path."""
+    manifest = arguments.loaded_manifest
+    manifest_dir = Path(arguments.manifest).resolve().parent
+    if getattr(arguments, "icon", None):
+        icon = Path(arguments.icon).resolve()
+        manifest["icon"] = icon.name
+    else:
+        icon = manifest_dir / manifest["icon"] if manifest.get("icon") else None
+    contracts = decode_contracts(builder.contracts_section())
+    errors, warnings = app_manifest.check(manifest, icon, resources, contracts, targets, TARGETS)
+    for warning in warnings:
+        print(f"warning: {warning}")
+    if errors:
+        raise BuildError("manifest:\n  " + "\n  ".join(errors))
+    builder.manifest = app_manifest.encode(manifest)
+    return icon
+
+
+def manifest_resources(arguments):
+    """--resources, or the resources directory next to the manifest."""
+    if getattr(arguments, "resources", None):
+        return Path(arguments.resources)
+    if arguments.manifest:
+        default = Path(arguments.manifest).resolve().parent / "resources"
+        return default if default.is_dir() else None
+    return None
+
+
+def guest_product(arguments):
+    product = arguments.product or (arguments.loaded_manifest or {}).get("product")
+    if not product:
+        raise BuildError("--product is required, unless the manifest names one")
+    return product
+
+
+def build_slices(arguments):
+    arguments.loaded_manifest = load_manifest(arguments) if arguments.manifest else None
+    builder = Builder(arguments.package, guest_product(arguments))
+    targets = expand_targets(arguments.target)
+    if arguments.loaded_manifest:
+        prepare_manifest(arguments, builder, targets, manifest_resources(arguments))
+    for target_id in targets:
+        print(f"ok: {builder.slice(target_id)}")
+
+
 def build_bundle(arguments):
-    builder = Builder(arguments.package, arguments.product)
-    identifier = safe_component(arguments.id, "bundle identifier")
-    executable = safe_component(arguments.executable or arguments.product, "executable name")
-    targets = expand_targets(arguments.target or ["all"])
+    manifest = arguments.loaded_manifest = load_manifest(arguments) if arguments.manifest else None
+    if manifest is None:
+        for flag in ("id", "name", "version", "build"):
+            if getattr(arguments, flag) is None:
+                raise BuildError(f"--{flag} is required without --manifest")
+    product = guest_product(arguments)
+    builder = Builder(arguments.package, product)
+    identifier = safe_component(manifest["id"] if manifest else arguments.id, "bundle identifier")
+    executable = safe_component(arguments.executable or product, "executable name")
+    resources = manifest_resources(arguments)
+    if arguments.target:
+        targets = expand_targets(arguments.target)
+    elif manifest:
+        targets = app_manifest.default_targets(manifest, TARGETS, PLATFORM_GROUPS)
+    else:
+        targets = expand_targets(["all"])
     if "wasm32" not in targets:
         targets.insert(0, "wasm32")  # every bundle carries App.wasm
 
     contracts = decode_contracts(builder.contracts_section())
-    capabilities = sorted(set(arguments.capability or []))
-    required = sorted({c["capability"] for c in contracts if c["capability"]})
-    missing = [c for c in required if c not in capabilities]
-    if missing:
-        raise BuildError(f"contracts require undeclared capabilities: {', '.join(missing)}")
-    for unused in sorted(set(capabilities) - set(required)):
-        print(f"warning: capability '{unused}' is declared but no contract uses it")
+    if manifest:
+        icon = prepare_manifest(arguments, builder, targets, resources)
+    else:
+        icon = Path(arguments.icon) if arguments.icon else None
+        capabilities = sorted(set(arguments.capability or []))
+        required = sorted({c["capability"] for c in contracts if c["capability"]})
+        missing = [c for c in required if c not in capabilities]
+        if missing:
+            raise BuildError(f"contracts require undeclared capabilities: {', '.join(missing)}")
+        for unused in sorted(set(capabilities) - set(required)):
+            print(f"warning: capability '{unused}' is declared but no contract uses it")
 
     output = Path(arguments.output) if arguments.output else builder.root
     bundle = output / f"{identifier}.app"
@@ -889,27 +1060,33 @@ def build_bundle(arguments):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(built, destination)
 
-    if arguments.resources:
-        shutil.copytree(arguments.resources, bundle / "resources")
-    if arguments.icon:
-        shutil.copy(arguments.icon, bundle / "icon.png")
+    if resources:
+        shutil.copytree(resources, bundle / "resources")
+    if icon:
+        shutil.copy(icon, bundle / "icon.png")
 
-    info = {
-        "CFBundleIdentifier": identifier,
-        "CFBundleName": arguments.name,
-        "CFBundleDisplayName": arguments.name,
+    if manifest:
+        app_manifest.write_strings_files(manifest, resources, bundle / "resources")
+        info = app_manifest.info_plist(manifest, resources, "icon.png" if icon else None)
+    else:
+        info = {
+            "CFBundleIdentifier": identifier,
+            "CFBundleName": arguments.name,
+            "CFBundleDisplayName": arguments.name,
+            "CFBundleShortVersionString": arguments.version,
+            "CFBundleVersion": str(arguments.build),
+            "RTCapabilities": capabilities,
+        }
+        if arguments.languages:
+            info["CFBundleLocalizations"] = arguments.languages
+    info.update({
         "CFBundleExecutable": executable,
-        "CFBundleShortVersionString": arguments.version,
-        "CFBundleVersion": str(arguments.build),
         "RTABIVersion": ABI_VERSION,
         "RTTargets": targets,
-        "RTCapabilities": capabilities,
         "RTContracts": [{"Name": c["name"], "Version": c["version"], "Kind": c["kind"]} for c in contracts],
-    }
-    if arguments.languages:
-        info["CFBundleLocalizations"] = arguments.languages
+    })
     with open(bundle / "Info.plist", "wb") as file:
-        plistlib.dump(info, file)
+        plistlib.dump(info, file, sort_keys=True)
 
     signature = bundle / "_CodeSignature"
     signature.mkdir()
@@ -946,21 +1123,24 @@ def main():
 
     slice_parser = commands.add_parser("slice", help="build slices for targets or platform groups")
     slice_parser.add_argument("--package", default=".")
-    slice_parser.add_argument("--product", required=True, help="guest library product")
+    slice_parser.add_argument("--product", help="guest library product; default the manifest's")
     slice_parser.add_argument("--target", action="append", required=True, help="target ID or group (repeatable)")
+    slice_parser.add_argument("--manifest", help="App.swift: checked and embedded as rt.manifest")
 
     bundle_parser = commands.add_parser("bundle", help="build slices and assemble the universal bundle")
     bundle_parser.add_argument("--package", default=".")
-    bundle_parser.add_argument("--product", required=True, help="guest library product")
-    bundle_parser.add_argument("--id", required=True, help="bundle identifier")
-    bundle_parser.add_argument("--name", required=True)
-    bundle_parser.add_argument("--version", required=True)
-    bundle_parser.add_argument("--build", type=int, required=True, help="integer build number")
+    bundle_parser.add_argument("--manifest", help="App.swift; the flags below then override it")
+    bundle_parser.add_argument("--product", help="guest library product; default the manifest's")
+    bundle_parser.add_argument("--id", help="bundle identifier")
+    bundle_parser.add_argument("--name")
+    bundle_parser.add_argument("--version")
+    bundle_parser.add_argument("--build", type=int, help="integer build number")
     bundle_parser.add_argument("--executable", help="CFBundleExecutable; defaults to the product")
-    bundle_parser.add_argument("--target", action="append", help="target ID or group; default all")
+    bundle_parser.add_argument("--target", action="append",
+                               help="target ID or group; default the manifest's platforms, or all")
     bundle_parser.add_argument("--capability", action="append", help="declared capability (repeatable)")
     bundle_parser.add_argument("--language", dest="languages", action="append")
-    bundle_parser.add_argument("--resources", help="directory copied to resources/")
+    bundle_parser.add_argument("--resources", help="directory copied to resources/; default the manifest's")
     bundle_parser.add_argument("--icon", help="PNG copied to icon.png")
     bundle_parser.add_argument("--output", help="directory for <id>.app")
 
@@ -973,9 +1153,7 @@ def main():
             for group, names in PLATFORM_GROUPS.items():
                 print(f"{group:22} {' '.join(names)}")
         elif arguments.command == "slice":
-            builder = Builder(arguments.package, arguments.product)
-            for target_id in expand_targets(arguments.target):
-                print(f"ok: {builder.slice(target_id)}")
+            build_slices(arguments)
         else:
             build_bundle(arguments)
     except BuildError as error:
