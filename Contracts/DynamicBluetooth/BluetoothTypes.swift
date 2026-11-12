@@ -70,6 +70,11 @@ public enum BluetoothError: Int32, Error, Sendable {
     /// The peripheral needs pairing or encryption. Pairing is started by
     /// the system (iOS) or by the host (Android) when an encrypted
     /// attribute is accessed; retry after it completes.
+    ///
+    /// Delegates see the peripheral's ATT error itself, `attribute` plus
+    /// Insufficient Authentication (0x05) or Insufficient Encryption (0x0F);
+    /// `init(code:)` turns those into this. Hosts report this code when
+    /// pairing itself fails, such as when the peer removed its pairing.
     case insufficientAuthentication = 14
     case operationNotSupported = 15
     /// An ATT error from the peripheral; `rawValue - attribute.rawValue` is
@@ -79,15 +84,28 @@ public enum BluetoothError: Int32, Error, Sendable {
 
 public extension BluetoothError {
 
+    /// ATT Insufficient Authentication.
+    static let attributeInsufficientAuthentication: Int32 = 0x05
+
+    /// ATT Insufficient Encryption.
+    static let attributeInsufficientEncryption: Int32 = 0x0F
+
     /// The error for a delegate `error` code: `nil` for `0`, success. Codes
-    /// from 256 to 511 (`attribute` plus an ATT error code) are `attribute`;
-    /// codes this version doesn't know are `unknown`.
+    /// from 256 to 511 (`attribute` plus an ATT error code) are `attribute`,
+    /// except Insufficient Authentication and Insufficient Encryption, which
+    /// are `insufficientAuthentication`: retry after pairing. Codes this
+    /// version doesn't know are `unknown`.
     init?(code: Int32) {
         guard code != 0 else { return nil }
         if let error = BluetoothError(rawValue: code) {
             self = error
         } else if (256..<512).contains(code) {
-            self = .attribute
+            switch code - BluetoothError.attribute.rawValue {
+            case Self.attributeInsufficientAuthentication, Self.attributeInsufficientEncryption:
+                self = .insufficientAuthentication
+            default:
+                self = .attribute
+            }
         } else {
             self = .unknown
         }
