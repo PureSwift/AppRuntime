@@ -59,4 +59,39 @@ import AppManifest
         #expect(json.contains(#"{"name":"graphics","options":{"api":"gles2"}}"#))
         #expect(json.contains(#"[{"minimum":"13.0","name":"tvos"},{"minimum":"6.0","name":"watchos"},{"minimum":"1.0","name":"visionos"}]"#))
     }
+
+    @Test func requiredAndRemoteAreOptions() {
+        let bluetooth = Capability.bluetooth(usage: "BLE").required()
+        #expect(bluetooth.isRequired)
+        #expect(bluetooth.options == ["required": "true"])
+        #expect(!bluetooth.required(false).isRequired)
+        #expect(bluetooth.required(false).options == [:])
+        #expect(!Capability.location(.always, usage: "Maps").isRequired)
+        #expect(Capability.location(.always, usage: "Maps").required().options == ["access": "always", "required": "true"])
+        #expect(Capability.notifications(remote: true).options == ["remote": "true"])
+        #expect(Capability.notifications(remote: false) == .notifications)
+    }
+
+    @Test func hardwareCapabilities() {
+        #expect(Capability.motion(usage: "Steps") == Capability("motion", usage: "Steps"))
+        #expect(Capability.nfc(usage: "Tags") == Capability("nfc", usage: "Tags"))
+        #expect(Capability.localNetwork(usage: "Printers") == Capability("localNetwork", usage: "Printers"))
+    }
+
+    @Test func applePrivacyEncodes() {
+        let app = App(
+            id: "org.example.Private", name: "Private", version: "1", build: 1,
+            capabilities: [.nfc(usage: "Tags").required()],
+            platforms: [.iOS("15.0")],
+            apple: .init(privacy: [
+                "NSPrivacyTracking": false,
+                "NSPrivacyCollectedDataTypes": [],
+            ])
+        )
+        let json = app.manifestJSON()
+        #expect(json.contains(#""apple":{"extraInfoPlist":{},"privacy":{"NSPrivacyCollectedDataTypes":[],"NSPrivacyTracking":false}}"#))
+        #expect(json.contains(#"{"name":"nfc","options":{"required":"true"},"usage":{"value":"Tags"}}"#))
+        #expect(!App(id: "a", name: "a", version: "1", build: 1, platforms: [.iOS("15.0")], apple: .init())
+            .manifestJSON().contains("privacy"))
+    }
 }
