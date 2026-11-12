@@ -340,8 +340,12 @@ final class HostPeripheral: Peripheral {
             try await peripheral.write([1, 0], to: descriptor)
             #expect(try await peripheral.readRSSI() == -40)
 
-            fake.readError = BluetoothError.attribute.rawValue + 5
+            fake.readError = BluetoothError.attribute.rawValue + 0x02
             await #expect(throws: BluetoothError.attribute) {
+                _ = try await peripheral.read(characteristic)
+            }
+            fake.readError = BluetoothError.attribute.rawValue + BluetoothError.attributeInsufficientAuthentication
+            await #expect(throws: BluetoothError.insufficientAuthentication) {
                 _ = try await peripheral.read(characteristic)
             }
 
