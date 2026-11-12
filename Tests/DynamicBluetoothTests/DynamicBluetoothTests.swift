@@ -103,6 +103,20 @@ import DynamicRuntime
         #expect(GATTCharacteristicProperties(rawValue: 0x12).contains(.notify))
         #expect(BluetoothError.attribute.rawValue + 0x05 == 261, "ATT insufficient authentication")
     }
+
+    @Test func errorsForCodes() {
+        #expect(BluetoothError(code: 0) == nil)
+        #expect(BluetoothError(code: 7) == .connectionTimeout)
+        #expect(BluetoothError(code: 14) == .insufficientAuthentication)
+        // ATT Read Not Permitted (0x02) and Attribute Not Found (0x0A).
+        #expect(BluetoothError(code: 258) == .attribute)
+        #expect(BluetoothError(code: 266) == .attribute)
+        // ATT Insufficient Authentication and Insufficient Encryption: retry
+        // after pairing.
+        #expect(BluetoothError(code: 261) == .insufficientAuthentication)
+        #expect(BluetoothError(code: 271) == .insufficientAuthentication)
+        #expect(BluetoothError(code: 600) == .unknown)
+    }
 }
 
 // MARK: - Fakes
