@@ -10,7 +10,7 @@ import DynamicRuntime
 /// |---|---|---|
 /// | iOS | `CMPedometer` | last 7 days |
 /// | Android | `TYPE_STEP_COUNTER` sensor | none: counts start at `startUpdates` |
-@DynamicRuntime("org.pureswift.motion.Pedometer", requires: "motion")
+@DynamicRuntime("org.pureswift.motion.Pedometer", requires: .motion)
 public protocol Pedometer: AnyObject {
 
     static func isStepCountingAvailable() -> Bool
