@@ -68,6 +68,9 @@ extension AppleSettings {
     var json: JSONValue {
         var object: [String: JSONValue] = ["extraInfoPlist": .object(extraInfoPlist.mapValues(\.json))]
         object["category"] = category.map { .string($0.rawValue) }
+        if !privacy.isEmpty {
+            object["privacy"] = .object(privacy.mapValues(\.json))
+        }
         return .object(object)
     }
 }
