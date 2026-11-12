@@ -126,9 +126,13 @@ platform escape hatch.
 
 **Pairing** has no API on iOS: the system pairs when an encrypted attribute
 is accessed. The contract therefore exposes no pairing calls on any host.
-Access to a protected attribute fails with `.insufficientAuthentication`
-while pairing runs, and the app retries. Android hosts call `createBond()`
-in that case.
+Access to a protected attribute fails with the peripheral's ATT error while
+pairing runs: `attribute` plus Insufficient Authentication (0x05) or
+Insufficient Encryption (0x0F), that is 261 or 271. The app retries. The
+async API throws `.insufficientAuthentication` for both, since
+`BluetoothError(code:)` maps them. Hosts report `.insufficientAuthentication`
+itself when pairing fails, such as when the peer removed its pairing.
+Android hosts call `createBond()` on either ATT error.
 
 **RSSI** is in dBm; `127` means unavailable, as in CoreBluetooth.
 
