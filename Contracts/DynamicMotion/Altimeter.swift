@@ -5,7 +5,7 @@ import DynamicRuntime
 /// Permissions first: on iOS the altimeter needs Motion & Fitness access
 /// (`NSMotionUsageDescription`), like the pedometer. Android's pressure
 /// sensor needs none and reports `.authorized`.
-@DynamicRuntime("org.pureswift.motion.Altimeter", requires: "motion")
+@DynamicRuntime("org.pureswift.motion.Altimeter", requires: .motion)
 public protocol Altimeter: AnyObject {
 
     static func isAvailable() -> Bool
