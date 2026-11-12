@@ -94,6 +94,9 @@ class CheckTests(unittest.TestCase):
         self.assertIn("capability 'bluetooth' isn't declared, but org.example.Beacon requires it", errors)
         self.assertIn("capability 'camera' is declared but no contract requires it", warnings)
         self.assertIn("capability 'teleport' isn't one hosts know", warnings)
+        _, warnings = self.check(sample(capabilities=[{"name": name, "options": {}, "usage": {"value": "x"}}
+                                                      for name in ("motion", "nfc", "localNetwork")]))
+        self.assertFalse([w for w in warnings if "isn't one hosts know" in w], warnings)
 
     def test_platforms(self):
         errors, _ = self.check(sample(platforms=[
