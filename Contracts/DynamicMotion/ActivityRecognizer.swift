@@ -11,7 +11,7 @@ import DynamicRuntime
 /// |---|---|
 /// | iOS | `CMMotionActivityManager` |
 /// | Android | `ActivityRecognitionClient` transition updates |
-@DynamicRuntime("org.pureswift.motion.ActivityRecognizer", requires: "motion")
+@DynamicRuntime("org.pureswift.motion.ActivityRecognizer", requires: .motion)
 public protocol ActivityRecognizer: AnyObject {
 
     static func isAvailable() -> Bool
