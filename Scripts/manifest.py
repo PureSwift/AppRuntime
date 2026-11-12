@@ -29,7 +29,8 @@ PLATFORM_GROUPS = {
 # Slice platform (ld's -platform_version) -> manifest platform.
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
-KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics"}
+KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
+                      "motion", "nfc", "localNetwork"}
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
