@@ -61,9 +61,21 @@ public struct AppleSettings: Sendable, Equatable {
     /// Keys merged into the generated `Info.plist`.
     public var extraInfoPlist: [String: PropertyListValue]
 
-    public init(category: AppCategory? = nil, extraInfoPlist: [String: PropertyListValue] = [:]) {
+    /// The app's own privacy manifest keys, merged into the
+    /// `PrivacyInfo.xcprivacy` the packager writes: the data the app
+    /// collects and whether it tracks (`NSPrivacyTracking`,
+    /// `NSPrivacyTrackingDomains`, `NSPrivacyCollectedDataTypes`). The
+    /// host declares the required-reason APIs it uses itself.
+    public var privacy: [String: PropertyListValue]
+
+    public init(
+        category: AppCategory? = nil,
+        extraInfoPlist: [String: PropertyListValue] = [:],
+        privacy: [String: PropertyListValue] = [:]
+    ) {
         self.category = category
         self.extraInfoPlist = extraInfoPlist
+        self.privacy = privacy
     }
 }
 
