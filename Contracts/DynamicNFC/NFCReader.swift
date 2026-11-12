@@ -14,7 +14,7 @@ import DynamicRuntime
 /// | iOS 13+ (iPhone 7 and later) | `NFCTagReaderSession`, or `NFCNDEFReaderSession` for `.ndef` |
 /// | Android | `NfcAdapter.enableReaderMode` on the foreground activity |
 /// | Linux | neard / libnfc |
-@DynamicRuntime("org.pureswift.nfc.Reader", requires: "nfc")
+@DynamicRuntime("org.pureswift.nfc.Reader", requires: .nfc)
 public protocol NFCReader: AnyObject {
 
     /// An `NFCAvailability` raw value: whether the device has NFC, and
