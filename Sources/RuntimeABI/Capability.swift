@@ -28,6 +28,10 @@ public extension Capability {
     static var network: Capability { Capability("network") }
 
     static var graphics: Capability { Capability("graphics") }
+
+    static var motion: Capability { Capability("motion") }
+
+    static var nfc: Capability { Capability("nfc") }
 }
 
 extension Capability: ExpressibleByStringLiteral {
