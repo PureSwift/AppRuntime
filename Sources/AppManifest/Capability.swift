@@ -38,9 +38,29 @@ public extension Capability {
         Capability("location", usage: usage, options: ["access": access.rawValue])
     }
 
-    /// Local and push notifications.
+    /// Local notifications.
     static var notifications: Capability {
         Capability("notifications")
+    }
+
+    /// Local notifications, and push notifications when `remote`.
+    static func notifications(remote: Bool) -> Capability {
+        Capability("notifications", options: remote ? ["remote": "true"] : [:])
+    }
+
+    /// Motion sensors: accelerometer, gyroscope, pedometer.
+    static func motion(usage: ManifestText) -> Capability {
+        Capability("motion", usage: usage)
+    }
+
+    /// Reading NFC tags.
+    static func nfc(usage: ManifestText) -> Capability {
+        Capability("nfc", usage: usage)
+    }
+
+    /// Finding and connecting to devices on the local network.
+    static func localNetwork(usage: ManifestText) -> Capability {
+        Capability("localNetwork", usage: usage)
     }
 
     /// Network access: URL sessions, sockets where the platform gates them.
@@ -51,6 +71,28 @@ public extension Capability {
     /// Hardware graphics, such as OpenGL ES 2.
     static func graphics(_ api: GraphicsAPI = .gles2) -> Capability {
         Capability("graphics", options: ["api": api.rawValue])
+    }
+}
+
+public extension Capability {
+
+    /// Whether the app can't work without the hardware. Stores lean on it:
+    /// the App Store hides a required capability's app from devices without
+    /// the hardware. Capabilities are optional by default, and a contract
+    /// whose hardware is missing reports itself unavailable.
+    ///
+    /// ```swift
+    /// .bluetooth(usage: .localized("perm.bluetooth")).required()
+    /// ```
+    func required(_ isRequired: Bool = true) -> Capability {
+        var capability = self
+        capability.options["required"] = isRequired ? "true" : nil
+        return capability
+    }
+
+    /// `required()`.
+    var isRequired: Bool {
+        options["required"] == "true"
     }
 }
 
