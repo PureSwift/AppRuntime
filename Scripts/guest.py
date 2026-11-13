@@ -921,8 +921,12 @@ class Builder:
             if directory.exists():
                 shutil.rmtree(directory)
             # Any ELF triple works; this one ships the Embedded concurrency
-            # module, which aarch64-none-none-elf doesn't.
-            compiler = Compiler(self.toolchain, self.graph, self.product, "x86_64-unknown-none-elf", directory)
+            # module, which aarch64-none-none-elf doesn't. Linux toolchains
+            # ship it only for their own triple.
+            triple = "x86_64-unknown-none-elf"
+            if not has_concurrency(self.toolchain, triple) and has_concurrency(self.toolchain, AARCH64_LINUX["triple"]):
+                triple = AARCH64_LINUX["triple"]
+            compiler = Compiler(self.toolchain, self.graph, self.product, triple, directory)
             objects = compiler.compile(self.targets, self.plugins)
             sealed = seal_elf(self.toolchain, objects, [], directory)
             self._contracts = dump_section(self.toolchain, sealed, ".rt_contracts")
