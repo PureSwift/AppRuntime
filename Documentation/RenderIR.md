@@ -43,13 +43,19 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `List` | `revision` when lazy | rows when eager | — |
 | `Section` | `header`, `footer` | rows | — |
 | `Form` | — | rows and sections | — |
+| `SwipeActions` | `edge` (`leading`, `trailing`), `allowsFullSwipe` | the row, then its `Button` actions | — |
+| `DisclosureGroup` | `isExpanded` | the label, then the content while expanded | `change` (bool) |
 | `LazyVStack`, `LazyHStack` | `alignment`, `spacing`; `revision` when lazy | content when eager | — |
 | `LazyVGrid` | `columns` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
 | `LazyHGrid` | `rows` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
+| `Grid` | `horizontal`, `vertical` (alignment), `horizontalSpacing`, `verticalSpacing` | `GridRow`s, and views that span the grid | — |
+| `GridRow` | `alignment` (vertical) | its cells | — |
 | `NavStack` | — | one `NavLevel` per level, root first | `pop` (int) |
 | `NavLevel` | `title` | the level's content, then its `ToolbarItem`s | — |
 | `ToolbarItem` | `placement` (`automatic`, `primaryAction`, `cancellationAction`, `confirmationAction`, `navigation`, `principal`, `bottomBar`) | the item's views | — |
 | `NavigationLink` | — | label | `tap` |
+| `Link` | `url` | label; the host opens the URL | — |
+| `Searchable` | `text`; `prompt` | the view with the search field | `change` (string), `submit` |
 | `TabView` | `selection` (index) | one `Tab` per tab | `change` (int: index) |
 | `Tab` | `title`, `systemImage` | the tab's content | — |
 | `Sheet` | `isPresented`, `style` (`sheet`, `fullScreenCover`) | the presenting view, then the content while presented | `change` (bool: `false`) |
@@ -136,6 +142,12 @@ update (a swipe, the Escape key, an alert's button), send `change` with
 
 An `Alert` with `style` `dialog` is a confirmation dialog: an action sheet on
 iOS. Show it as an alert if you have no dialogs.
+
+## Search
+
+A `Searchable` node puts a search field in the navigation bar of the level
+it's in, and lays out its child as if the node weren't there. Sync its
+`text` like a text field's.
 
 ## Toolbars
 
