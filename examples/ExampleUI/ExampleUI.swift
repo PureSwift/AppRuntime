@@ -8,13 +8,15 @@ import SwiftUI
 #endif
 
 /// The example UI app: an observable model, a counter, a text field, a
-/// picker, a lazy list that pushes detail forms, a toolbar menu, an alert, a
-/// confirmation dialog, and a sheet with tabs and a grid.
+/// picker, a searchable lazy list with swipe actions that pushes detail
+/// forms, a toolbar menu, an alert, a confirmation dialog, a disclosure
+/// group with a link, and a sheet with tabs and grids.
 @Observable
 final class Store {
     var name: String = "World"
     var count: Int = 0
     var favorite: Int = 1
+    var query: String = ""
     var items: [Fruit] = [
         Fruit(id: 1, name: "Apple"),
         Fruit(id: 2, name: "Banana"),
@@ -36,6 +38,12 @@ struct FruitDetail: View {
         Form {
             Section("Likes") {
                 Button("Like (\(likes))") { likes += 1 }
+            }
+            Section {
+                DisclosureGroup("More About \(fruit.name)") {
+                    Text("Fruit number \(fruit.id).")
+                    Link("Search the Web", destination: "https://duckduckgo.com/?q=\(fruit.name)")
+                }
             }
             Section {
                 Button("Reset Likes…", role: .destructive) { confirmingReset = true }
@@ -70,6 +78,16 @@ struct AboutView: View {
             VStack(spacing: 12) {
                 Text("ExampleUI").font(.title)
                 Text("Rendered from an AppRuntime guest.")
+                Grid(alignment: .leading, horizontalSpacing: 16) {
+                    GridRow {
+                        Text("Frontend").foregroundColor(.secondary)
+                        Text("DynamicSwiftUI")
+                    }
+                    GridRow {
+                        Text("Renderer").foregroundColor(.secondary)
+                        Text("SwiftUI")
+                    }
+                }
                 Button("Done") { isPresented = false }
                     .accessibilityIdentifier("done")
             }
@@ -112,11 +130,17 @@ struct ContentView: View {
                     .sheet(isPresented: $showingAbout) {
                         AboutView(isPresented: $showingAbout)
                     }
-                List(store.items) { fruit in
+                List(store.items.filter { store.query.isEmpty || $0.name.hasPrefix(store.query) }) { fruit in
                     NavigationLink(fruit.name, destination: FruitDetail(fruit: fruit))
+                        .swipeActions {
+                            Button("Delete", role: .destructive) {
+                                store.items.removeAll { $0.id == fruit.id }
+                            }
+                        }
                 }
             }
             .padding()
+            .searchable(text: $store.query, prompt: "Fruit")
             .navigationTitle("Example")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
