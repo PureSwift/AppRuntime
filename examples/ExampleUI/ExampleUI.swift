@@ -7,12 +7,14 @@ import DynamicSwiftUI
 import SwiftUI
 #endif
 
-/// The example UI app: an observable model, a counter, a text field and a
-/// lazy list that pushes detail screens.
+/// The example UI app: an observable model, a counter, a text field, a
+/// picker, a lazy list that pushes detail screens, an alert, and a sheet
+/// with tabs and a grid.
 @Observable
 final class Store {
     var name: String = "World"
     var count: Int = 0
+    var favorite: Int = 1
     var items: [Fruit] = [
         Fruit(id: 1, name: "Apple"),
         Fruit(id: 2, name: "Banana"),
@@ -38,8 +40,40 @@ struct FruitDetail: View {
     }
 }
 
+/// The sheet: a tab view with a grid of swatches and an about page.
+struct AboutView: View {
+    @Binding var isPresented: Bool
+
+    let colors: [Color] = [.red, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink, .brown]
+
+    var body: some View {
+        TabView {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 60))], spacing: 12) {
+                    ForEach(0..<colors.count) { index in
+                        colors[index]
+                            .frame(height: 60)
+                            .cornerRadius(8)
+                    }
+                }
+                .padding()
+            }
+            .tabItem { Label("Colors", systemImage: "square.grid.2x2") }
+            VStack(spacing: 12) {
+                Text("ExampleUI").font(.title)
+                Text("Rendered from an AppRuntime guest.")
+                Button("Done") { isPresented = false }
+                    .accessibilityIdentifier("done")
+            }
+            .tabItem { Label("About", systemImage: "info.circle") }
+        }
+    }
+}
+
 struct ContentView: View {
     @Bindable var store: Store
+    @State var showingAbout = false
+    @State var confirmingReset = false
 
     var body: some View {
         NavigationStack {
@@ -52,7 +86,24 @@ struct ContentView: View {
                     Button("−") { store.count -= 1 }
                     Text("\(store.count)").accessibilityIdentifier("count")
                     Button("+") { store.count += 1 }
+                    Button("Reset", role: .destructive) { confirmingReset = true }
+                        .alert("Reset the count?", isPresented: $confirmingReset) {
+                            Button("Reset", role: .destructive) { store.count = 0 }
+                            Button("Cancel", role: .cancel) { }
+                        } message: {
+                            Text("It goes back to zero.")
+                        }
                 }
+                Picker("Favorite", selection: $store.favorite) {
+                    ForEach(store.items) { fruit in
+                        Text(fruit.name)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Button("About") { showingAbout = true }
+                    .sheet(isPresented: $showingAbout) {
+                        AboutView(isPresented: $showingAbout)
+                    }
                 List(store.items) { fruit in
                     NavigationLink(fruit.name, destination: FruitDetail(fruit: fruit))
                 }
