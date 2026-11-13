@@ -241,6 +241,9 @@ public struct ScrollView<Content: View>: View {
 /// One view per element of `data`. Each element's state and node IDs follow
 /// its identity: the `id` of `Identifiable` data, an `id` closure's value, or
 /// the position in a range.
+///
+/// In a `Picker` or `TabView`, each element's views are tagged with its
+/// identity value, unless they have a `tag(_:)` of their own.
 public struct ForEach<Data: RandomAccessCollection, Content: View>: View {
 
     let data: Data
@@ -248,6 +251,9 @@ public struct ForEach<Data: RandomAccessCollection, Content: View>: View {
     let content: (Data.Element) -> Content
 
     let identity: (Data.Element) -> UInt64
+
+    /// The element's implicit tag.
+    let tag: (Data.Element) -> TagRecord
 
     public var body: Never {
         fatalError()
@@ -257,9 +263,11 @@ public struct ForEach<Data: RandomAccessCollection, Content: View>: View {
         let graph = context.graph
         graph.scoped {
             for element in data {
+                let start = nodes.count
                 graph.scoped(identity: identity(element)) {
                     content(element)._render(into: &nodes, context: context)
                 }
+                context.items?.tag(nodes[start...], tag(element), replacing: false)
             }
         }
     }
@@ -276,6 +284,7 @@ extension ForEach where Data == Range<Int> {
         self.data = data
         self.content = content
         self.identity = { UInt64(bitPattern: Int64($0)) }
+        self.tag = { TagRecord($0) }
     }
 }
 
@@ -285,6 +294,7 @@ extension ForEach where Data.Element: Identifiable {
         self.data = data
         self.content = content
         self.identity = { UInt64(bitPattern: Int64($0.id.hashValue)) }
+        self.tag = { TagRecord($0.id) }
     }
 }
 
@@ -296,5 +306,6 @@ extension ForEach {
         self.data = data
         self.content = content
         self.identity = { UInt64(bitPattern: Int64(id($0).hashValue)) }
+        self.tag = { TagRecord(id($0)) }
     }
 }
