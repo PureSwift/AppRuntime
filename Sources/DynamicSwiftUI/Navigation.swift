@@ -19,6 +19,9 @@ final class NavigationLevel {
 
     var title: String?
 
+    /// `ToolbarItem` nodes from `toolbar(content:)`, after the content.
+    var toolbar: [RenderNode] = []
+
     init(path: StateBox<[RenderNode.ID]>, destinations: NavigationDestinations, depth: Int) {
         self.path = path
         self.destinations = destinations
@@ -78,7 +81,7 @@ public struct NavigationStack<Root: View>: View {
             if let title = level.title {
                 props["title"] = .string(title)
             }
-            levels.append(RenderNode("NavLevel", id: ViewGraph.mix(id, UInt64(depth)), props: props, children: content))
+            levels.append(RenderNode("NavLevel", id: ViewGraph.mix(id, UInt64(depth)), props: props, children: content + level.toolbar))
             depth += 1
             guard depth <= path.value.count else { break }
         }
@@ -150,5 +153,101 @@ extension View {
 
     public func navigationTitle(_ title: String) -> _NavigationTitleView<Self> {
         _NavigationTitleView(content: self, title: title)
+    }
+}
+
+// MARK: - Toolbars
+
+/// Where a toolbar item goes. Hosts put an item they have no place for
+/// where `automatic` items go.
+public struct ToolbarItemPlacement: Equatable, Sendable {
+
+    let name: String
+
+    public static let automatic = ToolbarItemPlacement(name: "automatic")
+    /// The most used action: the trailing end of an iOS navigation bar.
+    public static let primaryAction = ToolbarItemPlacement(name: "primaryAction")
+    /// Dismisses without saving, in a sheet.
+    public static let cancellationAction = ToolbarItemPlacement(name: "cancellationAction")
+    /// Confirms, in a sheet.
+    public static let confirmationAction = ToolbarItemPlacement(name: "confirmationAction")
+    /// The leading end of a navigation bar.
+    public static let navigation = ToolbarItemPlacement(name: "navigation")
+    /// The center of a navigation bar.
+    public static let principal = ToolbarItemPlacement(name: "principal")
+    /// The bottom toolbar, on iOS.
+    public static let bottomBar = ToolbarItemPlacement(name: "bottomBar")
+}
+
+/// A toolbar item: its content, at a placement. Also `ToolbarItemGroup`,
+/// for several views at one placement.
+public struct ToolbarItem<Content: View>: View {
+
+    let placement: ToolbarItemPlacement
+
+    let content: Content
+
+    public init(placement: ToolbarItemPlacement = .automatic, @ViewBuilder content: () -> Content) {
+        self.placement = placement
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let id = context.graph.nextNodeID()
+        nodes.append(RenderNode("ToolbarItem", id: id, props: ["placement": .string(placement.name)],
+                                children: context.children(content)))
+    }
+}
+
+public typealias ToolbarItemGroup = ToolbarItem
+
+/// Adds toolbar items to the navigation level a view is in.
+///
+/// A `NavLevel` node's `ToolbarItem` children, after its content, are its
+/// toolbar: each has a `placement` and its views as children. Views that
+/// aren't in a `ToolbarItem` go in an `automatic` one each. Outside a
+/// navigation stack, the items aren't shown.
+public struct _ToolbarView<Content: View, Items: View>: View {
+
+    let content: Content
+
+    let items: Items
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        content._render(into: &nodes, context: context)
+        let graph = context.graph
+        var itemContext = context
+        itemContext.items = nil
+        var produced: [RenderNode] = []
+        // Always one scope, so the views after this keep their identity.
+        graph.scoped {
+            items._render(into: &produced, context: itemContext)
+        }
+        guard let level = context.navigation else { return }
+        for node in produced {
+            if node.type == "ToolbarItem" {
+                level.toolbar.append(node)
+            } else {
+                level.toolbar.append(RenderNode("ToolbarItem", id: ViewGraph.mix(node.id ^ 0x544f_4f4c_0000_0000, 0),
+                                                props: ["placement": "automatic"], children: [node]))
+            }
+        }
+    }
+}
+
+extension View {
+
+    /// Toolbar items for the navigation level this view is in: views, or
+    /// `ToolbarItem`s with a placement.
+    public func toolbar<Items: View>(@ViewBuilder content: () -> Items) -> _ToolbarView<Self, Items> {
+        _ToolbarView(content: self, items: content())
     }
 }
