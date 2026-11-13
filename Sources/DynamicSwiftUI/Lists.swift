@@ -214,3 +214,58 @@ public struct LazyHStack<Content: View>: View {
         nodes.append(make(context))
     }
 }
+
+// MARK: - Swipe actions
+
+/// The edge of a row that swipe actions come from.
+public enum HorizontalEdge: String, Sendable {
+    case leading, trailing
+}
+
+/// A list row with swipe actions.
+///
+/// A `SwipeActions` node's first child is the row, and the rest are its
+/// actions: `Button` nodes, which report `tap`. `edge` is `leading` or
+/// `trailing`, and `allowsFullSwipe` whether a full swipe runs the first
+/// action. A row with actions on both edges is two nested nodes.
+public struct _SwipeActionsView<Row: View, Actions: View>: View {
+
+    let row: Row
+
+    let edge: HorizontalEdge
+
+    let allowsFullSwipe: Bool
+
+    let actions: Actions
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        var rowNodes: [RenderNode] = []
+        row._render(into: &rowNodes, context: context)
+        let id = graph.nextNodeID()
+        var children = [singleNode(rowNodes, id: ViewGraph.mix(id, 1))]
+        var actionContext = context
+        actionContext.items = nil
+        graph.scoped { actions._render(into: &children, context: actionContext) }
+        nodes.append(RenderNode("SwipeActions", id: id, props: [
+            "edge": .string(edge.rawValue),
+            "allowsFullSwipe": .bool(allowsFullSwipe),
+        ], children: children))
+    }
+}
+
+extension View {
+
+    /// Buttons revealed by swiping this list row from `edge`.
+    public func swipeActions<Actions: View>(
+        edge: HorizontalEdge = .trailing,
+        allowsFullSwipe: Bool = true,
+        @ViewBuilder content: () -> Actions
+    ) -> _SwipeActionsView<Self, Actions> {
+        _SwipeActionsView(row: self, edge: edge, allowsFullSwipe: allowsFullSwipe, actions: content())
+    }
+}
