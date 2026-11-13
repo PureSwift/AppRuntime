@@ -8,8 +8,8 @@ import SwiftUI
 #endif
 
 /// The example UI app: an observable model, a counter, a text field, a
-/// picker, a lazy list that pushes detail screens, an alert, and a sheet
-/// with tabs and a grid.
+/// picker, a lazy list that pushes detail forms, a toolbar menu, an alert, a
+/// confirmation dialog, and a sheet with tabs and a grid.
 @Observable
 final class Store {
     var name: String = "World"
@@ -30,11 +30,19 @@ struct Fruit: Identifiable {
 struct FruitDetail: View {
     let fruit: Fruit
     @State var likes = 0
+    @State var confirmingReset = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            Text(fruit.name).font(.largeTitle)
-            Button("Like (\(likes))") { likes += 1 }
+        Form {
+            Section("Likes") {
+                Button("Like (\(likes))") { likes += 1 }
+            }
+            Section {
+                Button("Reset Likes…", role: .destructive) { confirmingReset = true }
+                    .confirmationDialog("Reset the likes for \(fruit.name)?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                        Button("Reset Likes", role: .destructive) { likes = 0 }
+                    }
+            }
         }
         .navigationTitle(fruit.name)
     }
@@ -110,6 +118,14 @@ struct ContentView: View {
             }
             .padding()
             .navigationTitle("Example")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                        Button("By Name") { store.items.sort { $0.name < $1.name } }
+                        Button("Reversed") { store.items.reverse() }
+                    }
+                }
+            }
         }
     }
 }
