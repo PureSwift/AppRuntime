@@ -33,24 +33,36 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
 | `ScrollView` | `axes` (`vertical`, `horizontal`, `both`), `showsIndicators` | content | — |
-| `Button` | — | label | `tap` |
+| `Button` | `role` (`destructive`, `cancel`) | label | `tap` |
 | `Toggle` | `isOn` | label | `change` (bool) |
 | `TextField` | `text`, `placeholder`; `secure` | — | `change` (string), `submit` |
 | `Slider` | `value`, `min`, `max`; `step` | — | `change` (double) |
 | `Stepper` | `value`, `min`, `max`, `step` (ints) | label | `change` (int) |
 | `ProgressView` | `total`; `value` (none: indeterminate); `title` | — | — |
+| `Picker` | `title`; `selection` (index); `style` (`menu`, `segmented`, `inline`, `wheel`) | options | `change` (int: index) |
 | `List` | `revision` when lazy | rows when eager | — |
 | `Section` | `header`, `footer` | rows | — |
 | `LazyVStack`, `LazyHStack` | `alignment`, `spacing`; `revision` when lazy | content when eager | — |
+| `LazyVGrid` | `columns` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
+| `LazyHGrid` | `rows` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
 | `NavStack` | — | one `NavLevel` per level, root first | `pop` (int) |
 | `NavLevel` | `title` | the level's content | — |
 | `NavigationLink` | — | label | `tap` |
+| `TabView` | `selection` (index) | one `Tab` per tab | `change` (int: index) |
+| `Tab` | `title`, `systemImage` | the tab's content | — |
+| `Sheet` | `isPresented`, `style` (`sheet`, `fullScreenCover`) | the presenting view, then the content while presented | `change` (bool: `false`) |
+| `Alert` | `title`, `isPresented`; `message` | the presenting view, then `Button` actions while presented | `change` (bool: `false`) |
 
 Optional props are absent when unset. Colors are a platform color name
 (`primary`, `secondary`, `accentColor`, `clear`, `black`, `white`, `gray`,
 `red`, `orange`, `yellow`, `green`, `mint`, `teal`, `cyan`, `blue`, `indigo`,
 `purple`, `pink`, `brown`), which should follow light and dark appearance;
 `[name, opacity]`; or a fixed `0xAARRGGBB` int.
+
+A grid item is `[size, a, b, spacing, horizontal, vertical]`: `size` is
+`fixed` (`a` and `b` are its length), `flexible` or `adaptive` (`a` and `b`
+are the minimum and maximum, which may be ∞), then the spacing after it and
+its alignment. All six are always present.
 
 ## Modifiers
 
@@ -81,7 +93,8 @@ own, like SwiftUI's environment.
 | `accessibilityIdentifier` | `identifier` | no |
 
 `onAppear`, `onDisappear` and `task` are handled in the guest and never
-appear in the IR.
+appear in the IR. Nor do `tag`, `tabItem` and `pickerStyle`: they become
+props of the `Picker`, `TabView` and `Tab` nodes.
 
 ## Events
 
@@ -99,6 +112,24 @@ appear in the IR.
 to an event arrives as an update before the event call returns. Set a control
 from the IR only when the value differs from what you last rendered, so
 typing, dragging or a toggle in progress isn't overwritten.
+
+## Selection
+
+A `Picker`'s children are its options, and a `TabView`'s are its tabs.
+`selection` is the index of the chosen one; it's absent when none matches the
+guest's value, so show nothing selected. When the user chooses, send
+`change` with the index, and show it until the guest's update arrives.
+Unknown styles fall back to the platform's default picker.
+
+## Presentations
+
+A `Sheet` or `Alert` node stands in for the view it's attached to, its first
+child: lay that out as if the node weren't there. While `isPresented` is
+true, present the rest of the children: a sheet's content, or an alert's
+actions, which are `Button` nodes (an alert without actions gets an OK
+button). Whenever the presentation goes away other than by the guest's
+update (a swipe, the Escape key, an alert's button), send `change` with
+`false`. A host without full-screen covers shows a sheet.
 
 ## Lazy containers
 
