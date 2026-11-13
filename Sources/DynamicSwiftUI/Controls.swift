@@ -5,14 +5,35 @@ import DynamicUI
 /// sets a control from the IR only when the value differs from what it last
 /// rendered, so typing or dragging isn't overwritten (§9.5).
 
+/// What a button does, for hosts to style it: `role` in the IR.
+public struct ButtonRole: Equatable, Sendable {
+
+    let name: String
+
+    /// Deletes or removes something.
+    public static let destructive = ButtonRole(name: "destructive")
+
+    /// Cancels, as in an alert.
+    public static let cancel = ButtonRole(name: "cancel")
+}
+
 public struct Button<Content: View>: View {
 
     let action: () -> Void
+
+    let role: ButtonRole?
 
     let label: Content
 
     public init(action: @escaping () -> Void, @ViewBuilder label: () -> Content) {
         self.action = action
+        self.role = nil
+        self.label = label()
+    }
+
+    public init(role: ButtonRole?, action: @escaping () -> Void, @ViewBuilder label: () -> Content) {
+        self.action = action
+        self.role = role
         self.label = label()
     }
 
@@ -25,7 +46,8 @@ public struct Button<Content: View>: View {
         let id = graph.nextNodeID()
         let action = self.action
         graph.on(id, .tap) { _ in action() }
-        nodes.append(RenderNode("Button", id: id, children: context.children(label)))
+        let props: [String: PropValue] = role.map { ["role": .string($0.name)] } ?? [:]
+        nodes.append(RenderNode("Button", id: id, props: props, children: context.children(label)))
     }
 }
 
@@ -33,6 +55,10 @@ extension Button where Content == Text {
 
     public init(_ title: String, action: @escaping () -> Void) {
         self.init(action: action) { Text(title) }
+    }
+
+    public init(_ title: String, role: ButtonRole?, action: @escaping () -> Void) {
+        self.init(role: role, action: action) { Text(title) }
     }
 }
 
