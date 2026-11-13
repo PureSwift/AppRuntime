@@ -146,6 +146,52 @@ struct Alerts: View {
     }
 }
 
+final class Taps {
+    var names: [String] = []
+}
+
+struct Settings: View {
+
+    let taps: Taps
+
+    @State var confirming = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Account") {
+                    Text("Signed in")
+                }
+                Menu("Sort", systemImage: "arrow.up.arrow.down") {
+                    Button("Name") { taps.names.append("name") }
+                    Divider()
+                    Menu("More") {
+                        Button("Date") { taps.names.append("date") }
+                    }
+                }
+                Button("Sign Out") { confirming = true }
+                    .confirmationDialog("Sign out?", isPresented: $confirming, titleVisibility: .visible) {
+                        Button("Sign Out", role: .destructive) { taps.names.append("signOut") }
+                    }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add") { taps.names.append("add") }
+                }
+                Button("Edit") { taps.names.append("edit") }
+            }
+        }
+    }
+}
+
+struct LooseToolbar: View {
+    var body: some View {
+        Text("No stack")
+            .toolbar { Button("Ignored") { } }
+    }
+}
+
 // MARK: - Tests
 
 /// In `ViewGraphTests`, which is serialized: the frontend keeps the graph
@@ -347,5 +393,65 @@ extension ViewGraphTests {
         #expect(sink.screen?.props == ["role": "destructive"])
         let (_, plain) = graph(Button("Add") { })
         #expect(plain.screen?.props == [:])
+    }
+
+    // MARK: Forms, menus, dialogs and toolbars
+
+    @Test func formsAndMenus() throws {
+        let taps = Taps()
+        let (graph, sink) = graph(Settings(taps: taps))
+        let level = try #require(sink.screen?.children.first)
+        let form = try #require(level.children.first)
+        #expect(form.type == "Form")
+        #expect(form.children.map(\.type) == ["Section", "Menu", "Alert"])
+
+        let menu = form.children[1]
+        #expect(menu.props == ["title": "Sort", "systemImage": "arrow.up.arrow.down"])
+        #expect(menu.children.map(\.type) == ["Button", "Divider", "Menu"])
+        #expect(menu.children[2].props == ["title": "More"])
+        #expect(graph.handle(menu.children[0].id, kind: .tap))
+        #expect(graph.handle(try #require(menu.children[2].find("Button")).id, kind: .tap))
+        #expect(taps.names == ["name", "date"])
+    }
+
+    @Test func confirmationDialogsAreAlertsInStyle() throws {
+        let taps = Taps()
+        let (graph, sink) = graph(Settings(taps: taps))
+        var dialog = try #require(sink.screen?.find("Alert"))
+        #expect(dialog.props == ["title": "Sign out?", "isPresented": false, "style": "dialog", "titleVisibility": "visible"])
+        graph.handle(try #require(dialog.find("Button")).id, kind: .tap)
+        graph.update()
+        dialog = try #require(sink.screen?.find("Alert"))
+        #expect(dialog.props["isPresented"] == true)
+        let action = try #require(dialog.children.last)
+        #expect(action.props == ["role": "destructive"])
+        graph.handle(action.id, kind: .tap)
+        #expect(taps.names == ["signOut"])
+    }
+
+    @Test func toolbarsBelongToTheirLevel() throws {
+        let taps = Taps()
+        let (graph, sink) = graph(Settings(taps: taps))
+        let level = try #require(sink.screen?.children.first)
+        #expect(level.props["title"] == "Settings")
+        #expect(level.children.map(\.type) == ["Form", "ToolbarItem", "ToolbarItem"])
+        let items = level.children.dropFirst()
+        #expect(items.map { $0.props["placement"] } == ["primaryAction", "automatic"])
+        #expect(items.map(\.texts) == [["Add"], ["Edit"]])
+        for item in items {
+            graph.handle(try #require(item.find("Button")).id, kind: .tap)
+        }
+        #expect(taps.names == ["add", "edit"])
+
+        // The same IDs next time.
+        graph.setNeedsUpdate()
+        graph.update()
+        #expect(sink.screen?.children.first?.children.map(\.id) == level.children.map(\.id))
+    }
+
+    @Test func toolbarsOutsideAStackAreDropped() throws {
+        let (_, sink) = graph(LooseToolbar())
+        #expect(sink.screen?.type == "Text")
+        #expect(sink.screen?.texts == ["No stack"])
     }
 }
