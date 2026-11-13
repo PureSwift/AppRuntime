@@ -119,9 +119,12 @@ extension LinkedSliceTests {
             let listID = RenderCodec.encode(id: list.id)
             #expect(list.count == 3)
             #expect(host.delegate.rowCount(listID) == 3)
-            let row = try RenderCodec.decode(host.delegate.row(listID, index: 1))
+            let swipe = try RenderCodec.decode(host.delegate.row(listID, index: 1))
+            #expect(swipe.type == "SwipeActions")
+            let row = try #require(swipe.children.first)
             #expect(row.type == "NavigationLink")
             #expect(row.children.first?.props["text"] == "Banana")
+            #expect(swipe.children.last?.props["role"] == "destructive")
 
             // Following a row's link pushes its detail screen.
             host.send(row, .tap)
