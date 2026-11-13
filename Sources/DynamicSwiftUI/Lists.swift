@@ -92,6 +92,26 @@ extension List {
     }
 }
 
+/// Controls grouped for data entry: a `Form` node, whose children are its
+/// rows and sections.
+public struct Form<Content: View>: View {
+
+    let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let id = context.graph.nextNodeID()
+        nodes.append(RenderNode("Form", id: id, children: context.children(content)))
+    }
+}
+
 /// A group of rows with an optional header and footer.
 public struct Section<Content: View>: View {
 
