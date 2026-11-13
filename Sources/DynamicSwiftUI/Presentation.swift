@@ -138,6 +138,11 @@ public struct _AlertView<Anchor: View, Actions: View, Message: View>: View {
 
     let message: Message?
 
+    /// `nil` for an alert; for a confirmation dialog, `dialog`.
+    var style: String? = nil
+
+    var titleVisibility: Visibility = .automatic
+
     public var body: Never {
         fatalError()
     }
@@ -165,6 +170,10 @@ public struct _AlertView<Anchor: View, Actions: View, Message: View>: View {
             if payload?.bool == false { isPresented.wrappedValue = false }
         }
         var props: [String: PropValue] = ["title": .string(title), "isPresented": .bool(presented)]
+        if let style {
+            props["style"] = .string(style)
+            props["titleVisibility"] = .string(titleVisibility.rawValue)
+        }
         if let text = itemProps(messageNodes)["title"] {
             props["message"] = text
         }
@@ -192,5 +201,40 @@ extension View {
         @ViewBuilder message: () -> Message
     ) -> _AlertView<Self, Actions, Message> {
         _AlertView(anchor: self, title: title, isPresented: isPresented, actions: actions(), message: message())
+    }
+}
+
+// MARK: - Confirmation dialogs
+
+/// Whether something is shown. `automatic` leaves it to the host.
+public enum Visibility: String, Sendable {
+    case automatic, visible, hidden
+}
+
+extension View {
+
+    /// Presents a confirmation dialog, an action sheet on iOS, while
+    /// `isPresented` is true: an `Alert` node with `style` `dialog` and a
+    /// `titleVisibility`. A host without dialogs shows an alert.
+    public func confirmationDialog<Actions: View>(
+        _ title: String,
+        isPresented: Binding<Bool>,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: () -> Actions
+    ) -> _AlertView<Self, Actions, EmptyView> {
+        _AlertView(anchor: self, title: title, isPresented: isPresented, actions: actions(), message: nil,
+                   style: "dialog", titleVisibility: titleVisibility)
+    }
+
+    /// Presents a confirmation dialog with a message.
+    public func confirmationDialog<Actions: View, Message: View>(
+        _ title: String,
+        isPresented: Binding<Bool>,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: () -> Actions,
+        @ViewBuilder message: () -> Message
+    ) -> _AlertView<Self, Actions, Message> {
+        _AlertView(anchor: self, title: title, isPresented: isPresented, actions: actions(), message: message(),
+                   style: "dialog", titleVisibility: titleVisibility)
     }
 }
