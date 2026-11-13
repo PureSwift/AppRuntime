@@ -292,3 +292,52 @@ public struct ProgressView: View {
         nodes.append(context.node("ProgressView", props: props))
     }
 }
+
+// MARK: - Menu
+
+/// A button that shows a menu of actions: `Button`s, `Divider`s, `Section`s
+/// and other menus.
+///
+/// A `Menu` node has its label's `title` and `systemImage`, and its items as
+/// children. The items report their own events.
+public struct Menu<Label: View, Content: View>: View {
+
+    let label: Label
+
+    let content: Content
+
+    public init(@ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) {
+        self.content = content()
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let id = context.graph.nextNodeID()
+        var itemContext = context
+        itemContext.items = nil
+        let props = itemProps(itemContext.children(label))
+        nodes.append(RenderNode("Menu", id: id, props: props, children: itemContext.children(content)))
+    }
+}
+
+extension Menu where Label == Text {
+
+    public init(_ title: String, @ViewBuilder content: () -> Content) {
+        self.init(content: content) { Text(title) }
+    }
+}
+
+/// `Label`, where a generic parameter named `Label` hides it. Guest builds
+/// name this module `SwiftUI`, so it can't be qualified.
+public typealias _LabelView = Label
+
+extension Menu where Label == _LabelView {
+
+    public init(_ title: String, systemImage: String, @ViewBuilder content: () -> Content) {
+        self.init(content: content) { _LabelView(title, systemImage: systemImage) }
+    }
+}
