@@ -251,3 +251,51 @@ extension View {
         _ToolbarView(content: self, items: content())
     }
 }
+
+// MARK: - Search
+
+/// A view with a search field, which the host puts in the navigation bar of
+/// the level it's in.
+///
+/// A `Searchable` node has the field's `text` and `prompt`, and the view as
+/// its only child. The host sends `change` with the text as the user types,
+/// and `submit` when they search; `onSubmit(_:)` around the view handles it.
+public struct _SearchableView<Content: View>: View {
+
+    let content: Content
+
+    let text: Binding<String>
+
+    let prompt: String?
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        var contentNodes: [RenderNode] = []
+        content._render(into: &contentNodes, context: context)
+        let id = graph.nextNodeID()
+        let text = self.text
+        graph.on(id, .change) { payload in
+            if let value = payload?.string { text.wrappedValue = value }
+        }
+        if let onSubmit = context.onSubmit {
+            graph.on(id, .submit) { _ in onSubmit() }
+        }
+        var props: [String: PropValue] = ["text": .string(text.wrappedValue)]
+        if let prompt {
+            props["prompt"] = .string(prompt)
+        }
+        nodes.append(RenderNode("Searchable", id: id, props: props, children: [singleNode(contentNodes, id: ViewGraph.mix(id, 1))]))
+    }
+}
+
+extension View {
+
+    /// Adds a search field for `text`, in the navigation bar.
+    public func searchable(text: Binding<String>, prompt: String? = nil) -> _SearchableView<Self> {
+        _SearchableView(content: self, text: text, prompt: prompt)
+    }
+}
