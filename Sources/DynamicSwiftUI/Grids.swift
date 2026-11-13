@@ -128,3 +128,67 @@ func gridProps(_ key: String, _ items: [GridItem], _ alignment: String, _ spacin
         "spacing": .double(spacing ?? defaultSpacing),
     ]
 }
+
+// MARK: - Grid
+
+/// A two-dimensional layout: `GridRow`s, whose views are its cells,
+/// aligned in columns. A view in the grid outside a `GridRow` spans every
+/// column.
+///
+/// A `Grid` node has `alignment` (`horizontal`, `vertical`),
+/// `horizontalSpacing` and `verticalSpacing`, and its rows as children:
+/// `GridRow` nodes, with the cells as children, or other nodes, which span
+/// the grid.
+public struct Grid<Content: View>: View {
+
+    let alignment: Alignment
+
+    let horizontalSpacing: CGFloat?
+
+    let verticalSpacing: CGFloat?
+
+    let content: Content
+
+    public init(alignment: Alignment = .center, horizontalSpacing: CGFloat? = nil, verticalSpacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.alignment = alignment
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        var props = alignment.props
+        props["horizontalSpacing"] = .double(horizontalSpacing ?? defaultSpacing)
+        props["verticalSpacing"] = .double(verticalSpacing ?? defaultSpacing)
+        nodes.append(RenderNode("Grid", id: context.graph.nextNodeID(), props: props, children: context.children(content)))
+    }
+}
+
+/// A row of a `Grid`: its views are cells, one per column.
+public struct GridRow<Content: View>: View {
+
+    let alignment: VerticalAlignment?
+
+    let content: Content
+
+    public init(alignment: VerticalAlignment? = nil, @ViewBuilder content: () -> Content) {
+        self.alignment = alignment
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        var props: [String: PropValue] = [:]
+        if let alignment {
+            props["alignment"] = .string(alignment.rawValue)
+        }
+        nodes.append(RenderNode("GridRow", id: context.graph.nextNodeID(), props: props, children: context.children(content)))
+    }
+}
