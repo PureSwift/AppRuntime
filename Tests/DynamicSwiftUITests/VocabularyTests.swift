@@ -65,7 +65,7 @@ struct SelectedTabs: View {
     }
 }
 
-struct Grid: View {
+struct LazyGridSample: View {
 
     let lazy: Bool
 
@@ -192,6 +192,59 @@ struct LooseToolbar: View {
     }
 }
 
+@Observable
+final class Library {
+    var query: String = ""
+    var showsDetails: Bool = false
+    var books: [Item] = [Item(id: 1, title: "Dune"), Item(id: 2, title: "Emma")]
+    var searches: Int = 0
+}
+
+struct Shelf: View {
+
+    @Bindable var library: Library
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                Grid(alignment: .leading, horizontalSpacing: 12) {
+                    GridRow {
+                        Text("Title")
+                        Text("Year")
+                    }
+                    Divider()
+                    GridRow(alignment: .bottom) {
+                        Text("Dune")
+                        Text("1965")
+                    }
+                }
+                DisclosureGroup("Details", isExpanded: $library.showsDetails) {
+                    Text("Two books")
+                }
+                DisclosureGroup("Notes") {
+                    Text("None yet")
+                }
+                Link("Website", destination: "https://example.com")
+                List {
+                    ForEach(library.books) { book in
+                        Text(book.title)
+                            .swipeActions {
+                                Button("Delete", role: .destructive) {
+                                    library.books.removeAll { $0.id == book.id }
+                                }
+                            }
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button("Pin") { }
+                            }
+                    }
+                }
+            }
+            .searchable(text: $library.query, prompt: "Books")
+            .onSubmit { library.searches += 1 }
+        }
+    }
+}
+
 // MARK: - Tests
 
 /// In `ViewGraphTests`, which is serialized: the frontend keeps the graph
@@ -275,7 +328,7 @@ extension ViewGraphTests {
     // MARK: Grids
 
     @Test func lazyGridsRenderItemsOnDemand() throws {
-        let (graph, sink) = graph(Grid(lazy: true))
+        let (graph, sink) = graph(LazyGridSample(lazy: true))
         let grid = try #require(sink.screen)
         #expect(grid.type == "LazyVGrid")
         #expect(grid.count == 100)
@@ -289,7 +342,7 @@ extension ViewGraphTests {
     }
 
     @Test func eagerGrids() throws {
-        let (_, sink) = graph(Grid(lazy: false))
+        let (_, sink) = graph(LazyGridSample(lazy: false))
         let grid = try #require(sink.screen)
         #expect(grid.type == "LazyHGrid")
         #expect(grid.count == nil)
@@ -453,5 +506,79 @@ extension ViewGraphTests {
         let (_, sink) = graph(LooseToolbar())
         #expect(sink.screen?.type == "Text")
         #expect(sink.screen?.texts == ["No stack"])
+    }
+
+    // MARK: Grids, disclosure groups, links, swipe actions and search
+
+    func shelf(_ library: Library) throws -> (ViewGraph, TestSink, RenderNode) {
+        let (graph, sink) = graph(Shelf(library: library))
+        let level = try #require(sink.screen?.children.first)
+        let searchable = try #require(level.children.first)
+        return (graph, sink, searchable)
+    }
+
+    @Test func gridsHaveRowsOfCells() throws {
+        let (_, _, searchable) = try shelf(Library())
+        let grid = try #require(searchable.find("Grid"))
+        #expect(grid.props == ["horizontal": "leading", "vertical": "center", "horizontalSpacing": 12.0, "verticalSpacing": 8.0])
+        #expect(grid.children.map(\.type) == ["GridRow", "Divider", "GridRow"])
+        #expect(grid.children[0].texts == ["Title", "Year"])
+        #expect(grid.children[0].props == [:])
+        #expect(grid.children[2].props == ["alignment": "bottom"])
+    }
+
+    @Test func disclosureGroupsShowContentWhileExpanded() throws {
+        let library = Library()
+        let (graph, sink, searchable) = try shelf(library)
+        var groups = searchable.children[0].children.filter { $0.type == "DisclosureGroup" }
+        #expect(groups.map { $0.props["isExpanded"] } == [false, false])
+        #expect(groups.map(\.texts) == [["Details"], ["Notes"]], "only the labels")
+
+        // Bound to the model.
+        #expect(graph.handle(groups[0].id, kind: .change, payload: true))
+        #expect(library.showsDetails)
+        // Kept by the group itself.
+        graph.handle(groups[1].id, kind: .change, payload: true)
+        graph.update()
+        groups = try #require(sink.screen?.children.first?.children.first?.children.first?.children.filter { $0.type == "DisclosureGroup" })
+        #expect(groups.map(\.texts) == [["Details", "Two books"], ["Notes", "None yet"]])
+    }
+
+    @Test func linksCarryTheirURL() throws {
+        let (_, _, searchable) = try shelf(Library())
+        let link = try #require(searchable.find("Link"))
+        #expect(link.props == ["url": "https://example.com"])
+        #expect(link.texts == ["Website"])
+    }
+
+    @Test func swipeActionsWrapTheirRow() throws {
+        let library = Library()
+        let (graph, sink, searchable) = try shelf(library)
+        let list = try #require(searchable.find("List"))
+        let row = try #require(list.children.first)
+        #expect(row.type == "SwipeActions")
+        #expect(row.props == ["edge": "leading", "allowsFullSwipe": false])
+        #expect(row.children.map(\.type) == ["SwipeActions", "Button"])
+        let trailing = row.children[0]
+        #expect(trailing.props == ["edge": "trailing", "allowsFullSwipe": true])
+        #expect(trailing.children.map(\.texts) == [["Dune"], ["Delete"]])
+        #expect(trailing.children[1].props == ["role": "destructive"])
+
+        #expect(graph.handle(trailing.children[1].id, kind: .tap))
+        #expect(library.books.map(\.title) == ["Emma"])
+        graph.update()
+        #expect(sink.screen?.find("List")?.children.count == 1)
+    }
+
+    @Test func searchFieldsSyncTheirText() throws {
+        let library = Library()
+        let (graph, _, searchable) = try shelf(library)
+        #expect(searchable.type == "Searchable")
+        #expect(searchable.props == ["text": "", "prompt": "Books"])
+        #expect(searchable.children.map(\.type) == ["VStack"])
+        #expect(graph.handle(searchable.id, kind: .change, payload: "Du"))
+        #expect(library.query == "Du")
+        #expect(graph.handle(searchable.id, kind: .submit))
+        #expect(library.searches == 1)
     }
 }
