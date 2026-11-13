@@ -132,6 +132,8 @@ public struct LazyVStack<Content: View>: View {
 
     let make: (RenderContext) -> RenderNode
 
+    /// Renders everything; content that's a `ForEach` takes the lazy initializer.
+    @_disfavoredOverload
     public init(alignment: HorizontalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
         let content = content()
         let props: [String: PropValue] = ["alignment": .string(alignment.rawValue), "spacing": .double(spacing ?? defaultSpacing)]
@@ -164,6 +166,8 @@ public struct LazyHStack<Content: View>: View {
 
     let make: (RenderContext) -> RenderNode
 
+    /// Renders everything; content that's a `ForEach` takes the lazy initializer.
+    @_disfavoredOverload
     public init(alignment: VerticalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> Content) {
         let content = content()
         let props: [String: PropValue] = ["alignment": .string(alignment.rawValue), "spacing": .double(spacing ?? defaultSpacing)]
