@@ -49,6 +49,13 @@ public struct RenderContext {
     /// What Return does in a text field, from `onSubmit(_:)`.
     var onSubmit: (() -> Void)?
 
+    /// The picker or tab view whose options are being rendered, which
+    /// collects their tags and tab items.
+    var items: ItemTags?
+
+    /// From `pickerStyle(_:)`: the `style` prop of the pickers inside.
+    var pickerStyle: String?
+
     var graph: ViewGraph {
         ViewGraph.current!
     }
