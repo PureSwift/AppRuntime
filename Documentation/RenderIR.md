@@ -42,16 +42,19 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Picker` | `title`; `selection` (index); `style` (`menu`, `segmented`, `inline`, `wheel`) | options | `change` (int: index) |
 | `List` | `revision` when lazy | rows when eager | — |
 | `Section` | `header`, `footer` | rows | — |
+| `Form` | — | rows and sections | — |
 | `LazyVStack`, `LazyHStack` | `alignment`, `spacing`; `revision` when lazy | content when eager | — |
 | `LazyVGrid` | `columns` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
 | `LazyHGrid` | `rows` (grid items), `alignment`, `spacing`; `revision` when lazy | items when eager | — |
 | `NavStack` | — | one `NavLevel` per level, root first | `pop` (int) |
-| `NavLevel` | `title` | the level's content | — |
+| `NavLevel` | `title` | the level's content, then its `ToolbarItem`s | — |
+| `ToolbarItem` | `placement` (`automatic`, `primaryAction`, `cancellationAction`, `confirmationAction`, `navigation`, `principal`, `bottomBar`) | the item's views | — |
 | `NavigationLink` | — | label | `tap` |
 | `TabView` | `selection` (index) | one `Tab` per tab | `change` (int: index) |
 | `Tab` | `title`, `systemImage` | the tab's content | — |
 | `Sheet` | `isPresented`, `style` (`sheet`, `fullScreenCover`) | the presenting view, then the content while presented | `change` (bool: `false`) |
-| `Alert` | `title`, `isPresented`; `message` | the presenting view, then `Button` actions while presented | `change` (bool: `false`) |
+| `Alert` | `title`, `isPresented`; `message`; `style` (`dialog`) and `titleVisibility` (`automatic`, `visible`, `hidden`) | the presenting view, then `Button` actions while presented | `change` (bool: `false`) |
+| `Menu` | `title`, `systemImage` | its items: buttons, dividers, sections, menus | — |
 
 Optional props are absent when unset. Colors are a platform color name
 (`primary`, `secondary`, `accentColor`, `clear`, `black`, `white`, `gray`,
@@ -130,6 +133,15 @@ actions, which are `Button` nodes (an alert without actions gets an OK
 button). Whenever the presentation goes away other than by the guest's
 update (a swipe, the Escape key, an alert's button), send `change` with
 `false`. A host without full-screen covers shows a sheet.
+
+An `Alert` with `style` `dialog` is a confirmation dialog: an action sheet on
+iOS. Show it as an alert if you have no dialogs.
+
+## Toolbars
+
+A `NavLevel`'s `ToolbarItem` children come after its content. Show them in
+the level's toolbar at their `placement`, and not in its content; put an
+item whose placement you don't have where `automatic` items go.
 
 ## Lazy containers
 
