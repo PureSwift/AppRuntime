@@ -463,8 +463,9 @@ Each of these needs a decision, or is verified only as far as noted:
 1. Settle the review items in §3 (allocator exports, guest error messages).
 2. Players that interpret the render IR (§9.4): the iOS 13+ / macOS SwiftUI
    player, an adapter for AndroidSwiftUI's Compose interpreter, and
-   Swift-iOS6's backend for iOS 6. More of the vocabulary (pickers, sheets,
-   alerts, tab views, grids), and per-view re-evaluation.
+   Swift-iOS6's backend for iOS 6. More of the vocabulary (confirmation
+   dialogs, toolbars, forms, `Grid`, menus), and per-view re-evaluation.
+   Pickers, sheets, alerts, tab views and lazy grids are in.
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
