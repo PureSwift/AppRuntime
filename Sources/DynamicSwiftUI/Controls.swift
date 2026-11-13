@@ -341,3 +341,93 @@ extension Menu where Label == _LabelView {
         self.init(content: content) { _LabelView(title, systemImage: systemImage) }
     }
 }
+
+// MARK: - DisclosureGroup
+
+/// A label that shows or hides its content.
+///
+/// A `DisclosureGroup` node's first child is the label; while `isExpanded`
+/// is true, the content follows it. The host sends `change` with the new
+/// `isExpanded` when the user opens or closes it. Without a binding, the
+/// group keeps whether it's expanded itself.
+public struct DisclosureGroup<Label: View, Content: View>: View {
+
+    let isExpanded: Binding<Bool>?
+
+    let label: Label
+
+    let content: Content
+
+    public init(isExpanded: Binding<Bool>? = nil, @ViewBuilder content: () -> Content, @ViewBuilder label: () -> Label) {
+        self.isExpanded = isExpanded
+        self.content = content()
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        let id = graph.nextNodeID()
+        let local = graph.stateBox { false }
+        let binding = isExpanded ?? Binding(get: { local.value }, set: { local.value = $0 })
+        let expanded = binding.wrappedValue
+
+        var labelNodes: [RenderNode] = []
+        graph.scoped { label._render(into: &labelNodes, context: context) }
+        var children = [singleNode(labelNodes, id: ViewGraph.mix(id, 1))]
+        // Always one scope, so the views after this keep their identity.
+        graph.scoped {
+            guard expanded else { return }
+            content._render(into: &children, context: context)
+        }
+        graph.on(id, .change) { payload in
+            if let value = payload?.bool { binding.wrappedValue = value }
+        }
+        nodes.append(RenderNode("DisclosureGroup", id: id, props: ["isExpanded": .bool(expanded)], children: children))
+    }
+}
+
+extension DisclosureGroup where Label == Text {
+
+    public init(_ title: String, isExpanded: Binding<Bool>? = nil, @ViewBuilder content: () -> Content) {
+        self.init(isExpanded: isExpanded, content: content) { Text(title) }
+    }
+}
+
+// MARK: - Link
+
+/// Opens a URL when tapped: the host opens it, in the browser or the app
+/// that handles it. Takes the URL as a string, since Embedded guests have
+/// no Foundation.
+///
+/// A `Link` node has the `url`, and its label as children.
+public struct Link<Label: View>: View {
+
+    let destination: String
+
+    let label: Label
+
+    public init(destination: String, @ViewBuilder label: () -> Label) {
+        self.destination = destination
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let id = context.graph.nextNodeID()
+        nodes.append(RenderNode("Link", id: id, props: ["url": .string(destination)], children: context.children(label)))
+    }
+}
+
+extension Link where Label == Text {
+
+    public init(_ title: String, destination: String) {
+        self.init(destination: destination) { Text(title) }
+    }
+}
