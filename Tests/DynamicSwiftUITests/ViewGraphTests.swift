@@ -141,6 +141,16 @@ struct LazyRows: View {
     }
 }
 
+struct LazyStack: View {
+    var body: some View {
+        LazyVStack {
+            ForEach(0..<100) { index in
+                Text("\(index)")
+            }
+        }
+    }
+}
+
 struct Detail: View {
     let title: String
     var body: some View {
@@ -321,6 +331,15 @@ struct Appearing: View {
         #expect(sink.screen?.props["revision"] != list.props["revision"], "the host re-fetches its rows")
         #expect(graph.row(list.id, index: 500)?.texts == ["row 500 1"])
         #expect(graph.row(list.id, index: 501)?.texts == ["row 501 0"])
+    }
+
+    @Test func lazyStacksOfAForEachAreLazy() throws {
+        let (graph, sink) = graph(LazyStack())
+        let stack = try #require(sink.screen)
+        #expect(stack.type == "LazyVStack")
+        #expect(stack.count == 100)
+        #expect(stack.children.isEmpty)
+        #expect(graph.row(stack.id, index: 99)?.texts == ["99"])
     }
 
     @Test func navigationPushesAndPops() throws {
