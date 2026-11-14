@@ -33,6 +33,7 @@ don't depend on WasmKit.
 | `DynamicRuntimeMacros` | `@DynamicRuntime` / `@DynamicCallback`: proxies, dispatch adapters, metadata records | build machine |
 | `RuntimeCore` | Runtime core: handle table, registry, Swift-registry backend, validation | yes |
 | `RuntimeNative` | `rt_*` as C symbols for native slices, and a direct binding for host Swift code | yes |
+| `RuntimeHost` | What native hosts share: the app's `Info.plist` keys (`AppInfo`), the startup checks, `HostModule` and permission providers, and the generic `Permissions` and `Application` built-ins | host |
 | `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `AppRuntime`, `bundle-runtime`, `CBundleRuntime` | Linux bundle model, launcher and sandbox | Linux |
