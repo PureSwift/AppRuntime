@@ -20,6 +20,9 @@ let package = Package(
         // Shared: runtime core with the Swift-registry backend.
         .library(name: "RuntimeCore", targets: ["RuntimeCore"]),
         .library(name: "RuntimeNative", targets: ["RuntimeNative"]),
+        // Host only: what every native host shares (the app's keys, the
+        // startup checks, modules and the generic built-ins).
+        .library(name: "RuntimeHost", targets: ["RuntimeHost"]),
         // Shared: portable provider contracts (declarations; hosts implement them).
         .library(name: "DynamicBluetooth", targets: ["DynamicBluetooth"]),
         .library(name: "DynamicDevice", targets: ["DynamicDevice"]),
@@ -121,6 +124,15 @@ let package = Package(
                 "CRuntime",
                 "RuntimeCore",
                 "DynamicRuntime",
+            ]
+        ),
+        .target(
+            name: "RuntimeHost",
+            dependencies: [
+                "CRuntime",
+                "RuntimeABI",
+                "DynamicRuntime",
+                "RuntimeNative",
             ]
         ),
 
@@ -286,6 +298,10 @@ let package = Package(
         .testTarget(
             name: "RuntimeCoreTests",
             dependencies: ["RuntimeCore"]
+        ),
+        .testTarget(
+            name: "RuntimeHostTests",
+            dependencies: ["RuntimeHost", "RuntimeNative"]
         ),
         .testTarget(
             name: "DynamicRuntimeTests",
