@@ -10,19 +10,37 @@ import SwiftUI
 /// The example UI app: an observable model, a counter, a text field, a
 /// picker, a searchable lazy list with swipe actions that pushes detail
 /// forms, a toolbar menu, an alert, a confirmation dialog, a disclosure
-/// group with a link, and a sheet with tabs and grids.
+/// group with a link, a date picker, context menus, pull to refresh, a
+/// shape, and a sheet with tabs and grids.
 @Observable
 final class Store {
     var name: String = "World"
     var count: Int = 0
     var favorite: Int = 1
     var query: String = ""
-    var items: [Fruit] = [
+    var items: [Fruit] = Store.fruits
+
+    static let fruits = [
         Fruit(id: 1, name: "Apple"),
         Fruit(id: 2, name: "Banana"),
         Fruit(id: 3, name: "Cherry"),
     ]
 }
+
+#if EMBEDDED_NO_CONCURRENCY
+extension View {
+    /// Pull to refresh needs concurrency, which some Embedded targets don't
+    /// have (Scripts/guest.py).
+    func refreshesFruit(_ store: Store) -> Self { self }
+}
+#else
+extension View {
+    /// Pulling the list brings back deleted fruit.
+    func refreshesFruit(_ store: Store) -> some View {
+        refreshable { store.items = Store.fruits }
+    }
+}
+#endif
 
 struct Fruit: Identifiable {
     let id: Int
@@ -33,11 +51,15 @@ struct FruitDetail: View {
     let fruit: Fruit
     @State var likes = 0
     @State var confirmingReset = false
+    @State var harvested: Double = 1_752_000_000
 
     var body: some View {
         Form {
             Section("Likes") {
                 Button("Like (\(likes))") { likes += 1 }
+            }
+            Section("Harvest") {
+                DatePicker("Picked", selection: $harvested, displayedComponents: .date)
             }
             Section {
                 DisclosureGroup("More About \(fruit.name)") {
@@ -112,6 +134,9 @@ struct ContentView: View {
                     Button("−") { store.count -= 1 }
                     Text("\(store.count)").accessibilityIdentifier("count")
                     Button("+") { store.count += 1 }
+                    Circle()
+                        .fill(store.count > 0 ? .green : .gray)
+                        .frame(width: 10, height: 10)
                     Button("Reset", role: .destructive) { confirmingReset = true }
                         .alert("Reset the count?", isPresented: $confirmingReset) {
                             Button("Reset", role: .destructive) { store.count = 0 }
@@ -132,12 +157,16 @@ struct ContentView: View {
                     }
                 List(store.items.filter { store.query.isEmpty || $0.name.hasPrefix(store.query) }) { fruit in
                     NavigationLink(fruit.name, destination: FruitDetail(fruit: fruit))
+                        .contextMenu {
+                            Button("Make Favorite") { store.favorite = fruit.id }
+                        }
                         .swipeActions {
                             Button("Delete", role: .destructive) {
                                 store.items.removeAll { $0.id == fruit.id }
                             }
                         }
                 }
+                .refreshesFruit(store)
             }
             .padding()
             .searchable(text: $store.query, prompt: "Fruit")
