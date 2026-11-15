@@ -463,11 +463,12 @@ Each of these needs a decision, or is verified only as far as noted:
 1. Settle the review items in §3 (allocator exports, guest error messages).
 2. Players that interpret the render IR (§9.4): the iOS 13+ / macOS SwiftUI
    player, an adapter for AndroidSwiftUI's Compose interpreter, and
-   Swift-iOS6's backend for iOS 6. More of the vocabulary (shapes, date
-   pickers, refreshable lists, context menus, animations), and per-view
-   re-evaluation. Pickers, sheets, alerts, confirmation dialogs, tab views,
-   grids, forms, menus, toolbars, disclosure groups, links, swipe actions
-   and search are in.
+   Swift-iOS6's backend for iOS 6. More of the vocabulary (animations,
+   gestures beyond taps, `GeometryReader`, images from the app's assets),
+   and per-view re-evaluation. Pickers, sheets, alerts, confirmation
+   dialogs, tab views, grids, forms, menus, toolbars, disclosure groups,
+   links, swipe actions, search, shapes, date pickers, context menus and
+   pull to refresh are in.
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
