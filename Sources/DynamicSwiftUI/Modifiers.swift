@@ -244,4 +244,61 @@ extension View {
         }
     }
 }
+
+/// The task a `Refreshable` view's action runs in.
+final class RefreshState {
+    var task: Task<Void, Never>?
+}
+
+/// Hands a value to a task. The guest is single-threaded (§6.4), so the
+/// task runs on the same thread as everything else.
+struct GuestOnly<Value>: @unchecked Sendable {
+    let value: Value
+}
+
+/// A view the user can pull to refresh: a `List` or `ScrollView`.
+///
+/// A `Refreshable` node has `refreshing` and the view as its only child.
+/// The host sends `refresh` when the user pulls; the guest runs the action,
+/// with `refreshing` true until it finishes.
+public struct _RefreshableView<Content: View>: View {
+
+    let content: Content
+
+    let action: () async -> Void
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        var contentNodes: [RenderNode] = []
+        content._render(into: &contentNodes, context: context)
+        let id = graph.nextNodeID()
+        let state = graph.stateBox { RefreshState() }
+        let refreshing = graph.stateBox { false }
+        let action = self.action
+        graph.on(id, .refresh) { _ in
+            guard !refreshing.value else { return }
+            refreshing.value = true
+            let box = GuestOnly(value: (refreshing, action))
+            state.value.task = Task {
+                await box.value.1()
+                box.value.0.value = false
+            }
+        }
+        nodes.append(RenderNode("Refreshable", id: id, props: ["refreshing": .bool(refreshing.value)],
+                                children: [singleNode(contentNodes, id: ViewGraph.mix(id, 1))]))
+    }
+}
+
+extension View {
+
+    /// Lets the user pull this list to refresh it, running `action`. Not
+    /// `@Sendable`, unlike SwiftUI's: the guest is single-threaded (§6.4).
+    public func refreshable(action: @escaping () async -> Void) -> _RefreshableView<Self> {
+        _RefreshableView(content: self, action: action)
+    }
+}
 #endif
