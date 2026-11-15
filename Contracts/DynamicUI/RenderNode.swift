@@ -144,4 +144,8 @@ public enum RenderEventKind: Int32, Sendable {
     /// Back navigation in a `NavStack`: the payload is the int number of
     /// levels left.
     case pop = 4
+
+    /// Pull to refresh on a `Refreshable` node. No payload. The node's
+    /// `refreshing` prop is true until the guest finishes.
+    case refresh = 5
 }
