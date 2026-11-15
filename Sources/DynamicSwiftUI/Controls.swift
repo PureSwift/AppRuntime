@@ -431,3 +431,74 @@ extension Link where Label == Text {
         self.init(destination: destination) { Text(title) }
     }
 }
+
+// MARK: - DatePicker
+
+/// The parts of a date a `DatePicker` lets the user choose.
+public struct DatePickerComponents: OptionSet, Sendable {
+
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let date = DatePickerComponents(rawValue: 1 << 0)
+    public static let hourAndMinute = DatePickerComponents(rawValue: 1 << 1)
+}
+
+/// Chooses a date and time: seconds since 1970 (UTC), since Embedded guests
+/// have no Foundation `Date`.
+///
+/// A `DatePicker` node has `title`, `value` (seconds since 1970),
+/// `components` (`date`, `hourAndMinute` or both, comma-separated) and the
+/// optional bounds `min` and `max`. The host sends `change` with the new
+/// value.
+public struct DatePicker: View {
+
+    let title: String
+
+    let selection: Binding<Double>
+
+    let range: ClosedRange<Double>?
+
+    let components: DatePickerComponents
+
+    public init(_ title: String, selection: Binding<Double>, in range: ClosedRange<Double>? = nil, displayedComponents: DatePickerComponents = [.date, .hourAndMinute]) {
+        self.title = title
+        self.selection = selection
+        self.range = range
+        self.components = displayedComponents
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        let id = graph.nextNodeID()
+        let selection = self.selection
+        let range = self.range
+        graph.on(id, .change) { payload in
+            guard var value = payload?.double else { return }
+            if let range {
+                value = Swift.min(range.upperBound, Swift.max(range.lowerBound, value))
+            }
+            selection.wrappedValue = value
+        }
+        var names: [String] = []
+        if components.contains(.date) { names.append("date") }
+        if components.contains(.hourAndMinute) { names.append("hourAndMinute") }
+        var props: [String: PropValue] = [
+            "title": .string(title),
+            "value": .double(selection.wrappedValue),
+            "components": .string(names.isEmpty ? "date" : names.joined(separator: ",")),
+        ]
+        if let range {
+            props["min"] = .double(range.lowerBound)
+            props["max"] = .double(range.upperBound)
+        }
+        nodes.append(RenderNode("DatePicker", id: id, props: props))
+    }
+}
