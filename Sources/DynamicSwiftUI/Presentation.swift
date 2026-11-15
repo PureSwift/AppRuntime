@@ -238,3 +238,41 @@ extension View {
                    style: "dialog", titleVisibility: titleVisibility)
     }
 }
+
+// MARK: - Context menus
+
+/// A view with a context menu, shown on a long press or a secondary click.
+///
+/// A `ContextMenu` node's first child is the view, and the rest are the
+/// menu's items: buttons, dividers, sections and menus, which report their
+/// own events.
+public struct _ContextMenuView<Content: View, Items: View>: View {
+
+    let content: Content
+
+    let items: Items
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        var contentNodes: [RenderNode] = []
+        content._render(into: &contentNodes, context: context)
+        let id = graph.nextNodeID()
+        var children = [singleNode(contentNodes, id: ViewGraph.mix(id, 1))]
+        var itemContext = context
+        itemContext.items = nil
+        graph.scoped { items._render(into: &children, context: itemContext) }
+        nodes.append(RenderNode("ContextMenu", id: id, children: children))
+    }
+}
+
+extension View {
+
+    /// Items shown in a menu when this view is long-pressed.
+    public func contextMenu<Items: View>(@ViewBuilder menuItems: () -> Items) -> _ContextMenuView<Self, Items> {
+        _ContextMenuView(content: self, items: menuItems())
+    }
+}
