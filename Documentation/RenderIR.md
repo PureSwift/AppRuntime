@@ -29,6 +29,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Spacer` | `minLength` | — | — |
 | `Divider` | — | — | — |
 | `Color` | `color` | — | — |
+| `Shape` | `shape` (`rectangle`, `roundedRectangle`, `circle`, `ellipse`, `capsule`); `cornerRadius`; `fill` (color), or `stroke` (color) and `lineWidth`; neither: filled with the foreground color | — | — |
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
@@ -39,6 +40,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Slider` | `value`, `min`, `max`; `step` | — | `change` (double) |
 | `Stepper` | `value`, `min`, `max`, `step` (ints) | label | `change` (int) |
 | `ProgressView` | `total`; `value` (none: indeterminate); `title` | — | — |
+| `DatePicker` | `title`, `value` (seconds since 1970, UTC), `components` (`date`, `hourAndMinute`, or both comma-separated); `min`, `max` | — | `change` (double) |
 | `Picker` | `title`; `selection` (index); `style` (`menu`, `segmented`, `inline`, `wheel`) | options | `change` (int: index) |
 | `List` | `revision` when lazy | rows when eager | — |
 | `Section` | `header`, `footer` | rows | — |
@@ -61,6 +63,8 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Sheet` | `isPresented`, `style` (`sheet`, `fullScreenCover`) | the presenting view, then the content while presented | `change` (bool: `false`) |
 | `Alert` | `title`, `isPresented`; `message`; `style` (`dialog`) and `titleVisibility` (`automatic`, `visible`, `hidden`) | the presenting view, then `Button` actions while presented | `change` (bool: `false`) |
 | `Menu` | `title`, `systemImage` | its items: buttons, dividers, sections, menus | — |
+| `ContextMenu` | — | the view, then the menu's items | — |
+| `Refreshable` | `refreshing` | the list or scroll view | `refresh` |
 
 Optional props are absent when unset. Colors are a platform color name
 (`primary`, `secondary`, `accentColor`, `clear`, `black`, `white`, `gray`,
@@ -116,6 +120,7 @@ props of the `Picker`, `TabView` and `Tab` nodes.
 | `change` | 2 | the control's new value |
 | `submit` | 3 | — |
 | `pop` | 4 | `NavStack`: the number of levels left (int) |
+| `refresh` | 5 | — |
 
 **Control sync.** The guest's state is the source of truth, and its answer
 to an event arrives as an update before the event call returns. Set a control
@@ -142,6 +147,13 @@ update (a swipe, the Escape key, an alert's button), send `change` with
 
 An `Alert` with `style` `dialog` is a confirmation dialog: an action sheet on
 iOS. Show it as an alert if you have no dialogs.
+
+## Refreshing
+
+When the user pulls a `Refreshable` node's list, send `refresh`, then keep
+the refresh indicator up while `refreshing` is true. The guest's update
+arrives before the event call returns; if its action finished without
+waiting, `refreshing` is already false.
 
 ## Search
 
