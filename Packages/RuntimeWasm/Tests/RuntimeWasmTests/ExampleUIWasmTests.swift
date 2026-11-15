@@ -124,7 +124,9 @@ extension WasmShimTests {
         #expect(host.delegate.rowCount(listID) == 3)
         let swipe = try RenderCodec.decode(host.delegate.row(listID, index: 1))
         #expect(swipe.type == "SwipeActions")
-        let row = try #require(swipe.children.first)
+        let menu = try #require(swipe.children.first)
+        #expect(menu.type == "ContextMenu")
+        let row = try #require(menu.children.first)
         #expect(row.type == "NavigationLink")
         #expect(row.children.first?.props["text"] == "Banana")
 
