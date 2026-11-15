@@ -245,6 +245,61 @@ struct Shelf: View {
     }
 }
 
+@Observable
+final class Planner {
+    var when: Double = 1_000_000
+    var refreshes: Int = 0
+    var pinned: String = ""
+}
+
+struct Agenda: View {
+
+    @Bindable var planner: Planner
+
+    var body: some View {
+        VStack {
+            HStack {
+                Circle().fill(.red)
+                RoundedRectangle(cornerRadius: 4).stroke(.blue, lineWidth: 2)
+                Capsule()
+                Rectangle()
+                Ellipse()
+            }
+            DatePicker("When", selection: $planner.when, in: 0...2_000_000, displayedComponents: .date)
+            DatePicker("Any time", selection: $planner.when)
+            List {
+                Text("Meeting")
+                    .contextMenu {
+                        Button("Pin") { planner.pinned = "Meeting" }
+                        Divider()
+                        Button("Delete", role: .destructive) { }
+                    }
+            }
+            .refreshable { planner.refreshes += 1 }
+        }
+    }
+}
+
+/// Holds a refresh action until the test opens it. Host tests run tasks on
+/// Swift's own executor, on another thread.
+final class Gate: @unchecked Sendable {
+    var calls = 0
+    var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        calls += 1
+        await withCheckedContinuation { continuation = $0 }
+    }
+}
+
+struct GatedList: View {
+    let gate: Gate
+    var body: some View {
+        List { Text("Row") }
+            .refreshable { await gate.wait() }
+    }
+}
+
 // MARK: - Tests
 
 /// In `ViewGraphTests`, which is serialized: the frontend keeps the graph
@@ -580,5 +635,73 @@ extension ViewGraphTests {
         #expect(library.query == "Du")
         #expect(graph.handle(searchable.id, kind: .submit))
         #expect(library.searches == 1)
+    }
+
+    // MARK: Shapes, date pickers, context menus and refreshing
+
+    @Test func shapes() throws {
+        let (_, sink) = graph(Agenda(planner: Planner()))
+        let row = try #require(sink.screen?.find("HStack"))
+        #expect(row.children.map(\.props) == [
+            ["shape": "circle", "fill": "red"],
+            ["shape": "roundedRectangle", "cornerRadius": 4.0, "stroke": "blue", "lineWidth": 2.0],
+            ["shape": "capsule"],
+            ["shape": "rectangle"],
+            ["shape": "ellipse"],
+        ])
+        #expect(row.children.allSatisfy { $0.type == "Shape" })
+    }
+
+    @Test func datePickersSyncSecondsSince1970() throws {
+        let planner = Planner()
+        let (graph, sink) = graph(Agenda(planner: planner))
+        let pickers = try #require(sink.screen?.children.filter { $0.type == "DatePicker" })
+        #expect(pickers[0].props == ["title": "When", "value": 1_000_000.0, "components": "date", "min": 0.0, "max": 2_000_000.0])
+        #expect(pickers[1].props == ["title": "Any time", "value": 1_000_000.0, "components": "date,hourAndMinute"])
+        graph.handle(pickers[0].id, kind: .change, payload: 1_500_000.0)
+        #expect(planner.when == 1_500_000)
+        graph.handle(pickers[0].id, kind: .change, payload: 9_000_000.0)
+        #expect(planner.when == 2_000_000, "clamped to the range")
+        graph.handle(pickers[1].id, kind: .change, payload: -5.0)
+        #expect(planner.when == -5, "unbounded")
+    }
+
+    @Test func contextMenusWrapTheirView() throws {
+        let planner = Planner()
+        let (graph, sink) = graph(Agenda(planner: planner))
+        let menu = try #require(sink.screen?.find("ContextMenu"))
+        #expect(menu.children.map(\.type) == ["Text", "Button", "Divider", "Button"])
+        #expect(menu.children[0].props["text"] == "Meeting")
+        #expect(menu.children[3].props == ["role": "destructive"])
+        #expect(graph.handle(menu.children[1].id, kind: .tap))
+        #expect(planner.pinned == "Meeting")
+    }
+
+    @Test func refreshableWrapsItsList() throws {
+        let (_, sink) = graph(Agenda(planner: Planner()))
+        let refreshable = try #require(sink.screen?.find("Refreshable"))
+        #expect(refreshable.props == ["refreshing": false])
+        #expect(refreshable.children.map(\.type) == ["List"])
+    }
+
+    @Test func refreshingLastsUntilTheActionFinishes() async throws {
+        let gate = Gate()
+        let (graph, sink) = graph(GatedList(gate: gate))
+        let refreshable = try #require(sink.screen)
+        #expect(graph.handle(refreshable.id, kind: .refresh))
+        graph.update()
+        #expect(sink.screen?.props["refreshing"] == true)
+        graph.handle(refreshable.id, kind: .refresh)
+
+        for _ in 0..<500 where gate.continuation == nil {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        #expect(gate.calls == 1, "a second pull while refreshing is ignored")
+        gate.continuation?.resume()
+        for _ in 0..<500 where !graph.needsUpdate {
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        graph.update()
+        #expect(sink.screen?.props["refreshing"] == false)
     }
 }
