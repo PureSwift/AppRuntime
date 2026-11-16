@@ -743,7 +743,7 @@ Guests check for these at load time (an import module is either present or absen
 
 ### 8.6 Surface input
 
-**Status:** the contract and the guest side are implemented (`DynamicGraphics`); no host sends input yet.
+**Status:** the contract and the guest side are implemented (`DynamicGraphics`), and the Darwin host sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`).
 
 The render IR's events (`tap`, `change`, …) are for controls. A game needs raw input, so a surface's delegate (§8.2) also receives pointers and keys. No capability beyond `.graphics`.
 
