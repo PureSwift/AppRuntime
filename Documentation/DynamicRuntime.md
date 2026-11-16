@@ -184,6 +184,7 @@ Backend-specific layers may add imports on top of the core.
 **Decision:** wasm guests may import **WASI preview 1** (`wasi_snapshot_preview1`) in addition to `rt`. Preview 1 is frozen, so it fits the stable-ABI goal, and it gives the Swift stdlib its basics (stdout/stderr, clocks, random, args/environ, `proc_exit`).
 
 - **File access** is limited to preopened directories mapped to the app's container (plus a read-only preopen of the bundle's resources). Nothing outside them is visible.
+  - **Draft revision (§7.9):** no files through WASI at all. A native slice has no file functions in its libc set (§7.5), the wasm2c shim has none, and a browser can't offer blocking file calls on the main thread. Files go through the `Files` contract in every mode, and a host gives WASI no preopens.
 - **No sockets.** Networking goes through contracts.
 - **Hosts:** WasmKit's WASI bridge (iOS, macOS, Linux, Android), wasm2c with a small WASI shim (iOS packaging), a JS shim in the browser.
 - **Native builds** use the platform libc for the same functionality. On the Linux distro, Landlock confines file access to the same container directories, so both modes see the same files.
@@ -649,6 +650,28 @@ Carried over from AppRuntime's `bundle-runtime` and its sandbox design, which is
 - **Packaging:** zstd squashfs images, and the self-executing polyglot form for development or plain-Linux use (unsandboxed, as in AppRuntime). The C shim (namespaces, mounts, `pivot_root`, seccomp) and the CMake/Buildroot build carry over.
 - **Status:** AppRuntime's sandbox is logic-tested but not yet verified on hardware. Its checklist (`ls /`, `id -u`, `ip link`, a denied `mount`, cgroup limits) becomes the launcher's acceptance test.
 
+### 7.9 App data: files, settings and a model store
+
+**Status:** draft; not implemented. Detail: `Documentation/Contracts/Files.md` and `Documentation/Contracts/Persistence.md`.
+
+An app keeps data in its own container, through three contracts. None needs a capability: the container is the app's.
+
+| Contract | For | Calls | Apple | Android | Linux | Browser |
+|---|---|---|---|---|---|---|
+| `Files` | the app's files, and its bundle's resources | asynchronous | `FileManager` | `filesDir`, `cacheDir`, APK assets | `/data`, `/app/resources` | the origin's private file system; `fetch` |
+| `Defaults` | small settings | synchronous | `UserDefaults` | `SharedPreferences` | a file in `/data` | `localStorage` |
+| `ModelStore` | entities, relationships and queries | asynchronous | Core Data | SQLite | SQLite | IndexedDB |
+
+- **The web decides the shape.** A browser's larger storage can't be used synchronously on the main thread, where the guest runs. So `Files` and `ModelStore` complete every operation through a callback, and guest code awaits them. `Defaults` is synchronous because every platform, the browser included, has a small synchronous store.
+- **`Files`** names directories (`documents`, `data`, `caches`, `temporary`, `bundle`) and takes relative paths, because no absolute path means the same on four platforms. The guest API follows Foundation's `FileManager`, made `async`. It replaces WASI's files (§3.3) and is how a guest reads its bundle, which on Android and the web isn't a directory.
+- **`ModelStore`** is the storage behind [CoreModel](https://github.com/PureSwift/CoreModel), which compiles under Embedded Swift: app code uses its `@Entity`, `FetchRequest` and `ModelStorage` unchanged.
+  - A write is one atomic **batch**; there are no transactions held open, since IndexedDB can't hold one across turns.
+  - Records and requests cross as byte buffers in a documented format, one call per fetch, as the render tree does.
+  - CoreModel's in-memory evaluator defines what a request returns. Each host pushes down what its engine does the same way and filters the rest; shared conformance vectors check it.
+  - Hosts written in Swift share one adapter over any CoreModel backend: `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux.
+  - A `Query` object keeps a fetch's results current for SwiftUI, refetching when the store reports a change.
+- **A browser may evict all of it.** Storage there is best effort unless the browser grants persistence. The contracts report it (`unavailable`, `outOfSpace`); they can't prevent it.
+
 ---
 
 ## 8. Graphics: OpenGL ES 2.0 with WebGL 1 rules
@@ -967,6 +990,8 @@ App.wasm sections ──┴► packager ──► validate ──► per-platfor
 - Multiple guest instances (extensions, widgets): one module per process, or shared?
 - Surface input (§8.6): what Android's Back and tvOS's Menu button mean to a focused surface (a key, or always the system's); whether a controller should also move focus in the SwiftUI player.
 - Audio (§8.8): the stream queue's default depth per host, and whether a guest may ask for a shorter one.
+- Model store (§7.9): custom migrations need the stored model back from the host; whether `MATCHES` and `decimal` ordering can be made the same on every engine or should be left out; change notices between processes (an app and its extension).
+- Files (§7.9): how other contracts take a file without its bytes passing through the guest (a download to a file, an image from one), and the contract for the user's own files (pickers, sharing).
 
 ---
 
@@ -985,6 +1010,7 @@ App.wasm sections ──┴► packager ──► validate ──► per-platfor
 11. Platform layers: subclassing, generated SDK bindings.
 12. iOS 6 host (Objective-C / C or Embedded Swift) with wasm2c-packaged guests.
 13. Games: `Surface` input, `GameController` and `Audio` contracts (§8.6–§8.8).
+14. App data: `Files`, `Defaults`, and `ModelStore` behind CoreModel (§7.9).
 
 ---
 
