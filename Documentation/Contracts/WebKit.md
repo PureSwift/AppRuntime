@@ -5,7 +5,7 @@ content, and the view that shows it.
 
 | Contract | Kind | iOS / macOS | Android | Linux | Browser |
 |---|---|---|---|---|---|
-| `WebContent` | contract, `requires: "network"` | `WKWebView` | `android.webkit.WebView` | WPE WebKit's `WebKitWebView` | an `<iframe>` |
+| `WebContent` | contract (no capability) | `WKWebView` | `android.webkit.WebView` | WPE WebKit's `WebKitWebView` | an `<iframe>` |
 | `WebContentDelegate` | callback | `WKNavigationDelegate`, key-value observing | `WebViewClient`, `WebChromeClient` | the view's signals and properties | `load` events |
 
 No host implements them yet. The guest side and an example
@@ -68,8 +68,10 @@ own, and loads again when the URL it's given changes.
   a completion-handler form for code that isn't async.
 - **Layout:** a `WebView` takes the space it's offered and scrolls its own
   content. Inside a `ScrollView`, give it a height.
-- **The manifest declares `.network`.** The contract requires it, so the
-  packager refuses an app with a web view that doesn't.
+- **`.network` in the manifest is for remote content.** Without it a page
+  can show an HTML string or a file from the bundle, and nothing remote: a
+  remote URL fails with `WebError.Code.notPermitted`, and remote images,
+  scripts and links in local pages don't load.
 
 ### What isn't there yet
 
@@ -120,7 +122,16 @@ failure: report nothing but the loading state.
 - **Errors** map to `WebError.Code`: 2 network (no connection, host not
   found or unreachable), 3 timed out, 4 security (a bad certificate, or
   plain HTTP where the platform forbids it), 5 bad URL (malformed, an
-  unhandled scheme, a missing bundle resource), 0 anything else.
+  unhandled scheme, a missing bundle resource), 7 not permitted (below),
+  0 anything else.
+- **Without the `network` capability, a page stays off the network.** The
+  host checks the app's capabilities, as it does for contracts that
+  require one:
+  - `load` of a remote URL isn't started: `didFailNavigation` with 7.
+  - A navigation to a remote URL from a local page is refused the same
+    way, without asking `shouldNavigate`.
+  - Remote subresources (images, scripts, styles, `fetch`) don't load.
+  - `loadHTML`, `loadResource`, and `about:` and `data:` URLs work.
 - **`loadResource`** resolves the path in the app bundle's resources, as
   `Bundle` does, and lets the page read the files beside it and no others
   in the bundle.
@@ -137,9 +148,9 @@ failure: report nothing but the loading state.
 
 | | Engine | Notes |
 |---|---|---|
-| iOS 8+ / macOS | `WKWebView` | `decidePolicyFor` answers `shouldNavigate`; observe `url`, `title`, `estimatedProgress`, `isLoading`, `canGoBack`, `canGoForward`. `evaluateJavaScript` returns objects: encode them as JSON, fragments allowed. `loadFileURL(_:allowingReadAccessTo:)` for resources. App Transport Security refuses plain HTTP: report `security`. |
+| iOS 8+ / macOS | `WKWebView` | Without `network`: a `WKContentRuleList` that blocks `http` and `https` loads. `decidePolicyFor` answers `shouldNavigate`; observe `url`, `title`, `estimatedProgress`, `isLoading`, `canGoBack`, `canGoForward`. `evaluateJavaScript` returns objects: encode them as JSON, fragments allowed. `loadFileURL(_:allowingReadAccessTo:)` for resources. App Transport Security refuses plain HTTP: report `security`. |
 | iOS 6 | `UIWebView` | No progress or history observing; report what its delegate gives. |
-| Android | `android.webkit.WebView` | `shouldOverrideUrlLoading` answers `shouldNavigate` (it isn't called for `loadUrl`, as the contract wants). `doUpdateVisitedHistory` for URL changes, `WebChromeClient` for progress and title. `evaluateJavascript` already returns JSON. `WebViewAssetLoader` for resources. The `network` capability gives `INTERNET`. |
+| Android | `android.webkit.WebView` | Without `network`: `setBlockNetworkLoads(true)`, which is also what the missing `INTERNET` permission gives. `shouldOverrideUrlLoading` answers `shouldNavigate` (it isn't called for `loadUrl`, as the contract wants). `doUpdateVisitedHistory` for URL changes, `WebChromeClient` for progress and title. `evaluateJavascript` already returns JSON. `WebViewAssetLoader` for resources. |
 | Linux | WPE WebKit | Below. |
 | Browser | `<iframe>` | A page from another origin can't be observed or scripted: only `load` and the `load` event work, and many sites refuse to be framed. `shouldNavigate` is never asked. |
 
@@ -162,6 +173,9 @@ buffers, which suits a player that draws its own scene.
   `estimated-load-progress` and `is-loading` properties.
   `webkit_web_view_evaluate_javascript` returns a JavaScriptCore value;
   `jsc_value_to_json` makes the result.
+- **Without `network`** the sandbox has no network to reach, so remote
+  loads fail by themselves; the host still answers a remote `load` with
+  `notPermitted` itself, so the app gets the same error as elsewhere.
 - **Resources.** The bundle is at `/app` in the sandbox, so `loadResource`
   is a `file:///app/resources/…` URL, with file access limited to that
   directory.
@@ -175,15 +189,20 @@ buffers, which suits a player that draws its own scene.
 
 ## Capability
 
-`network`, with no usage text. A page fetches whatever its content asks
-for, so a web view without network access would be a broken one; an app
-that only shows bundled HTML still declares it.
+None is required: a help screen made of bundled HTML shouldn't need the
+`INTERNET` permission. `network` is what lets a page reach the network,
+and the host enforces its absence (above), since the contract's metadata
+can only say "requires".
 
-| Host | What the capability adds |
-|---|---|
-| iOS / macOS | nothing; App Transport Security still applies |
-| Android | the `INTERNET` permission |
-| Linux distro | the network namespace isn't unshared (§7.8) |
+| Host | With `network` | Without |
+|---|---|---|
+| iOS / macOS | pages load remotely; App Transport Security still applies | the host blocks remote loads |
+| Android | the `INTERNET` permission | no permission, and network loads blocked |
+| Linux distro | the network namespace isn't unshared (§7.8) | no network to reach |
+
+The packager knows the pairing (`OPTIONAL_CAPABILITIES` in
+`Scripts/manifest.py`): an app with a web view that declares `network`
+isn't warned that no contract requires it.
 
 ## Threading
 
