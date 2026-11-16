@@ -8,9 +8,10 @@ content, and the view that shows it.
 | `WebContent` | contract (no capability) | `WKWebView` | `android.webkit.WebView` | WPE WebKit's `WebKitWebView` | an `<iframe>` |
 | `WebContentDelegate` | callback | `WKNavigationDelegate`, key-value observing | `WebViewClient`, `WebChromeClient` | the view's signals and properties | `load` events |
 
-No host implements them yet. The guest side and an example
-(`examples/ExampleWeb`, a small browser) exist, tested against a stand-in
-for the engine.
+The Darwin host implements them on iOS and macOS over `WKWebView`
+(DarwinAppRuntime's `DarwinWebKit`). Android, Linux and the browser have no
+host yet. The guest side and an example (`examples/ExampleWeb`, a small
+browser) exist, tested against a stand-in for the engine.
 
 Guest-side Swift: `WebPage`, the observable page app code uses; `WebView`,
 the SwiftUI view; `WebNavigation`, `WebNavigationKind` and `WebError`.
@@ -218,4 +219,5 @@ around a `WebView`, the page's title and progress, a script that counts the
 page's links, and a decider that refuses `tel:` and `mailto:`. Its tests
 stand in for the engine, as `App.wasm` under WasmKit
 (`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
-(`Packages/LinkedSlice`). No real engine has loaded a page for it yet.
+(`Packages/LinkedSlice`). On the Darwin host it loads https://swift.org/ in
+`WKWebView` in the iOS Simulator.
