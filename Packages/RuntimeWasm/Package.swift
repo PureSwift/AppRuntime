@@ -26,6 +26,7 @@ let package = Package(
             dependencies: [
                 .product(name: "RuntimeABI", package: "AppRuntime"),
                 .product(name: "RuntimeCore", package: "AppRuntime"),
+                .product(name: "CRuntimeGL", package: "AppRuntime"),
                 .product(name: "WasmKit", package: "WasmKit"),
                 .product(name: "WasmKitWASI", package: "WasmKit"),
             ]
@@ -38,6 +39,9 @@ let package = Package(
                 .product(name: "RuntimeNative", package: "AppRuntime"),
                 .product(name: "ExampleHost", package: "AppRuntime"),
                 .product(name: "DynamicUI", package: "AppRuntime"),
+                .product(name: "DynamicGraphics", package: "AppRuntime"),
+                .product(name: "CGLES2", package: "AppRuntime"),
+                .product(name: "CRuntimeGL", package: "AppRuntime"),
                 .product(name: "WAT", package: "WasmKit"),
             ]
         ),
