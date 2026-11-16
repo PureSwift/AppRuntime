@@ -651,7 +651,7 @@ Carried over from AppRuntime's `bundle-runtime` and its sandbox design, which is
 
 ### 7.9 App data: files, settings and a model store
 
-**Status:** `Files` is implemented: the guest side (`DynamicFiles`), and `HostFiles` in `RuntimeHost` for hosts with a POSIX file system. `Defaults` and `ModelStore` are drafts. Detail: `Documentation/Contracts/Files.md` and `Documentation/Contracts/Persistence.md`.
+**Status:** `Files` and `Defaults` are implemented: the guest sides (`DynamicFiles`, `DynamicDefaults`), and `HostFiles` and `HostDefaults` in `RuntimeHost` for hosts with a POSIX file system. `ModelStore` is a draft. Detail: `Documentation/Contracts/Files.md`, `Defaults.md` and `Persistence.md`.
 
 An app keeps data in its own container, through three contracts. None needs a capability: the container is the app's.
 
