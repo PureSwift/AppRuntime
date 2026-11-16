@@ -870,7 +870,8 @@ Layout is owned by each player. Players for toolkits without a layout system reu
 ### 9.6 Escape hatches
 
 - `GLSurface` node for GLES drawing (§8.2).
-- `NativeView(type:props:)` node. Each player looks up a factory by type name (map, web view, camera preview); unknown types render as placeholders.
+- `WebView` node for web content. Like `GLSurface`, it only says where a host object is shown: its `page` prop names a `WebContent`, a contract the page is loaded, observed and scripted through (`Documentation/Contracts/WebKit.md`).
+- `NativeView(type:props:)` node. Each player looks up a factory by type name (map, camera preview); unknown types render as placeholders. Not implemented.
 - Everything that isn't UI goes through contracts.
 
 ### 9.7 Frontend sources
