@@ -279,7 +279,13 @@ which are each host's. TCP and UDP are not part of the spec.
     request to match it to.
   - **The module is its own product**, named `WebKit` in guest builds as
     Apple's is. Inside `DynamicSwiftUI` it would put `WebContent` in every
-    SwiftUI app's `rt.contracts`, and require `network` of all of them.
+    SwiftUI app's `rt.contracts`.
+  - **`network` is optional for a web view.** `WebContent` requires no
+    capability, so bundled HTML needs no `INTERNET` permission. Without
+    `network` the host keeps a page off the network and answers a remote
+    URL with `WebError.Code.notPermitted`. A contract's metadata can only
+    say "requires", so the pairing is a table in `Scripts/manifest.py`,
+    which stops the "declared but no contract requires it" warning.
   - **`_RenderNodeView`** is the public way for a module outside the
     frontend to add a node; `WebView` is built on it.
   - **`WebPage` is written against the registrar, without `@Observable`:**
