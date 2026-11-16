@@ -42,6 +42,9 @@ let package = Package(
         .library(name: "DynamicObservation", targets: ["DynamicObservation"]),
         .library(name: "DynamicUI", targets: ["DynamicUI"]),
         .library(name: "DynamicSwiftUI", targets: ["DynamicSwiftUI"]),
+        // Shared: web views (`WebKit` in guest builds): the `WebContent`
+        // contract, `WebPage` and the `WebView` view.
+        .library(name: "DynamicWebKit", targets: ["DynamicWebKit"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
@@ -55,6 +58,8 @@ let package = Package(
         .library(name: "ExampleUI", type: .static, targets: ["ExampleUI"]),
         // Example GL guest app (§8): a surface drawn with OpenGL ES 2.0.
         .library(name: "ExampleGL", type: .static, targets: ["ExampleGL"]),
+        // Example web guest app: a small browser around a WebView.
+        .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
         // Example host contracts, for tests in nested packages (Packages/).
         .library(name: "ExampleHost", targets: ["ExampleHost"]),
     ],
@@ -118,6 +123,10 @@ let package = Package(
         .target(
             name: "DynamicSwiftUI",
             dependencies: ["DynamicRuntime", "DynamicObservation", "DynamicUI"]
+        ),
+        .target(
+            name: "DynamicWebKit",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicUI"]
         ),
         .target(
             name: "DynamicRuntime",
@@ -286,6 +295,11 @@ let package = Package(
             path: "examples/ExampleUI"
         ),
         .target(
+            name: "ExampleWeb",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicWebKit"],
+            path: "examples/ExampleWeb"
+        ),
+        .target(
             name: "ExampleGL",
             dependencies: ["DynamicRuntime", "DynamicGraphics", "DynamicSwiftUI"],
             path: "examples/ExampleGL"
@@ -323,6 +337,10 @@ let package = Package(
         .testTarget(
             name: "DynamicSwiftUITests",
             dependencies: ["DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "DynamicWebKitTests",
+            dependencies: ["DynamicWebKit", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
         ),
         .testTarget(
             name: "CRuntimeGLTests",
