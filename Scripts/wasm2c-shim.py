@@ -6,6 +6,7 @@ into a library with the same exports and imports as a native slice
 
     wasm2c-shim.py shim  [--name app] [--rt-h rt.h] [--wasm App.wasm] -o rt_wasm2c.c
     wasm2c-shim.py build --wasm App.wasm --output DIR [--target TRIPLE ...] [--sdk macosx]
+    wasm2c-shim.py sources --wasm App.wasm --output DIR
 
 `shim` generates the C shim from rt.h:
 - each `rt.*` import converts guest offsets to host memory, with bounds
@@ -13,14 +14,25 @@ into a library with the same exports and imports as a native slice
 - `rt_main`, `rt_dispatch` and `rt_finalize` call the translated module,
   placing `rt_dispatch`'s slots in guest memory with its `rt_alloc` /
   `rt_free`, and turn traps into `RT_ERR_THROWN`;
-- a minimal WASI preview 1 for what Embedded Swift's libc imports.
-With --wasm, it checks that the module imports nothing else.
+- a minimal WASI preview 1 for what Embedded Swift's libc imports;
+- for a module that draws, each `env.gl.*` import (§8.1) calls the GL shim
+  (Sources/CRuntimeGL, from gles2.py), which checks the guest's pointers and
+  calls the platform's `gl*` function. Such a slice asks one more thing of
+  its host: `rt_gl_context_generation`, described in the generated shim.
+With --wasm, it checks that the module imports nothing else, and adds the
+GL imports if the module uses them (--gl forces them).
 
 `build` runs wasm2c, generates the shim, compiles both with WABT's wasm-rt
 runtime, and seals the result like a native slice: one `ld -r` object in
 DIR/libapp.a (one per --target, joined with lipo on Apple platforms), only
 rt_main, rt_dispatch and rt_finalize global, and the module's rt.abi,
 rt.contracts and rt.manifest sections copied in.
+
+`sources` stops before compiling: DIR gets the translated module, the shim,
+the wasm-rt runtime, rt.h and, for a module that draws, the GL shim and its
+headers, for a build with another toolchain (a cross compiler, a container).
+`sources.txt` lists what to compile and `defines.txt` the macros to compile
+it with; DIR is the only include path.
 
 wasm-rt is built with explicit bounds checks and stack depth counting, so
 it installs no signal handlers in the host.
@@ -37,8 +49,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gles2  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 RT_H = ROOT / "Sources" / "CRuntime" / "include" / "rt.h"
+GL_SHIM = ROOT / "Sources" / "CRuntimeGL" / "gl_shim.c"
+GL_INCLUDES = [GL_SHIM.parent / "include", gles2.GUEST_HEADER.parent]
 EXPORTS = ("rt_main", "rt_dispatch", "rt_finalize")
 SECTIONS = ("rt.abi", "rt.contracts", "rt.manifest")
 
@@ -274,7 +291,7 @@ static wasm_rt_trap_t rt_w2c_start(void) {
         return WASM_RT_TRAP_NONE;
     }
     wasm_rt_init();
-    @INSTANTIATE@(&rt_w2c_instance, &rt_w2c_rt, &rt_w2c_wasi);
+    @INSTANTIATE@(&rt_w2c_instance, @GL_INSTANCE@&rt_w2c_rt, &rt_w2c_wasi);
     rt_w2c_ready = 1;
     volatile wasm_rt_trap_t trap;
     RT_W2C_GUARDED(trap, @PREFIX@_0x5Finitialize(&rt_w2c_instance));
@@ -545,11 +562,122 @@ def import_function(item):
     return "\n".join(lines)
 
 
-def generate(imports, name, header):
+GL_C = r"""
+/* ------------------------------------------------------------------------- */
+/* env.gl imports (§8.1)                                                      */
+/* ------------------------------------------------------------------------- */
+
+/* The GL shim calls the platform's gl* symbols themselves, so this slice
+ * links like a native one. gl_shim.c must be compiled with it too. */
+#ifndef RT_GL_DIRECT
+#define RT_GL_DIRECT
+#endif
+#include "gl_shim.h"
+
+struct @GL@ { int unused; };
+
+static struct @GL@ rt_w2c_gl;
+static rt_gl_context rt_w2c_gl_context;
+static uint32_t rt_w2c_gl_generation;
+static int rt_w2c_gl_ready;
+
+/* The host defines this: a number that changes whenever the GL context the
+ * guest draws in is a new one (it was lost and made again). The shim keeps
+ * track of buffer bindings to stop a guest from passing GL a host address;
+ * a new context has none of them, and this is how the shim learns of it.
+ * A host whose context is never replaced returns a constant. */
+uint32_t rt_gl_context_generation(void);
+
+static rt_gl_context *rt_w2c_gl_enter(void) {
+    uint32_t generation = rt_gl_context_generation();
+    if (!rt_w2c_gl_ready || generation != rt_w2c_gl_generation) {
+        rt_gl_context_init(&rt_w2c_gl_context);
+        rt_w2c_gl_generation = generation;
+        rt_w2c_gl_ready = 1;
+    }
+    wasm_rt_memory_t *memory = rt_w2c_memory();
+    rt_w2c_gl_context.base = memory->data;
+    rt_w2c_gl_context.size = memory->size;
+    return &rt_w2c_gl_context;
+}
+
+/* A pointer outside guest memory traps the guest. */
+static void rt_w2c_gl_leave(void) {
+    if (rt_w2c_gl_context.trapped) {
+        rt_w2c_gl_context.trapped = 0;
+        wasm_rt_trap(WASM_RT_TRAP_OOB);
+    }
+}
+
+/* glGetString: the host's string, copied once into memory from the guest's
+ * rt_alloc. A guest may keep the pointer, so the copies are never freed. */
+static struct { uint32_t name, offset; } rt_w2c_gl_strings[8];
+static uint32_t rt_w2c_gl_string_count;
+
+uint32_t @GL@_glGetString(struct @GL@ *gl, uint32_t name) {
+    for (uint32_t i = 0; i < rt_w2c_gl_string_count; i++) {
+        if (rt_w2c_gl_strings[i].name == name) {
+            return rt_w2c_gl_strings[i].offset;
+        }
+    }
+    const uint8_t *string = rt_gl_get_string(rt_w2c_gl_enter(), name);
+    if (!string) {
+        return 0;
+    }
+    size_t size = strlen((const char *)string) + 1;
+    uint32_t offset = @PREFIX@_rt_alloc(&rt_w2c_instance, rt_w2c_u32(size));
+    if (offset == 0) {
+        return 0;
+    }
+    /* Read the memory again: the allocation may have grown it. */
+    rt_w2c_check(offset, size, 1);
+    memcpy(rt_w2c_memory()->data + offset, string, size);
+    if (rt_w2c_gl_string_count < sizeof(rt_w2c_gl_strings) / sizeof(rt_w2c_gl_strings[0])) {
+        rt_w2c_gl_strings[rt_w2c_gl_string_count].name = name;
+        rt_w2c_gl_strings[rt_w2c_gl_string_count].offset = offset;
+        rt_w2c_gl_string_count++;
+    }
+    return offset;
+}
+
+"""
+
+
+def mangle_module(name):
+    """A wasm import module's name as wasm2c spells it in C identifiers."""
+    return "".join(c if c.isalnum() else "__" if c == "_" else f"0x{ord(c):02X}" for c in name)
+
+
+GL_STRUCT = "w2c_" + mangle_module(gles2.IMPORT_MODULE)
+
+
+def gl_function(function):
+    """The C wrapper wasm2c calls for one env.gl import."""
+    parameters = [f"struct {GL_STRUCT} *gl"]
+    parameters += [f"{'float' if p.is_float else 'uint32_t'} {p.name}" for p in function.parameters]
+    arguments = ", ".join(["rt_w2c_gl_enter()"] + [p.name for p in function.parameters])
+    call = f"rt_gl_{function.name}({arguments})"
+    if function.result == "void":
+        body = f"    {call};\n    rt_w2c_gl_leave();"
+        result = "void"
+    else:
+        body = f"    uint32_t result = {call};\n    rt_w2c_gl_leave();\n    return result;"
+        result = "uint32_t"
+    return f"{result} {GL_STRUCT}_{function.name}({', '.join(parameters)}) {{\n{body}\n}}"
+
+
+def gl_functions():
+    wrappers = [gl_function(f) for f in gles2.functions() if not f.returns_pointer]
+    return GL_C + "\n\n".join(wrappers) + "\n"
+
+
+def generate(imports, name, header, gl=False):
     prefix = f"w2c_{name}"
     replacements = {"@HEADER@": header, "@MODULE@": prefix, "@PREFIX@": prefix,
-                    "@INSTANTIATE@": f"wasm2c_{name}_instantiate"}
-    text = PRELUDE + "\n\n".join(import_function(item) for item in imports) + "\n" + EXPORTS_C + WASI_C
+                    "@INSTANTIATE@": f"wasm2c_{name}_instantiate",
+                    "@GL_INSTANCE@": "&rt_w2c_gl, " if gl else "", "@GL@": GL_STRUCT}
+    text = PRELUDE + "\n\n".join(import_function(item) for item in imports) + "\n"
+    text += (gl_functions() if gl else "") + EXPORTS_C + WASI_C
     for key, value in replacements.items():
         text = text.replace(key, value)
     return text
@@ -614,7 +742,14 @@ def check_imports(wasm, imports):
     names, _ = wasm_module(Path(wasm).read_bytes())
     provided = {f"rt.{item.name}" for item in imports}
     provided |= {f"wasi_snapshot_preview1.{name}" for name in WASI_FUNCTIONS}
+    provided |= gles2.imports()
     return sorted(set(names) - provided)
+
+
+def uses_gl(wasm):
+    """Whether the module imports any of env.gl."""
+    names, _ = wasm_module(Path(wasm).read_bytes())
+    return any(name.startswith(gles2.IMPORT_MODULE + ".") for name in names)
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +782,37 @@ def compiler(sdk="macosx"):
     return ["xcrun", "--sdk", sdk, "clang"] if platform.system() == "Darwin" else ["clang"]
 
 
+def export_sources(wasm, output, name="app"):
+    """Translates `wasm` and gathers everything a C compiler needs in `output`."""
+    wasm = Path(wasm).resolve()
+    output = Path(output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    wasm2c, runtime, include = wabt_runtime()
+    imports = read_imports(RT_H)
+    missing = check_imports(wasm, imports)
+    if missing:
+        raise ShimError(f"{wasm.name} imports what the shim doesn't provide: {', '.join(missing)}")
+    gl = uses_gl(wasm)
+    run([wasm2c, wasm, "-n", name, "-o", output / f"{name}.c"])
+    (output / "rt_wasm2c.c").write_text(generate(imports, name, f"{name}.h", gl=gl))
+    for directory in {runtime, include}:
+        for path in directory.glob("wasm-rt*"):
+            shutil.copy(path, output / path.name)
+    shutil.copy(RT_H, output / RT_H.name)
+    sources = [f"{name}.c", "rt_wasm2c.c", "wasm-rt-impl.c", "wasm-rt-mem-impl.c"]
+    defines = [define[2:] for define in WASM_RT_DEFINES]
+    if gl:
+        shutil.copy(GL_SHIM, output / GL_SHIM.name)
+        for directory in GL_INCLUDES:
+            for path in directory.glob("*.h"):
+                shutil.copy(path, output / path.name)
+        sources.append(GL_SHIM.name)
+        defines.append("RT_GL_DIRECT")
+    (output / "sources.txt").write_text("".join(f"{source}\n" for source in sources))
+    (output / "defines.txt").write_text("".join(f"{define}\n" for define in defines))
+    return output
+
+
 def build(wasm, output, targets, sdk, name="app", defines=()):
     wasm = Path(wasm).resolve()
     output = Path(output).resolve()
@@ -657,8 +823,9 @@ def build(wasm, output, targets, sdk, name="app", defines=()):
     if missing:
         raise ShimError(f"{wasm.name} imports what the shim doesn't provide: {', '.join(missing)}")
 
+    gl = uses_gl(wasm)
     run([wasm2c, wasm, "-n", name, "-o", output / f"{name}.c"])
-    (output / "rt_wasm2c.c").write_text(generate(imports, name, f"{name}.h"))
+    (output / "rt_wasm2c.c").write_text(generate(imports, name, f"{name}.h", gl=gl))
     _, custom = wasm_module(wasm.read_bytes())
     sections = {}
     for section in SECTIONS:
@@ -681,6 +848,9 @@ def build(wasm, output, targets, sdk, name="app", defines=()):
             flags += ["-target", target]
         sources = [output / f"{name}.c", output / "rt_wasm2c.c",
                    runtime / "wasm-rt-impl.c", runtime / "wasm-rt-mem-impl.c"]
+        if gl:
+            flags += ["-DRT_GL_DIRECT", *[f"-I{path}" for path in GL_INCLUDES]]
+            sources.append(GL_SHIM)
         objects = []
         for source in sources:
             obj = directory / f"{source.stem}.o"
@@ -727,6 +897,8 @@ def main():
     shim.add_argument("--header", help="wasm2c's header; default <name>.h")
     shim.add_argument("--rt-h", default=RT_H)
     shim.add_argument("--wasm", help="App.wasm whose imports to check")
+    shim.add_argument("--gl", action="store_true",
+                      help="add the env.gl imports; implied when --wasm imports them")
     shim.add_argument("-o", "--output", required=True)
     builder = commands.add_parser("build", help="translate, compile and seal App.wasm into libapp.a")
     builder.add_argument("--wasm", required=True)
@@ -736,15 +908,22 @@ def main():
     builder.add_argument("--define", action="append", default=[], metavar="NAME[=VALUE]",
                          help="C macro for compiling (repeatable), such as "
                               "RT_WASM2C_WRITE_FUNCTION=name to send the guest's stdout and stderr to a host function")
+    exporter = commands.add_parser("sources", help="translate App.wasm and gather the C sources to compile elsewhere")
+    exporter.add_argument("--wasm", required=True)
+    exporter.add_argument("--output", required=True)
     arguments = parser.parse_args()
     try:
-        if arguments.command == "shim":
+        if arguments.command == "sources":
+            print(f"ok: {export_sources(arguments.wasm, arguments.output)}")
+        elif arguments.command == "shim":
             imports = read_imports(arguments.rt_h)
             if arguments.wasm:
                 missing = check_imports(arguments.wasm, imports)
                 if missing:
                     raise ShimError(f"the module imports what the shim doesn't provide: {', '.join(missing)}")
-            Path(arguments.output).write_text(generate(imports, arguments.name, arguments.header or f"{arguments.name}.h"))
+            gl = arguments.gl or bool(arguments.wasm and uses_gl(arguments.wasm))
+            Path(arguments.output).write_text(
+                generate(imports, arguments.name, arguments.header or f"{arguments.name}.h", gl=gl))
         else:
             print(f"ok: {build(arguments.wasm, arguments.output, arguments.target, arguments.sdk, defines=arguments.define)}")
     except ShimError as error:
