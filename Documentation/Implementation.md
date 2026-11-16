@@ -24,11 +24,12 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
+| OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). No platform host makes a GL context or sends input |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 (players), the platform packagers (the portable manifest → an iOS
-`Info.plist` or an `AndroidManifest.xml`), GLES. TCP and UDP are not part of
-the spec.
+`Info.plist` or an `AndroidManifest.xml`), GL contexts and frame loops,
+which are each host's. TCP and UDP are not part of the spec.
 
 ## 2. Layout
 
@@ -265,6 +266,42 @@ the spec.
 - **Embedded constraints met:** no key paths, no existentials of non-class
   protocols, no generic code on `AnyObject` values (identity uses `===`),
   and `String` comparison links `libswiftUnicodeDataTables`.
+- **OpenGL ES (§8).**
+  - **One table.** `Scripts/gles2.py` holds the 140 functions, each pointer
+    parameter marked with how it's used and how many bytes, and the 301
+    constants. It generates the guest's header and the hosts' shim, and
+    `wasm2c-shim.py` and `guest.py` import it, so the four can't disagree.
+    A test compiles the header against the iOS SDK's `ES2/gl.h`: every
+    prototype and constant matches.
+  - **Typed constants.** `gles2.h` declares constants as `static const`
+    with their GL type, so Swift passes `GL_TRIANGLES` where a `GLenum` is
+    wanted without a cast. C code that switches on them defines
+    `GLES2_CONSTANT_MACROS` first.
+  - **`Surface.identifier()` is an `Int32`**, where the draft said `Int64`:
+    a node's int prop is a Swift `Int`, 32 bits on wasm32.
+  - **`GLSurface` takes the identifier, not the surface.** The view is in
+    the SwiftUI frontend, which doesn't depend on `DynamicGraphics`:
+    otherwise every SwiftUI app would list `Surface` in `rt.contracts` and
+    need the `graphics` capability.
+  - **The shim hands GL the guest's memory itself**, after checking bounds,
+    where the `rt` imports copy. GL can't call back into the guest, so the
+    memory can't move during the call, and vertex and texture uploads
+    aren't copied twice.
+  - **One shim for both engines** (`CRuntimeGL`). wasm2c output calls its
+    typed functions and it calls the `gl*` symbols (`RT_GL_DIRECT`), so
+    the slice links like a native one. WasmKit calls it by index
+    (`rt_gl_call`) with a table of GL functions the host looks up, so
+    `RuntimeWasm` links against no GL.
+  - **A host obligation the design didn't have:** a wasm2c slice that
+    draws needs `rt_gl_context_generation` from its host, so the shim can
+    forget buffer bindings when a GL context is replaced. Without that, a
+    guest could keep an attribute "bound" after a context loss and have GL
+    read its offset as a host address.
+  - **`glGetString`** results are copied into memory from the guest's
+    `rt_alloc` and kept for good, since a guest may hold the pointer.
+  - **Not done:** validating a draw's indices and counts against buffer
+    sizes (§8.1), the `env.gl3` and `env.webgpu` tiers, and the command
+    buffer of §8.5.
 
 ## 4. Guest builds
 
@@ -294,7 +331,9 @@ Every native slice is one `ld -r` object in `libapp.a`. Only `rt_main`,
 - the slice has glibc-only references;
 - an export or the `rt.abi` section is missing.
 
-`App.wasm` is checked for `rt` / WASI-only imports and the reactor exports.
+`App.wasm` is checked for the reactor exports, and for imports outside
+`rt`, WASI preview 1 and the GL functions of `gles2.py`. A native slice's
+`gl*` references are checked against the same list.
 The bundle step:
 - with `--manifest App.swift`, evaluates the manifest (below) and runs its
   checks; otherwise validates contract capabilities against `--capability`
@@ -339,6 +378,12 @@ Each of these needs a decision, or is verified only as far as noted:
    `__aeabi_mem*` names are allowed as the EABI spelling of
    memcpy/memset, which glibc, musl and bionic export. The helpers match
    libc results in a host test. They haven't run on armv7 hardware.
+   It also seals the conversions between 64-bit integers and `Float` /
+   `Double` (`__aeabi_l2f`, `__aeabi_d2lz` and the rest), which VFP has no
+   instructions for: `ExampleGL` turned a nanosecond timestamp into
+   seconds, and the slice didn't seal. They work on the values' bits, with
+   the base calling convention the EABI gives every `__aeabi_*` helper, and
+   agree with a 64-bit host's conversions over 32 million values.
    Every ELF slice also seals `sqrt` and `sqrtf` (`Scripts/support/math.c`):
    Swift's `squareRoot()` calls `sqrt`, which isn't in the §7.5 set. Each
    compiles to the architecture's square root instruction. Apple slices get
@@ -457,6 +502,36 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
   and `Application` built-ins against fake hosts, calls before a host
   implements them, and their descriptors against `BuiltinContracts`.
+- `CRuntimeGLTests`: the GL shim against a recording GL and a block of
+  "guest memory": pointers passed without copying, reads and writes at and
+  past the end, sizes that would wrap, strings without a terminator, shader
+  source arrays, image sizes by format, type and alignment, results whose
+  size GL decides, the buffer rules for attributes and draws, a deleted
+  buffer, a new context, and calls by index.
+- `DynamicGraphicsTests`: the `Surface` contracts' keys and signatures, key
+  codes, `SurfaceEvents`' pointer and key state, and a surface through
+  `NativeRuntime`, every scalar type both ways.
+- `Scripts/test_gles2.py`: the generated files are current, the table's
+  shape, and the header against the iOS SDK's. `test_wasm2c_shim.py` also
+  runs a hand-written module's GL calls against a fake GL in C (results,
+  `glGetString`, a trap, a replaced context), and seals one.
+- `RuntimeWasmTests` also covers the `env.gl` imports with a WAT guest, and
+  runs `examples/ExampleGL` as `App.wasm` (built by `Scripts/build-wasm.sh
+  ExampleGL`; skipped without it) against a recording GL: the first frame's
+  shaders, buffer and draw, later frames, a touch, a key, and a lost
+  context.
+- `Scripts/test-gl-mesa.sh`: `ExampleGL` on a real GL, Mesa's llvmpipe in
+  Docker with an EGL pbuffer. A C host (`Scripts/hosts/gl-mesa-host.c`)
+  with just enough of `rt.h` starts the app and calls its surface
+  delegate. The sealed Linux slice and the wasm2c build each draw the
+  triangle upright, upside down after π seconds, and again in a context
+  made after the first was destroyed; their frames are byte-identical. It
+  isn't part of `swift test`: it needs Docker and WABT.
+- `LinkedSliceTests` runs `ExampleGL` too (`APPRUNTIME_LINKED_PRODUCT=
+  ExampleGL`), as its sealed macOS slice and through wasm2c. The host's GL
+  is `CFakeGL`, generated by `gles2.py`: every `gl*` function, writing
+  down its arguments. Both engines produce the same 32 calls for the first
+  frame, argument for argument.
 
 ## 6. Next
 
@@ -472,3 +547,8 @@ Each of these needs a decision, or is verified only as far as noted:
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
+5. `Surface` in each host (`Documentation/Contracts/Graphics.md`): the GL
+   context, the frame loop and input. Until one exists, `ExampleGL` has
+   only drawn off screen, and nothing has sent it real input.
+6. The `GameController` and `Audio` contracts, which are drafts
+   (`Documentation/Contracts/`).
