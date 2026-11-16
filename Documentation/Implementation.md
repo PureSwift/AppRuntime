@@ -24,7 +24,8 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
-| Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. Android and the browser need their own host side. `Defaults` and the model store are designs only |
+| Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. Android and the browser need their own host side |
+| Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The model store is a design only |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
@@ -296,6 +297,26 @@ which are each host's. TCP and UDP are not part of the spec.
     (Swift 6.4.2). An ordinary throwing closure around the same call is
     right. The guest's API isn't affected; it's worth knowing when
     writing tests.
+- **Defaults (§7.9).**
+  - **Synchronous**, the one app-data contract that is: every platform's
+    small key-value store answers at once, `localStorage` included.
+  - **Removing is its own method**, and the setters take a value and
+    return whether it was kept, where the draft had `nil` remove a key and
+    the setters return nothing. A browser's `setItem` can fail at the
+    quota, and the guest should hear of it.
+  - **`@AppStorage` is in `DynamicDefaults`, not the SwiftUI module.** It
+    needs only Observation, where `Binding` lives. In the frontend it
+    would put `Defaults` in every SwiftUI app's `rt.contracts`.
+  - **`UserDefaults` is the observable thing.** Each key is one observed
+    property of one object, and the list of keys another, so every
+    `@AppStorage` on a key and every direct read update together.
+  - **Typed values are text.** Embedded Swift parses and prints `Double`,
+    and a value comes back with the same bits. Parsing is what needed
+    `fma` in the slices (§4, finding 4).
+  - **`HostDefaults` takes its store from the host** (`DefaultsStorage`),
+    since Apple's and Android's own stores are the right ones there.
+    `FileDefaultsStorage`, for Linux, rewrites one file atomically at each
+    change, sharing the replace-by-rename of `HostFiles`.
 - **Web views (§9.6).**
   - **A page is a contract object, and the node only places it**, as
     `Surface` and `GLSurface` do. A web view is mostly commands and
@@ -443,6 +464,14 @@ Each of these needs a decision, or is verified only as far as noted:
    seconds, and the slice didn't seal. They work on the values' bits, with
    the base calling convention the EABI gives every `__aeabi_*` helper, and
    agree with a 64-bit host's conversions over 32 million values.
+   Every ELF slice also seals `fma` and `fmaf` there. The stdlib's parser
+   of numbers from text (`Double("0.1")`) calls `fma`, which arm64 has an
+   instruction for and x86-64-v2 and armv7 don't; `ExampleDefaults`, which
+   reads a `Double` setting, didn't seal for macOS x86_64. The sealed one
+   is exact, working on the bits in 128-bit integer arithmetic, and agrees
+   with arm64's instruction and with libSystem's `fma` on 114 million
+   inputs each (random bits, cancellation, subnormals, overflow, ties).
+   Apple slices take `fma` from libSystem.
    Every ELF slice also seals `sqrt` and `sqrtf` (`Scripts/support/math.c`):
    Swift's `squareRoot()` calls `sqrt`, which isn't in the §7.5 set. Each
    compiles to the architecture's square root instruction. Apple slices get
@@ -579,6 +608,20 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
+- `DynamicDefaultsTests`: the contract's keys and signatures, and the
+  guest's `UserDefaults` and `@AppStorage` against a store in memory:
+  what missing values read as, round trips of every type (a `Double`'s
+  bits, `Int`'s limits), values of another kind, removal, a refused value,
+  observation of a key and of the key list, enums by raw value, bindings,
+  and a view that follows its settings.
+- `RuntimeHostTests/HostDefaultsTests`: `FileDefaultsStorage` on a real
+  file: values there after another launch, the file's exact bytes, no
+  write for an unchanged value, the size limit, a damaged file moved
+  aside, a failed write changing nothing (skipped as root, which a
+  read-only directory doesn't stop); then the guest's `UserDefaults`
+  through `NativeRuntime` across launches. `RuntimeWasmTests` launches
+  `examples/ExampleDefaults` twice as `App.wasm` on one settings file, and
+  `LinkedSliceTests` runs it as a sealed macOS slice and wasm2c output.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
@@ -641,9 +684,9 @@ Each of these needs a decision, or is verified only as far as noted:
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
-8. The rest of app data (§7.9), which is a design only: the `Defaults`
-   contract, and `ModelStore` behind CoreModel
-   (`Documentation/Contracts/Persistence.md`). CoreModel needs its
-   `@Entity` macro to work under Embedded Swift first. And `Files` in the
-   hosts: registering `HostFiles` in the Darwin and Linux hosts, and
-   Android's and the browser's own.
+8. The rest of app data (§7.9), which is a design only: `ModelStore`
+   behind CoreModel (`Documentation/Contracts/Persistence.md`). CoreModel
+   needs its `@Entity` macro to work under Embedded Swift first. And
+   `Files` and `Defaults` in the hosts: registering `HostFiles` and
+   `HostDefaults` in the Darwin and Linux hosts, and Android's and the
+   browser's own.
