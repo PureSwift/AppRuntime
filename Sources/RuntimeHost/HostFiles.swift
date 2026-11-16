@@ -481,7 +481,7 @@ struct FileSystem: Sendable {
         var bytes: [UInt8] = []
         var buffer = [UInt8](repeating: 0, count: 1 << 16)
         while true {
-            let count = buffer.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, $0.count, off_t(bytes.count)) }
+            let count = buffer.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress!, $0.count, off_t(bytes.count)) }
             if count < 0 {
                 if errno == EINTR { continue }
                 throw error(errno)
@@ -675,7 +675,7 @@ struct FileSystem: Sendable {
             var buffer = [UInt8](repeating: 0, count: 1 << 16)
             var position: off_t = 0
             while true {
-                let count = buffer.withUnsafeMutableBytes { pread(input, $0.baseAddress, $0.count, position) }
+                let count = buffer.withUnsafeMutableBytes { pread(input, $0.baseAddress!, $0.count, position) }
                 if count < 0 {
                     if errno == EINTR { continue }
                     throw Self.error(errno)
