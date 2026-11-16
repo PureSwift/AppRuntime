@@ -14,6 +14,7 @@
 typedef unsigned int u32;
 typedef int s32;
 typedef unsigned long long u64;
+typedef long long s64;
 
 static u32 udivmod32(u32 n, u32 d, u32 *remainder) {
     if (d == 0) {
@@ -175,6 +176,128 @@ u32 __aeabi_f2h(u32 value) {
 
 u32 __aeabi_h2f(u32 value) {
     return rt_half_to_float(value);
+}
+
+/*
+ * Conversions between 64-bit integers and floating point, which VFP has no
+ * instructions for. Contracts carry timestamps as 64-bit nanoseconds, so
+ * guest code that turns one into seconds needs them. Like every __aeabi_*
+ * helper they use the base calling convention on hard-float targets too:
+ * a float travels as its bits in r0, a double as its bits in r0:r1. They
+ * work on the bits alone, with no floating-point instructions.
+ */
+static int leading_zeros64(u64 value) {
+    u32 high = (u32)(value >> 32);
+    return high ? __builtin_clz(high) : 32 + __builtin_clz((u32)value);
+}
+
+/* `value` as a float with `digits` mantissa bits, rounded to nearest, ties
+ * to even: the mantissa with its leading 1, and the exponent in *exponent.
+ * `value` isn't 0. */
+static u64 round_to_mantissa(u64 value, int digits, int *exponent) {
+    int top = 63 - leading_zeros64(value);
+    *exponent = top;
+    if (top < digits) {
+        return value << (digits - 1 - top);
+    }
+    int shift = top - (digits - 1);
+    if (shift == 0) {
+        return value;
+    }
+    u64 half = (u64)1 << (shift - 1);
+    u64 rest = value & ((half << 1) - 1);
+    u64 mantissa = value >> shift;
+    if (rest > half || (rest == half && (mantissa & 1))) {
+        mantissa++;
+        if (mantissa >> digits) {
+            mantissa >>= 1;
+            *exponent = top + 1;
+        }
+    }
+    return mantissa;
+}
+
+u32 __aeabi_ul2f(u64 value) {
+    int exponent;
+    if (value == 0) {
+        return 0;
+    }
+    u32 mantissa = (u32)round_to_mantissa(value, 24, &exponent);
+    return ((u32)(exponent + 127) << 23) | (mantissa & 0x7FFFFF);
+}
+
+u32 __aeabi_l2f(s64 value) {
+    return value < 0 ? 0x80000000u | __aeabi_ul2f(0 - (u64)value) : __aeabi_ul2f((u64)value);
+}
+
+u64 __aeabi_ul2d(u64 value) {
+    int exponent;
+    if (value == 0) {
+        return 0;
+    }
+    u64 mantissa = round_to_mantissa(value, 53, &exponent);
+    return ((u64)(exponent + 1023) << 52) | (mantissa & 0xFFFFFFFFFFFFFull);
+}
+
+u64 __aeabi_l2d(s64 value) {
+    return value < 0 ? 0x8000000000000000ull | __aeabi_ul2d(0 - (u64)value) : __aeabi_ul2d((u64)value);
+}
+
+/* The integer part of a float given as its mantissa (leading 1 at bit
+ * `digits - 1`) and exponent, which is in 0...63. */
+static u64 truncate_mantissa(u64 mantissa, int digits, int exponent) {
+    int point = digits - 1;
+    return exponent >= point ? mantissa << (exponent - point) : mantissa >> (point - exponent);
+}
+
+/* Toward zero; out of range goes to the nearest limit, and NaN with it, as
+ * compiler-rt does. */
+s64 __aeabi_f2lz(u32 bits) {
+    int exponent = (int)((bits >> 23) & 0xFF) - 127;
+    int negative = (int)(bits >> 31);
+    if (exponent < 0) {
+        return 0;
+    }
+    if (exponent >= 63) {
+        return negative ? (s64)0x8000000000000000ull : (s64)0x7FFFFFFFFFFFFFFFull;
+    }
+    u64 magnitude = truncate_mantissa((bits & 0x7FFFFF) | 0x800000, 24, exponent);
+    return negative ? (s64)(0 - magnitude) : (s64)magnitude;
+}
+
+u64 __aeabi_f2ulz(u32 bits) {
+    int exponent = (int)((bits >> 23) & 0xFF) - 127;
+    if (exponent < 0 || (bits >> 31)) {
+        return 0;
+    }
+    if (exponent >= 64) {
+        return 0xFFFFFFFFFFFFFFFFull;
+    }
+    return truncate_mantissa((bits & 0x7FFFFF) | 0x800000, 24, exponent);
+}
+
+s64 __aeabi_d2lz(u64 bits) {
+    int exponent = (int)((bits >> 52) & 0x7FF) - 1023;
+    int negative = (int)(bits >> 63);
+    if (exponent < 0) {
+        return 0;
+    }
+    if (exponent >= 63) {
+        return negative ? (s64)0x8000000000000000ull : (s64)0x7FFFFFFFFFFFFFFFull;
+    }
+    u64 magnitude = truncate_mantissa((bits & 0xFFFFFFFFFFFFFull) | ((u64)1 << 52), 53, exponent);
+    return negative ? (s64)(0 - magnitude) : (s64)magnitude;
+}
+
+u64 __aeabi_d2ulz(u64 bits) {
+    int exponent = (int)((bits >> 52) & 0x7FF) - 1023;
+    if (exponent < 0 || (bits >> 63)) {
+        return 0;
+    }
+    if (exponent >= 64) {
+        return 0xFFFFFFFFFFFFFFFFull;
+    }
+    return truncate_mantissa((bits & 0xFFFFFFFFFFFFFull) | ((u64)1 << 52), 53, exponent);
 }
 
 /*
