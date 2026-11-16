@@ -148,10 +148,10 @@ struct Viewer: View {
 
     // MARK: Contracts
 
-    @Test func webContentNeedsTheNetworkCapability() {
+    @Test func webContentNeedsNoCapability() {
         let content = WebContentProxy.descriptor
         #expect(content.name == "org.pureswift.web.WebContent")
-        #expect(content.capability == Capability("network"))
+        #expect(content.capability == nil, "bundled pages need none; the host keeps a page off the network without it")
         #expect(method(content, "make:")?.kind == .constructor)
         #expect(method(content, "identifier")?.signature == Signature("()I"))
         #expect(method(content, "load:")?.signature == Signature("(O)V"))
@@ -239,6 +239,10 @@ struct Viewer: View {
 
         host.delegate.didFailNavigation(host, error: 999, message: "Newer than this guest")
         #expect(page.error?.code == .unknown)
+
+        // What a host answers a remote URL with when the app has no network.
+        host.delegate.didFailNavigation(host, error: 7, message: "")
+        #expect(page.error == WebError(.notPermitted))
 
         host.delegate.didChangeLoading(host, isLoading: true, progress: 0.1)
         #expect(page.error == nil)
