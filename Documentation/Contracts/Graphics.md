@@ -9,9 +9,13 @@ constants (`gles2.h`). The design is §8 of `DynamicRuntime.md`.
 | `Surface` | contract, `requires: "graphics"` | a `CAEAGLLayer` or ANGLE view, `CADisplayLink` | `GLSurfaceView` / EGL, `Choreographer` | EGL window (Mesa), the compositor's frame callback | a WebGL 1 canvas, `requestAnimationFrame` |
 | `SurfaceDelegate` | callback | touches, `UIKey` | `MotionEvent`, `KeyEvent` | SDL3 or Wayland events | pointer and keyboard events |
 
-No host implements them yet. The guest side, the GL import shim for wasm
-hosts, and an example (`examples/ExampleGL`) exist, and the example draws
-on a real GL under a test host:
+The Darwin host implements them on iOS and macOS (DarwinAppRuntime's
+`DarwinGraphics`): EAGL on iOS, and desktop OpenGL 2.1 on macOS, whose
+shaders it rewrites from GLSL ES. ExampleGL draws, and takes taps and
+keys, in the iOS Simulator. Android, Linux and the browser have no host
+yet. The guest side, the GL import shim for wasm hosts, and an example
+(`examples/ExampleGL`) exist, and the example also draws on a real GL
+under a test host:
 
 ![ExampleGL's first frame](../ExampleGL.png)
 
