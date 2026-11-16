@@ -29,8 +29,8 @@ each host keeps the data in what its platform has.
 |---|---|---|---|---|
 | Kept in | Core Data, through CoreModel's `CoreDataModel` | SQLite (`android.database.sqlite`) | SQLite, through CoreModel-SQLite | IndexedDB |
 
-For small settings, see [Defaults](#small-values-defaults) at the end. For
-files, see [Files](Files.md).
+For small settings, see [Defaults](Defaults.md). For files, see
+[Files](Files.md).
 
 ## What shapes it
 
@@ -519,32 +519,9 @@ memory.
 - Entity inheritance, derived attributes, undo.
 - Sharing a store between apps.
 
-## Small values: Defaults
+## Small values
 
 A model store is the wrong tool for "has the user seen the welcome
-screen". Every platform has a small synchronous key-value store, and so
-does the web, so this one contract is synchronous:
-
-```swift
-@DynamicRuntime("org.pureswift.data.Defaults")
-protocol Defaults {
-    static func standard() -> Self
-    func string(_ key: String) -> String?
-    func setString(_ value: String?, key: String)     // nil removes
-    func data(_ key: String) -> [UInt8]?
-    func setData(_ value: [UInt8]?, key: String)
-    func keys() -> [String]
-}
-```
-
-| Host | Backed by |
-|---|---|
-| iOS / macOS | `UserDefaults` |
-| Android | `SharedPreferences` |
-| Linux distro | a file in `/data`, written atomically |
-| Browser | `localStorage`, under the app's prefix |
-
-Guest-side Swift layers typed accessors (`bool`, `int`, `double`) over
-strings, and SwiftUI's `@AppStorage`. It's for small values: a host may
-refuse a value over 64 KB, and the browser's limit for all of them
-together is about 5 MB.
+screen". That's [Defaults](Defaults.md): a small synchronous key-value
+store, with `UserDefaults` and `@AppStorage` for the guest. It's
+implemented.
