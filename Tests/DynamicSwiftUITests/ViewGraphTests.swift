@@ -382,6 +382,17 @@ struct Appearing: View {
         #expect(lifecycle.events == ["appear", "disappear"])
     }
 
+    @Test func glSurfaceCarriesItsSurface() throws {
+        let (_, sink) = graph(ZStack {
+            GLSurface(42).frame(height: 240)
+            Text("Paused")
+        })
+        let surface = try #require(sink.screen?.find("GLSurface"))
+        #expect(surface.props == ["surface": 42])
+        #expect(surface.modifiers.map(\.kind) == ["frame"], "laid out like any view")
+        #expect(sink.screen?.children.map(\.type) == ["GLSurface", "Text"], "views over it stay over it")
+    }
+
     @Test func diffFindsTheSmallestChanges() {
         let old = RenderNode("VStack", id: 1, children: [
             RenderNode("Text", id: 2, props: ["text": "a"]),
