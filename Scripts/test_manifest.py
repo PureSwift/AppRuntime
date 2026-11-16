@@ -98,6 +98,19 @@ class CheckTests(unittest.TestCase):
                                                       for name in ("motion", "nfc", "localNetwork")]))
         self.assertFalse([w for w in warnings if "isn't one hosts know" in w], warnings)
 
+    def test_optional_capabilities(self):
+        # A web view works without network, so it never requires it; with a
+        # web view in the app, declaring network isn't unused.
+        web = [dict(name="org.pureswift.web.WebContent", kind="contract", version=1, capability=None, methods=[])]
+        network = sample(capabilities=[{"name": "network", "options": {}}])
+        errors, warnings = self.check(network, contracts=web)
+        self.assertFalse([e for e in errors if "capability" in e], errors)
+        self.assertFalse([w for w in warnings if "network" in w], warnings)
+        errors, _ = self.check(sample(capabilities=[]), contracts=web)
+        self.assertFalse([e for e in errors if "capability" in e], errors)
+        _, warnings = self.check(network, contracts=[])
+        self.assertIn("capability 'network' is declared but no contract requires it", warnings)
+
     def test_platforms(self):
         errors, _ = self.check(sample(platforms=[
             {"name": "ios", "minimum": "12.0"}, {"name": "macos", "minimum": "10.14"},
