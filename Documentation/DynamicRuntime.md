@@ -669,12 +669,19 @@ Vulkan and Metal have no common subset across these hosts, so neither is part of
 
 - GL is a C API, so it's exposed as **direct wasm imports** (module `env.gl`) with standard `gl*` names and types. It doesn't go through `rt_call`.
 - GL object names are already integers, so they don't use the rt handle table.
+- **One set of functions in every mode:** the GLES 2.0 core API without `glShaderBinary` and `glReleaseShaderCompiler`, which WebGL 1 lacks. That's 140 functions, declared in `gles2.h` (module `CGLES2`). On wasm32 they're the `env.gl` imports; a native slice calls the platform's own `gl*` symbols, and the packager rejects any other `gl*` name.
 - **WebGL 1 rules apply** (Emscripten's GLES2→WebGL mapping is the reference for edge cases):
   - No client-side vertex arrays: `glVertexAttribPointer` takes VBO offsets only.
   - No `glMapBuffer` / `glMapBufferRange`.
   - Copy-in and copy-out calls (`glBufferData`, `glBufferSubData`, `glTexImage2D`, `glTexSubImage2D`, `glShaderSource`, `glReadPixels`) translate guest offsets to `memory base + offset` only while the call runs. This is the same no-retained-pointer rule as §6.3.
   - Shaders are GLSL ES 1.00 with explicit precision qualifiers.
   - Extensions are queried with `glGetString(GL_EXTENSIONS)` and are never assumed.
+- **What a wasm host enforces**, because a guest must never reach host memory through GL (the shim in `CRuntimeGL`, shared by WasmKit and wasm2c):
+  - Every pointer argument lies inside the guest's memory for as many bytes as GL reads or writes; otherwise the guest traps. Image sizes follow the format, type and pack/unpack alignment.
+  - `glVertexAttribPointer` needs a bound `ARRAY_BUFFER` and `glDrawElements` a bound `ELEMENT_ARRAY_BUFFER`. A draw with an enabled attribute that has no buffer fails with `GL_INVALID_OPERATION`, as in WebGL. Otherwise GL would read the offset as a host address.
+  - `glGetString` results are copied once into memory from the guest's `rt_alloc`.
+- **What it doesn't:** checking a draw's indices and counts against the bound buffers' sizes. Whether an out-of-range read is safe is up to the GL implementation; a host that needs the guarantee uses ANGLE's WebGL compatibility context.
+- A native slice has none of these checks: capability enforcement is advisory in native mode (§2.4).
 
 ### 8.2 Surface and frame loop
 
@@ -685,7 +692,7 @@ Vulkan and Metal have no common subset across these hosts, so neither is part of
 @DynamicRuntime("org.pureswift.graphics.Surface", requires: .graphics)
 protocol Surface {
     static func make(_ delegate: SurfaceDelegate) -> Self
-    func identifier() -> Int64                           // the GLSurface node's `surface` prop
+    func identifier() -> Int32                           // the GLSurface node's `surface` prop
     func setPointerCaptured(_ captured: Bool) -> Bool    // §8.6; false where unsupported
 }
 
@@ -717,7 +724,7 @@ protocol SurfaceDelegate {
 ### 8.3 Capability and packaging
 
 - The manifest declares `.graphics(.gles2)`. The packager adds `<uses-feature android:glEsVersion="0x00020000"/>` on Android and links OpenGLES / ANGLE on Apple platforms.
-- The host refuses to bind `env.gl` imports when the capability isn't declared.
+- The host refuses to bind `env.gl` imports when the capability isn't declared. `Surface` requires the capability too, so the packager's contract check (§7.3) catches an app that draws without declaring it.
 
 ### 8.4 Optional tiers
 
@@ -736,7 +743,7 @@ Guests check for these at load time (an import module is either present or absen
 
 ### 8.6 Surface input
 
-**Status:** draft; not implemented.
+**Status:** the contract and the guest side are implemented (`DynamicGraphics`); no host sends input yet.
 
 The render IR's events (`tap`, `change`, …) are for controls. A game needs raw input, so a surface's delegate (§8.2) also receives pointers and keys. No capability beyond `.graphics`.
 
