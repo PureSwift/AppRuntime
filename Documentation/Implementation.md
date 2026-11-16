@@ -24,7 +24,7 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
-| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. No host has an engine behind it |
+| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
@@ -585,12 +585,12 @@ Each of these needs a decision, or is verified only as far as noted:
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
-5. `Surface` in each host (`Documentation/Contracts/Graphics.md`): the GL
-   context, the frame loop and input. Until one exists, `ExampleGL` has
-   only drawn off screen, and nothing has sent it real input.
+5. `Surface` in the other hosts (`Documentation/Contracts/Graphics.md`):
+   the GL context, the frame loop and input. The Darwin host has them
+   (DarwinAppRuntime's `DarwinGraphics`).
 6. The `GameController` and `Audio` contracts, which are drafts
    (`Documentation/Contracts/`).
-7. `WebContent` in each host (`Documentation/Contracts/WebKit.md`):
-   `WKWebView`, Android's `WebView`, and WPE on Linux, where its child
+7. `WebContent` in the other hosts (`Documentation/Contracts/WebKit.md`):
+   Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
