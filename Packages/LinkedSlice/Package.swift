@@ -9,7 +9,8 @@ import PackageDescription
 /// library defines `rt_main`, `rt_dispatch` and `rt_finalize`:
 ///
 /// - `APPRUNTIME_LINKED_PRODUCT`: `ExampleApp` (the default), `ExampleUI`,
-///   `ExampleWeb`, whose browser engine the test stands in for, or
+///   `ExampleWeb`, whose browser engine the test stands in for,
+///   `ExampleFiles`, which keeps real files in a temporary directory, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
 ///   writes down what it's asked.
 /// - `APPRUNTIME_LINKED_ENGINE`:
@@ -52,6 +53,8 @@ let package = Package(
                 "CFakeGL",
                 .product(name: "DynamicGraphics", package: "AppRuntime"),
                 .product(name: "DynamicWebKit", package: "AppRuntime"),
+                .product(name: "DynamicFiles", package: "AppRuntime"),
+                .product(name: "RuntimeHost", package: "AppRuntime"),
                 .product(name: "CRuntime", package: "AppRuntime"),
                 .product(name: "DynamicRuntime", package: "AppRuntime"),
                 .product(name: "DynamicUI", package: "AppRuntime"),
