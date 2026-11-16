@@ -24,7 +24,7 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
-| OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). No platform host makes a GL context or sends input |
+| OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
 (players), the platform packagers (the portable manifest → an iOS
