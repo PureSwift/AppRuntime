@@ -107,11 +107,12 @@ APPLE_ARM64 = "arm64-apple-none-macho"
 # concurrency otherwise. canImport(_Concurrency) can't detect that, so
 # packages check this define.
 NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
-# Stopgap modules that take the names of Apple frameworks in guest builds,
-# so guest code says `import SwiftUI` and `import Observation` (§5.3, §9).
+# Modules that take the names of Apple frameworks in guest builds, so guest
+# code says `import SwiftUI`, `import Observation` and `import WebKit`
+# (§5.3, §9).
 # The package can't name them that: on Apple hosts, Foundation would find
 # them instead of the SDK's.
-GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "SwiftUI"}
+GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "SwiftUI", "DynamicWebKit": "WebKit"}
 CONCURRENCY_SUPPORT = "concurrency.c"
 # For a Linux triple, the Clang importer looks for glibc headers to map, and
 # warns without a sysroot. Guest code never includes libc headers.
