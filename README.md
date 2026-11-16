@@ -137,13 +137,14 @@ public func appMain() -> rt_status {
 }
 ```
 
-`examples/ExampleUI` is a fuller app. No player renders the IR yet.
+`examples/ExampleUI` is a fuller app. The Darwin host's SwiftUI player
+renders the IR on iOS and macOS (DarwinAppRuntime's `DarwinUI`).
 
 `examples/ExampleGL` draws with OpenGL ES 2.0 in a `Surface` placed by a
 `GLSurface` view, and takes pointer and key input
-([Graphics](Documentation/Contracts/Graphics.md)). No platform host gives
-it a GL context yet; `Scripts/test-gl-mesa.sh` draws it on Mesa in Docker
-and checks the pixels.
+([Graphics](Documentation/Contracts/Graphics.md)). The Darwin host runs it
+on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
+`Scripts/test-gl-mesa.sh` draws it on Mesa in Docker and checks the pixels.
 
 ## Building
 
