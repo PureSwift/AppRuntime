@@ -23,6 +23,9 @@ public final class WasmApp {
     /// The WASI preview 1 implementation, closed when the app is released.
     public let wasi: WASIBridgeToHost
 
+    /// The host's GL, if it gave one. The import functions point at it.
+    public let gl: WasmGL?
+
     /// - Parameters:
     ///   - bytes: The `App.wasm` module.
     ///   - runtime: The runtime core. Share `NativeRuntime.shared.runtime`
@@ -31,11 +34,15 @@ public final class WasmApp {
     ///     unrestricted.
     ///   - wasi: WASI preview 1 implementation; defaults to no arguments,
     ///     environment or preopens.
+    ///   - gl: The host's OpenGL ES 2.0, for the `env.gl` imports (§8.1).
+    ///     They're only bound when the app declares the `graphics`
+    ///     capability; without them, a module that imports GL doesn't load.
     public init(
         bytes: [UInt8],
         runtime: HostRuntime,
         capabilities: Set<Capability>? = nil,
-        wasi: WASIBridgeToHost? = nil
+        wasi: WASIBridgeToHost? = nil,
+        gl: WasmGL? = nil
     ) throws {
         let module = try parseWasm(bytes: bytes)
         let engine = Engine()
@@ -45,7 +52,17 @@ public final class WasmApp {
         let wasi = try wasi ?? WASIBridgeToHost(args: [], environment: [:], preopens: [WASIBridgeToHost.Preopen]())
         wasi.link(to: &imports, store: store)
         WasmImports.define(in: &imports, store: store, runtime: runtime, guest: guest)
-        let instance = try module.instantiate(store: store, imports: imports)
+        if let gl, capabilities?.contains(.graphics) ?? true {
+            gl.define(in: &imports, store: store)
+        }
+        let instance: Instance
+        do {
+            instance = try module.instantiate(store: store, imports: imports)
+        } catch {
+            // The bridge must be closed before it's released.
+            try? wasi.close()
+            throw error
+        }
         guest.instance = instance
         self.module = module
         self.runtime = runtime
@@ -53,6 +70,7 @@ public final class WasmApp {
         self.instance = instance
         self.store = store
         self.wasi = wasi
+        self.gl = gl
     }
 
     deinit {
