@@ -183,11 +183,10 @@ Backend-specific layers may add imports on top of the core.
 
 **Decision:** wasm guests may import **WASI preview 1** (`wasi_snapshot_preview1`) in addition to `rt`. Preview 1 is frozen, so it fits the stable-ABI goal, and it gives the Swift stdlib its basics (stdout/stderr, clocks, random, args/environ, `proc_exit`).
 
-- **File access** is limited to preopened directories mapped to the app's container (plus a read-only preopen of the bundle's resources). Nothing outside them is visible.
-  - **Draft revision (§7.9):** no files through WASI at all. A native slice has no file functions in its libc set (§7.5), the wasm2c shim has none, and a browser can't offer blocking file calls on the main thread. Files go through the `Files` contract in every mode, and a host gives WASI no preopens.
+- **No file access.** Files go through the `Files` contract (§7.9), in every mode, and a host gives WASI no preopened directories. WASI's file calls can't serve everywhere: a native slice has no file functions in its libc set (§7.5), the wasm2c shim has none, and a browser can't offer blocking file calls on the main thread. (An earlier version of this section gave wasm guests preopened directories.)
 - **No sockets.** Networking goes through contracts.
 - **Hosts:** WasmKit's WASI bridge (iOS, macOS, Linux, Android), wasm2c with a small WASI shim (iOS packaging), a JS shim in the browser.
-- **Native builds** use the platform libc for the same functionality. On the Linux distro, Landlock confines file access to the same container directories, so both modes see the same files.
+- **Native builds** use the platform libc for the same functionality, which is the small set of §7.5. On the Linux distro, Landlock confines the host's file access to the app's container directories.
 
 ## 4. Contracts
 
@@ -652,7 +651,7 @@ Carried over from AppRuntime's `bundle-runtime` and its sandbox design, which is
 
 ### 7.9 App data: files, settings and a model store
 
-**Status:** draft; not implemented. Detail: `Documentation/Contracts/Files.md` and `Documentation/Contracts/Persistence.md`.
+**Status:** `Files` is implemented: the guest side (`DynamicFiles`), and `HostFiles` in `RuntimeHost` for hosts with a POSIX file system. `Defaults` and `ModelStore` are drafts. Detail: `Documentation/Contracts/Files.md` and `Documentation/Contracts/Persistence.md`.
 
 An app keeps data in its own container, through three contracts. None needs a capability: the container is the app's.
 
