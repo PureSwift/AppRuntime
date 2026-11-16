@@ -532,6 +532,8 @@ Expanding capabilities into native entries:
 | `.camera` | `NSCameraUsageDescription` | `CAMERA` + `uses-feature camera` | `/dev/video*` |
 | `.location(.whenInUse)` | `NSLocationWhenInUseUsageDescription` | `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | runtime-defined |
 | `.notifications` | runtime request; push needs `aps-environment` | `POST_NOTIFICATIONS` (API 33+) | runtime-defined |
+| `.gameControllers` (draft, §8.7) | `GCSupportsControllerUserInteraction`, `GCSupportedGameControllers` (`ExtendedGamepad`) | `uses-feature android.hardware.gamepad`, `required="false"` unless `.required()` | joystick-class `/dev/input/event*` nodes only |
+| `.audio` (draft, §8.8) | none | none | the sound server's socket, or `/dev/snd` |
 
 ### 7.4 Built-in contracts
 
@@ -676,12 +678,41 @@ Vulkan and Metal have no common subset across these hosts, so neither is part of
 
 ### 8.2 Surface and frame loop
 
-- The host owns context creation (EAGL, EGL, or a WebGL canvas).
-- The guest places a `GLSurface` node in the renderer IR. Its delegate receives:
-  - `frame(timestamp, width, height)`, driven by `CADisplayLink`, `Choreographer`, or `requestAnimationFrame`;
-  - `resize(width, height)`;
-  - `contextLost()` / `contextRestored()`. The guest must recreate GL objects after a restore, as in WebGL.
+- The host owns the window and context creation (EAGL, EGL, or a WebGL canvas). **The guest has no window API**: the app's window is the host's, and a surface is a view inside it, laid out, layered and clipped like any other node.
+- The guest makes a `Surface` and places a `GLSurface` node in the renderer IR whose `surface` prop (int) is that surface's `identifier()`. The player attaches its GL view to the node. A surface with no node on screen gets no frames and no input.
+
+```swift
+@DynamicRuntime("org.pureswift.graphics.Surface", requires: .graphics)
+protocol Surface {
+    static func make(_ delegate: SurfaceDelegate) -> Self
+    func identifier() -> Int64                           // the GLSurface node's `surface` prop
+    func setPointerCaptured(_ captured: Bool) -> Bool    // §8.6; false where unsupported
+}
+
+@DynamicCallback("org.pureswift.graphics.SurfaceDelegate")
+protocol SurfaceDelegate {
+    // Drawing
+    func frame(_ surface: Surface, timestamp: Int64, width: Int32, height: Int32)
+    func resize(_ surface: Surface, width: Int32, height: Int32, scale: Float)
+    func contextLost(_ surface: Surface)
+    func contextRestored(_ surface: Surface)
+    // Input (§8.6)
+    func pointer(_ surface: Surface, id: Int32, kind: Int32, phase: Int32,
+                 x: Float, y: Float, buttons: Int32, timestamp: Int64)
+    func pointerDelta(_ surface: Surface, x: Float, y: Float, timestamp: Int64)
+    func scroll(_ surface: Surface, x: Float, y: Float)
+    func key(_ surface: Surface, code: Int32, pressed: Bool, modifiers: Int32,
+             isRepeat: Bool, timestamp: Int64)
+    func focus(_ surface: Surface, focused: Bool)
+    func pointerCapture(_ surface: Surface, captured: Bool)
+}
+```
+
+- `frame` is driven by `CADisplayLink`, `Choreographer`, or `requestAnimationFrame`. `timestamp` is nanoseconds on the `Clock.now()` timeline (§7.4); `width` and `height` are the drawable's size in pixels.
+- `resize` reports a new drawable size before the first `frame` that uses it. `scale` is pixels per point, so a game can size its own controls like the UI around it.
+- `contextLost` / `contextRestored`: the guest must recreate GL objects after a restore, as in WebGL.
 - The context is current only during `frame`. All GL calls run on the main thread, consistent with the single-thread rule (§6.4).
+- The host stops calling `frame` while the app isn't active (`Application` state, §7.4) or the node is off screen.
 
 ### 8.3 Capability and packaging
 
@@ -702,6 +733,62 @@ Guests check for these at load time (an import module is either present or absen
 - With wasm2c (iOS packaging), each `gl*` import compiles to a direct C call, so the import boundary costs essentially nothing.
 - Under an interpreter, GL's many calls per frame can make the import boundary the bottleneck. If profiling shows that, add an **optional command buffer**: the guest encodes GL calls into linear memory and the host runs them in a single `gl_flush`. This is an optimization, not part of the baseline.
 - Apple platforms: the host for modern Apple targets includes an **ANGLE-on-Metal** backend behind the same imports, so removing native GL ES wouldn't affect guests. iOS 6 keeps native GLES.
+
+### 8.6 Surface input
+
+**Status:** draft; not implemented.
+
+The render IR's events (`tap`, `change`, …) are for controls. A game needs raw input, so a surface's delegate (§8.2) also receives pointers and keys. No capability beyond `.graphics`.
+
+**Pointers.** Touches, the mouse and pens are one event, as in W3C Pointer Events:
+
+| Argument | Values |
+|---|---|
+| `id` | identifies one pointer from `down` to `up` or `cancel`; the mouse is always 0 |
+| `kind` | 0 touch, 1 mouse, 2 pen |
+| `phase` | 0 down, 1 move, 2 up, 3 cancel |
+| `x`, `y` | pixels in the surface, origin top-left, y down: the same pixels as `frame`'s size |
+| `buttons` | bitmask of held buttons: 1 primary, 2 secondary, 4 middle; a touch in contact is 1 |
+
+- A mouse that moves with no button held reports `move` with `buttons == 0`.
+- `scroll` carries wheel or trackpad deltas in pixels: how far content under the pointer should move, with the user's scroll-direction setting already applied.
+- **Capture:** `setPointerCaptured(true)` hides the cursor and reports mouse movement as `pointerDelta`, for camera control. It returns `false` on hosts without a mouse. The host may end capture itself (Escape in a browser, the app losing focus) and says so with `pointerCapture(_:captured:)`. A browser grants capture only from inside an input callback.
+
+**Keys.**
+- `code` is a **USB HID usage ID** from the Keyboard/Keypad page (0x07): it names a physical key, whatever the layout, so `0x1A` is the key where W sits on a US keyboard. Each host maps from its own codes: `UIKey.keyCode` (already HID), `NSEvent.keyCode`, Android scan codes, SDL scancodes (already HID), `KeyboardEvent.code`.
+- `modifiers` is a bitmask: 1 shift, 2 control, 4 alt/option, 8 meta/command.
+- `isRepeat` marks the system's auto-repeat, which games usually ignore.
+- **No text.** Keys are for controls. Text entry goes through a `TextField` in the tree, which brings the platform's keyboard and input methods with it.
+- Shortcuts the system keeps (switching apps, the Home gesture) never reach the guest.
+
+**Delivery.**
+- Input arrives on the main thread as it happens, between frames. The GL context isn't current in input callbacks.
+- **Moves are coalesced:** at most one `move` per pointer and one `pointerDelta` per frame, delivered before that `frame`. A 1000 Hz mouse costs one dispatch per frame, not sixteen.
+- **Hit testing is the player's.** Nodes layered over the surface (a pause button in a `ZStack`) get their pointers first. Keys go to the surface while it has focus; a focused `TextField` takes them.
+- **No stuck input.** When the surface loses focus, the app stops being active, or the node leaves the tree, the host sends `cancel` for every pointer in contact, then `focus(_:focused: false)`. After that the guest treats every key as released; no key-up events follow.
+- All arguments are scalars, so each event is one dispatch with no handles to release (the rule Motion uses for high-rate samples).
+
+### 8.7 Game controllers
+
+**Status:** draft; not implemented. Detail: `Documentation/Contracts/GameController.md`.
+
+- A contract module, `DynamicGameController`: `GameControllerManager` reports controllers connecting and disconnecting; each `GameController` reports button and stick changes to its delegate and can rumble.
+- **One layout.** Every controller is presented as the standard gamepad that GameController's extended profile, SDL's gamepad API and the W3C Gamepad "standard" mapping share: four face buttons named by position, two shoulders, two analog triggers, two clickable sticks, a d-pad, and back / start / guide. Devices the platform can't map to it aren't reported.
+- **Independent of surfaces.** Controllers aren't pointers, so they don't go through `SurfaceDelegate`; a SwiftUI-only app can use them too.
+- Capability `.gameControllers` (no usage text; no prompt on any host).
+
+### 8.8 Audio
+
+**Status:** draft; not implemented. Detail: `Documentation/Contracts/Audio.md`.
+
+It's specified here because games are its first user; the contract doesn't need a surface.
+
+- A contract module, `DynamicAudio`, with two ways to make sound:
+  - **Sounds:** the host decodes a file (WAV or MP3) from the bundle or from bytes, and mixes any number of playing `Voice`s with volume, pan and rate. Effects start within the device's buffer, because no guest code runs per sample.
+  - **Streams:** the guest writes 16-bit PCM into a host-side queue, for generated audio (emulators, trackers, synthesis).
+- **The audio thread never enters the guest.** The guest runs only on the main thread (§6.4), so there is no render callback: a stream's delegate is asked for more frames on the main thread, ahead of time, and the queue's depth is the stream's latency.
+- Playback only, in the foreground only. Recording and background playback are separate capabilities for later.
+- Capability `.audio` (no usage text; no prompt on any host).
 
 ## 9. User interface
 
@@ -870,6 +957,8 @@ App.wasm sections ──┴► packager ──► validate ──► per-platfor
 - Contract evolution tooling: diff contract versions in CI to block breaking changes.
 - Debugging: DWARF in wasm with WasmKit's debugger support, versus wasm2c builds debugged as native code.
 - Multiple guest instances (extensions, widgets): one module per process, or shared?
+- Surface input (§8.6): what Android's Back and tvOS's Menu button mean to a focused surface (a key, or always the system's); whether a controller should also move focus in the SwiftUI player.
+- Audio (§8.8): the stream queue's default depth per host, and whether a guest may ask for a shorter one.
 
 ---
 
@@ -887,6 +976,7 @@ App.wasm sections ──┴► packager ──► validate ──► per-platfor
 10. SwiftUI frontend (from Swift-iOS6) emitting the `RenderNode` IR; Compose (AndroidSwiftUI), UIKit (Swift-iOS6 backend) and SwiftUI players.
 11. Platform layers: subclassing, generated SDK bindings.
 12. iOS 6 host (Objective-C / C or Embedded Swift) with wasm2c-packaged guests.
+13. Games: `Surface` input, `GameController` and `Audio` contracts (§8.6–§8.8).
 
 ---
 
