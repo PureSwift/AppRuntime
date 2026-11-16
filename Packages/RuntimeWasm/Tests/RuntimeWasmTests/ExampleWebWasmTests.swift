@@ -74,11 +74,13 @@ extension WasmShimTests {
         WasmTestWebContent.all = []
 
         let bytes = Array(try Data(contentsOf: Self.exampleWebURL))
-        let app = try WasmApp(bytes: bytes, runtime: native.runtime, capabilities: [.network])
+        // No capabilities: a web view needs none. Whether its pages reach
+        // the network is the host's to enforce.
+        let app = try WasmApp(bytes: bytes, runtime: native.runtime, capabilities: [])
         let contracts = try #require(WasmApp.contracts(of: app.module))
-        #expect(contracts.first { $0.name == "org.pureswift.web.WebContent" }?.capability == .network)
-        #expect(WasmApp.validate(app.module, runtime: native.runtime, capabilities: []).contains { $0.severity == .error },
-                "an app with a web view must declare network")
+        let content = try #require(contracts.first { $0.name == "org.pureswift.web.WebContent" })
+        #expect(content.capability == nil)
+        #expect(!WasmApp.validate(app.module, runtime: native.runtime, capabilities: []).contains { $0.severity == .error })
         #expect(try app.start() == .ok)
 
         // One page in the host, loading the first address, shown by the node.
@@ -134,5 +136,9 @@ extension WasmShimTests {
         engine.delegate.didChangeLoading(engine, isLoading: true, progress: 0.1)
         #expect(renderer.screen?.identified("error") == nil)
         #expect(WasmTestWebContent.all.count == 1)
+
+        // A host whose app didn't declare network refuses a remote URL.
+        engine.delegate.didFailNavigation(engine, error: WebError.Code.notPermitted.rawValue, message: "This app can't use the network")
+        #expect(renderer.screen?.identified("error")?.props["text"] == "Couldn't load the page: This app can't use the network")
     }
 }
