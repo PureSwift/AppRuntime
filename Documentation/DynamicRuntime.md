@@ -666,10 +666,12 @@ An app keeps data in its own container, through three contracts. None needs a ca
 - **`Files`** names directories (`documents`, `data`, `caches`, `temporary`, `bundle`) and takes relative paths, because no absolute path means the same on four platforms. The guest API follows Foundation's `FileManager`, made `async`. It replaces WASI's files (§3.3) and is how a guest reads its bundle, which on Android and the web isn't a directory.
 - **`ModelStore`** is the storage behind [CoreModel](https://github.com/PureSwift/CoreModel), which compiles under Embedded Swift: app code uses its `@Entity`, `FetchRequest` and `ModelStorage` unchanged.
   - A write is one atomic **batch**; there are no transactions held open, since IndexedDB can't hold one across turns.
-  - Records and requests cross as byte buffers in a documented format, one call per fetch, as the render tree does.
+  - The model, a fetch request, a predicate and a record are host objects with methods (§4.4), the shape of Core Data's own classes; there's no byte format.
+  - A fetch answers with a result object the host holds, and the guest reads the records it needs by index. A list of 10,000 that shows twenty rows reads twenty.
   - CoreModel's in-memory evaluator defines what a request returns. Each host pushes down what its engine does the same way and filters the rest; shared conformance vectors check it.
   - Hosts written in Swift share one adapter over any CoreModel backend: `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux.
   - A `Query` object keeps a fetch's results current for SwiftUI, refetching when the store reports a change.
+  - The browser's engine is IndexedDB.
 - **A browser may evict all of it.** Storage there is best effort unless the browser grants persistence. The contracts report it (`unavailable`, `outOfSpace`); they can't prevent it.
 
 ---
