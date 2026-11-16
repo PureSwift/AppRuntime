@@ -594,3 +594,7 @@ Each of these needs a decision, or is verified only as far as noted:
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
+8. App data (§7.9), which is a design only: the `Files` and `Defaults`
+   contracts, and `ModelStore` behind CoreModel
+   (`Documentation/Contracts/Files.md`, `Persistence.md`). CoreModel
+   needs its `@Entity` macro to work under Embedded Swift first.
