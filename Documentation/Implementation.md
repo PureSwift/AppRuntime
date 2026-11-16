@@ -24,6 +24,7 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
+| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. No host has an engine behind it |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
@@ -266,6 +267,29 @@ which are each host's. TCP and UDP are not part of the spec.
 - **Embedded constraints met:** no key paths, no existentials of non-class
   protocols, no generic code on `AnyObject` values (identity uses `===`),
   and `String` comparison links `libswiftUnicodeDataTables`.
+- **Web views (§9.6).**
+  - **A page is a contract object, and the node only places it**, as
+    `Surface` and `GLSurface` do. A web view is mostly commands and
+    answers (load, go back, run this script, may I follow this link),
+    which the render IR has no way to say: its props are state and its
+    events have no results. So `WebContent` carries them, with a delegate
+    for the page's state, and the `WebView` node has one prop, `page`.
+  - **`shouldNavigate` is answered synchronously.** Every engine asks on
+    the main thread and can wait, and an async answer would need a
+    request to match it to.
+  - **The module is its own product**, named `WebKit` in guest builds as
+    Apple's is. Inside `DynamicSwiftUI` it would put `WebContent` in every
+    SwiftUI app's `rt.contracts`, and require `network` of all of them.
+  - **`_RenderNodeView`** is the public way for a module outside the
+    frontend to add a node; `WebView` is built on it.
+  - **`WebPage` is written against the registrar, without `@Observable`:**
+    its properties are read-only to apps, and the macro would generate
+    setters and bindings for them.
+  - **No retain cycle without weak references.** The host holds the
+    delegate, and the page holds the host's object. The delegate is a
+    separate object with an unretained reference to the page, which the
+    page clears when it's released.
+  - **URLs are strings**, as `Link`'s are: guest code has no Foundation.
 - **OpenGL ES (§8).**
   - **One table.** `Scripts/gles2.py` holds the 140 functions, each pointer
     parameter marked with how it's used and how many bytes, and the 301
@@ -502,6 +526,14 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
   and `Application` built-ins against fake hosts, calls before a host
   implements them, and their descriptors against `BuiltinContracts`.
+- `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
+  against a stand-in engine through `NativeRuntime`: the host page made on
+  first use, state following the delegate, observation, the navigation
+  decider, scripts answered out of order and awaited, and the host page
+  destroyed with the guest's; the `WebView` node, and a `WebView(url:)`
+  keeping one page across updates. `RuntimeWasmTests` and
+  `LinkedSliceTests` run `examples/ExampleWeb` the same way, as
+  `App.wasm`, a sealed macOS slice and wasm2c output.
 - `CRuntimeGLTests`: the GL shim against a recording GL and a block of
   "guest memory": pointers passed without copying, reads and writes at and
   past the end, sizes that would wrap, strings without a terminator, shader
@@ -552,3 +584,7 @@ Each of these needs a decision, or is verified only as far as noted:
    only drawn off screen, and nothing has sent it real input.
 6. The `GameController` and `Audio` contracts, which are drafts
    (`Documentation/Contracts/`).
+7. `WebContent` in each host (`Documentation/Contracts/WebKit.md`):
+   `WKWebView`, Android's `WebView`, and WPE on Linux, where its child
+   processes inside the launcher's sandbox are the open question. Then
+   messages from a page's scripts to the app.
