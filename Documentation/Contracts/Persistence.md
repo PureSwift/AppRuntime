@@ -11,14 +11,23 @@ each host keeps the data in what its platform has.
 | Piece | What | Where |
 |---|---|---|
 | CoreModel | `@Entity`, `Model`, `ModelData`, `FetchRequest`, `ModelStorage` | the guest, unchanged |
-| `DynamicCoreModel` | `RuntimeModelStorage`, a `ModelStorage` over the contract; `Query`, observable results for SwiftUI; the wire codec | new, guest and Swift hosts |
-| `ModelStore` | the contract | hosts |
+| `DynamicCoreModel` | `RuntimeModelStorage`, a `ModelStorage` over the contracts; `FetchedResults`, a fetch read as it's used; `Query`, results that stay current for SwiftUI | new, guest |
+| The contracts | a store, and the objects it's described and queried with | hosts |
 
-| Contract | Kind | iOS / macOS | Android | Linux | Browser |
-|---|---|---|---|---|---|
-| `ModelStore` | contract (no capability) | Core Data, through CoreModel's `CoreDataModel` | SQLite (`android.database.sqlite`) | SQLite, through CoreModel-SQLite | IndexedDB |
-| `ModelStoreDelegate` | callback: changes | `NSManagedObjectContextDidSave` | the host's own writes | the host's own writes | its writes, and `BroadcastChannel` for other tabs |
-| `ModelStoreCallback` | callback: one operation's result | | | | |
+| Contract | Stands for | Core Data's counterpart |
+|---|---|---|
+| `ModelStore` | an open store | `NSPersistentContainer` and a context |
+| `ModelSchema`, `ModelEntity`, `ModelProperty` | the model | `NSManagedObjectModel`, `NSEntityDescription`, `NSPropertyDescription` |
+| `ModelFetch` | a fetch request | `NSFetchRequest` |
+| `ModelPredicate`, `ModelExpression` | a predicate tree | `NSPredicate`, `NSExpression` |
+| `ModelRecord` | one object's values | `NSManagedObject`, read-only once fetched |
+| `ModelResults` | what a fetch found | the fetched array |
+| `ModelBatch` | a set of changes to commit together | a context's pending changes |
+| `ModelStoreDelegate`, `ModelStoreCallback` | callbacks: changes, and one operation's result | notifications, completion handlers |
+
+| | iOS / macOS | Android | Linux | Browser |
+|---|---|---|---|---|
+| Kept in | Core Data, through CoreModel's `CoreDataModel` | SQLite (`android.database.sqlite`) | SQLite, through CoreModel-SQLite | IndexedDB |
 
 For small settings, see [Defaults](#small-values-defaults) at the end. For
 files, see [Files](Files.md).
@@ -37,12 +46,17 @@ as control returns to the event loop, so "begin, work, commit" across guest
 turns can't exist. A write is one **batch**, a list of inserts and deletes
 applied together or not at all.
 
-**Records cross as bytes.** A fetch of 1,000 records with ten attributes
-would be 10,000 calls if each value were a getter on a host object. Like the
-render tree, a batch of records is one byte buffer in a documented format
-([wire format](#wire-format)), and a fetch is one call and one callback.
-This departs from "structured data is objects with getters" (§4.4), for
-the reason the render IR does.
+**An object model, as the platforms have.** The model, a fetch request, a
+predicate and a record are host objects with methods (§4.4), the shape of
+Core Data's own classes. There's no byte format to version or to write
+three times.
+
+**Results are read as they're used.** A fetch answers with a
+`ModelResults` the host holds. The guest asks it for the records it
+needs, by index, and each record for its values. A list of 10,000 that
+shows twenty rows reads twenty records. Reading everything costs a call per
+value, so code that wants it all at once pays for that, and code that
+shows a screenful doesn't.
 
 **Values, not managed objects.** As in CoreModel, the store returns values.
 There's no context, no faulting, no change tracking and no undo; an entity
@@ -77,12 +91,14 @@ let store = try await RuntimeModelStorage.open(
 )
 
 try await store.insert(person.encode())
-let adults = try await store.fetch(FetchRequest(
+
+let request = FetchRequest(
     entity: Person.entityName,
     sortDescriptors: [.init(property: "name")],
-    predicate: Person.CodingKeys.age >= Int32(18),
-    fetchLimit: 50
-))
+    predicate: Person.CodingKeys.age >= Int32(18)
+)
+let adults = try await store.results(Person.self, for: request)   // read as it's used
+let first = adults.first
 ```
 
 `RuntimeModelStorage` is a `ModelStorage`, so code written against the
@@ -93,12 +109,30 @@ What it adds to the protocol:
 
 - **`open(_:model:indexes:migration:)`**: opens the app's store of that
   name, creating or migrating it.
+- **`results(_:for:)`**: a fetch as a `FetchedResults`, below.
 - **`perform(_:)`**: one atomic batch of inserts and deletes. `insert` and
   `delete` are batches of their own.
 - **`changes`**: an `EventStream` of the entity names each committed batch
   touched.
 - **Completion-handler forms** of every call, for slices built without the
   concurrency runtime.
+
+### Two ways to fetch
+
+| | Returns | Reads |
+|---|---|---|
+| `results(_:for:)` | `FetchedResults<T>`, a `RandomAccessCollection` | a record when it's first subscripted, then kept |
+| `fetch(_:)`, the protocol's | `[ModelData]` | every record, before it returns |
+
+- `FetchedResults` knows its `count` at once, without reading a record.
+- It's a **snapshot**: what the fetch found, unchanged by later writes.
+  The host keeps it until the guest lets go of it.
+- The frontend's lists take any `RandomAccessCollection` and ask for rows
+  by index, so `List(results)` reads the rows on screen.
+- `fetch(_:)` is right for small results and for code shared with other
+  backends. For a large one it makes a call per value, about 10,000 for a
+  thousand records of ten attributes; give it a `fetchLimit`, or use
+  `results`.
 
 ### Query: results that stay current
 
@@ -117,11 +151,12 @@ struct PeopleList: View {
 let people = Query<Person>(store, sort: [.init(property: "name")])
 ```
 
-`Query` is observable: `results`, `isLoading` and `error`. It fetches when
-made, and again when the store reports a change to its entity or to one its
-predicate reaches through a relationship. Refetches are coalesced to one per
-turn of the guest (`GuestExecutor.whenIdle`), and `predicate`, `sort` and
-`limit` can be changed, which refetches. This is the place of
+`Query` is observable: `results` (a `FetchedResults`), `isLoading` and
+`error`. It fetches when made, and again when the store reports a change
+to its entity or to one its predicate reaches through a relationship. Each
+refetch swaps in a new snapshot. Refetches are coalesced to one per turn of
+the guest (`GuestExecutor.whenIdle`), and `predicate`, `sort` and `limit`
+can be changed, which refetches. This is the place of
 `NSFetchedResultsController` and SwiftData's `@Query`.
 
 ### What CoreModel needs first
@@ -134,22 +169,27 @@ turn of the guest (`GuestExecutor.whenIdle`), and `predicate`, `sort` and
   then, entities are written by hand, as CoreModel's README shows.
 - **A batch requirement on `ModelStorage`** (inserts and deletes together),
   so atomic writes aren't particular to this backend.
+- **Later, perhaps, `FetchedResults` itself:** a lazily read result is
+  useful to the Core Data and SQLite backends too.
 
-## The contract
+## The contracts
+
+### The store
 
 ```swift
 @DynamicRuntime("org.pureswift.data.ModelStore")
 protocol ModelStore {
-    /// Opens the store `name`, for `model` (wire format). Operations may
+    /// Opens the store `name` for `schema`. `migration`: 0 fail when the
+    /// stored model can't be migrated, 1 empty the store. Operations may
     /// be issued at once; they wait for the open, whose outcome is
     /// `callback`'s `didComplete` or `didFail`.
-    static func open(_ name: String, model: [UInt8], options: [UInt8],
+    static func open(_ name: String, schema: ModelSchema, migration: Int32,
                      delegate: ModelStoreDelegate, callback: ModelStoreCallback) -> Self
 
-    func fetch(_ request: [UInt8], callback: ModelStoreCallback)      // didFetch
-    func fetchIDs(_ request: [UInt8], callback: ModelStoreCallback)   // didFetchIDs
-    func count(_ request: [UInt8], callback: ModelStoreCallback)      // didCount
-    func perform(_ batch: [UInt8], callback: ModelStoreCallback)      // didComplete
+    func fetch(_ fetch: ModelFetch, callback: ModelStoreCallback)      // didFetch
+    func fetchIDs(_ fetch: ModelFetch, callback: ModelStoreCallback)   // didFetchIDs
+    func count(_ fetch: ModelFetch, callback: ModelStoreCallback)      // didCount
+    func perform(_ batch: ModelBatch, callback: ModelStoreCallback)    // didComplete
 
     /// Deletes the store `name` and everything in it.
     static func destroy(_ name: String, callback: ModelStoreCallback)
@@ -158,7 +198,7 @@ protocol ModelStore {
 @DynamicCallback("org.pureswift.data.ModelStoreCallback")
 protocol ModelStoreCallback {
     func didComplete()
-    func didFetch(_ records: [UInt8])
+    func didFetch(_ results: ModelResults)
     func didFetchIDs(_ ids: [String])
     func didCount(_ count: Int64)
     func didFail(_ error: Int32, message: String)
@@ -172,6 +212,134 @@ protocol ModelStoreDelegate {
 }
 ```
 
+### The model
+
+```swift
+@DynamicRuntime("org.pureswift.data.ModelSchema")
+protocol ModelSchema {
+    static func make() -> Self
+    func addEntity(_ name: String) -> ModelEntity
+}
+
+@DynamicRuntime("org.pureswift.data.ModelEntity")
+protocol ModelEntity {
+    /// `type`: an `AttributeType` code (the table under Types).
+    func addAttribute(_ key: String, type: Int32) -> ModelProperty
+    /// A composite attribute: add its elements to the entity returned.
+    func addComposite(_ key: String) -> ModelEntity
+    func addRelationship(_ key: String, toMany: Bool, destination: String, inverse: String) -> ModelProperty
+    func addIndex(_ properties: [ModelProperty])
+}
+
+@DynamicRuntime("org.pureswift.data.ModelProperty")
+protocol ModelProperty {
+    func key() -> String
+}
+```
+
+A `ModelProperty` is how a record's values are named afterwards. The guest
+gets each once, while it builds the schema, and passes the handle from then
+on, so reading a value doesn't send its name as a string every time.
+
+### A fetch
+
+```swift
+@DynamicRuntime("org.pureswift.data.ModelFetch")
+protocol ModelFetch {
+    static func make(_ entity: String) -> Self
+    func setPredicate(_ predicate: ModelPredicate?)
+    func addSort(_ keyPath: String, ascending: Bool)
+    func setLimit(_ limit: Int32)       // 0: none
+    func setOffset(_ offset: Int32)
+    /// Only the objects with these IDs: a fetch by ID.
+    func setIDs(_ ids: [String])
+}
+
+@DynamicRuntime("org.pureswift.data.ModelPredicate")
+protocol ModelPredicate {
+    /// `operation`, `modifier` and `options` are CoreModel's `Operator`,
+    /// `Modifier` and `Option` set, as codes.
+    static func comparison(_ left: ModelExpression, operation: Int32, right: ModelExpression,
+                           modifier: Int32, options: Int32) -> Self
+    static func and(_ predicates: [ModelPredicate]) -> Self
+    static func or(_ predicates: [ModelPredicate]) -> Self
+    static func not(_ predicate: ModelPredicate) -> Self
+    static func constant(_ value: Bool) -> Self
+}
+
+@DynamicRuntime("org.pureswift.data.ModelExpression")
+protocol ModelExpression {
+    static func keyPath(_ path: String) -> Self
+    static func null() -> Self
+    static func bool(_ value: Bool) -> Self
+    static func integer(_ value: Int64) -> Self
+    static func double(_ value: Double) -> Self
+    static func string(_ value: String) -> Self
+    static func data(_ value: [UInt8]) -> Self
+    /// Several values: the right side of `IN` and `BETWEEN`, or a to-many's IDs.
+    static func list(_ values: [ModelExpression]) -> Self
+    static func arithmetic(_ left: ModelExpression, operation: Int32, right: ModelExpression) -> Self
+}
+```
+
+It's `NSComparisonPredicate` and `NSCompoundPredicate` over `NSExpression`,
+which is also CoreModel's `FetchRequest.Predicate`: a host on Core Data
+builds those objects one for one, and a host on SQLite walks the tree into
+a `WHERE` clause.
+
+### Records, results and batches
+
+```swift
+@DynamicRuntime("org.pureswift.data.ModelRecord")
+protocol ModelRecord {
+    /// A record to insert.
+    static func make(_ entity: ModelEntity, id: String) -> Self
+    func id() -> String
+
+    func isNull(_ property: ModelProperty) -> Bool
+    func bool(_ property: ModelProperty) -> Bool
+    func integer(_ property: ModelProperty) -> Int64
+    func double(_ property: ModelProperty) -> Double
+    func string(_ property: ModelProperty) -> String?
+    func data(_ property: ModelProperty) -> [UInt8]?
+    func composite(_ property: ModelProperty) -> ModelRecord?
+    func toOne(_ property: ModelProperty) -> String?
+    func toMany(_ property: ModelProperty) -> [String]
+
+    func setNull(_ property: ModelProperty)
+    func setBool(_ value: Bool, for property: ModelProperty)
+    func setInteger(_ value: Int64, for property: ModelProperty)
+    func setDouble(_ value: Double, for property: ModelProperty)
+    func setString(_ value: String, for property: ModelProperty)
+    func setData(_ value: [UInt8], for property: ModelProperty)
+    func setComposite(_ value: ModelRecord, for property: ModelProperty)
+    func setToOne(_ id: String?, for property: ModelProperty)
+    func setToMany(_ ids: [String], for property: ModelProperty)
+}
+
+@DynamicRuntime("org.pureswift.data.ModelResults")
+protocol ModelResults {
+    func count() -> Int32
+    func record(at index: Int32) -> ModelRecord
+}
+
+@DynamicRuntime("org.pureswift.data.ModelBatch")
+protocol ModelBatch {
+    static func make() -> Self
+    func insert(_ record: ModelRecord)
+    func delete(_ entity: String, id: String)
+}
+```
+
+- **A fetched record is read-only:** its setters do nothing. A record to
+  insert is made with `make`, filled in, and added to a batch.
+- **Writes aren't lazy.** Inserting a thousand records of ten attributes
+  is about eleven thousand calls. Batches that size are rare, and are what
+  a first import is; they don't hold up the store, which starts work only
+  at `perform`.
+
+### Rules every host follows
+
 - **One callback object per operation**, which the host holds until it has
   called exactly one of its methods, as `Clock.after` holds its delegate.
   Nothing matches request numbers.
@@ -179,9 +347,15 @@ protocol ModelStoreDelegate {
   issued, and their callbacks arrive in that order, on the main thread. A
   fetch sees every batch issued before it.
 - **`didChange` comes after the batch's own callback**, and once per batch.
-- **Releasing the store** closes it once its pending operations finish.
-
-### Rules every host follows
+- **A fetch, a predicate and a batch are read when they're handed over.**
+  Changing one afterwards doesn't change an operation already issued.
+- **`ModelResults` is a snapshot in the host's memory.** `count` and
+  `record(at:)` answer at once, without touching storage: a browser
+  couldn't read IndexedDB inside a synchronous call, and no host should
+  read a disk on the main thread. Reading lazily saves the calls across
+  the boundary, not the host's memory, so a fetch that could match a
+  million objects wants a limit.
+- **Releasing a store** closes it once its pending operations finish.
 
 **The reference is CoreModel's own evaluator.** `FetchRequest.evaluate`
 and the in-memory `filtered` / `sorted` define what a request returns:
@@ -220,33 +394,38 @@ relationships, as CoreModel's `insert` does.
 
 ### Types
 
-| `AttributeType` | Wire | Core Data | SQLite | IndexedDB |
-|---|---|---|---|---|
-| `bool` | 1 byte | Boolean | `INTEGER` | boolean |
-| `int16`, `int32` | varint | Integer 16 / 32 | `INTEGER` | number |
-| `int64` | varint | Integer 64 | `INTEGER` | `BigInt`; in an index, 8 big-endian bytes with the sign bit flipped, since a `BigInt` can't be a key |
-| `float`, `double` | 4 / 8 bytes | Float / Double | `REAL` | number |
-| `string` | UTF-8 | String | `TEXT` | string |
-| `data` | bytes | Binary | `BLOB` | `ArrayBuffer` |
-| `date` | double, seconds since 1970 UTC | Date | `REAL` | number |
-| `uuid` | 16 bytes | UUID | `BLOB` | lowercase hyphenated string, which sorts as the bytes do |
-| `url` | UTF-8 | URI | `TEXT` | string |
-| `decimal` | its canonical string | Decimal | `TEXT`, compared in host code | string, compared in script |
-| `composite` | nested values | flattened attributes | flattened columns (`address.city`) | a nested object |
+Each attribute type crosses as one of five kinds of value, which is the
+getter, the setter and the `ModelExpression` constant used for it:
 
-Every attribute may be `null`.
+| `AttributeType` | Code | Crosses as | Core Data | SQLite | IndexedDB |
+|---|---|---|---|---|---|
+| `bool` | 0 | `bool` | Boolean | `INTEGER` | boolean |
+| `int16`, `int32` | 1, 2 | `integer` | Integer 16 / 32 | `INTEGER` | number |
+| `int64` | 3 | `integer` | Integer 64 | `INTEGER` | `BigInt`; in an index, 8 big-endian bytes with the sign bit flipped, since a `BigInt` can't be a key |
+| `float`, `double` | 4, 5 | `double` | Float / Double | `REAL` | number |
+| `string` | 6 | `string` | String | `TEXT` | string |
+| `data` | 7 | `data` | Binary | `BLOB` | `ArrayBuffer` |
+| `date` | 8 | `double`: seconds since 1970 UTC | Date | `REAL` | number |
+| `uuid` | 9 | `string`: lowercase, hyphenated | UUID | `TEXT` | string |
+| `url` | 10 | `string` | URI | `TEXT` | string |
+| `decimal` | 11 | `string`: its canonical form | Decimal | `TEXT`, compared in host code | string, compared in script |
+| composite | — | a nested `ModelRecord` | flattened attributes | flattened columns (`address.city`) | a nested object |
+
+Every attribute may be `null`: `isNull` says so, and the typed getters
+then answer `false`, 0 or `nil`. A getter of the wrong kind for the
+attribute answers the same way.
 
 ### Indexes
 
-CoreModel's `Model` says what exists, not what's fast. `open` takes
-**indexes** beside it: per entity, lists of attribute keys (one key, or
-several for a compound index). A host indexes IDs and relationship keys by
-itself. Indexes change speed, never results; a host may ignore one it
-can't build.
+CoreModel's `Model` says what exists, not what's fast, so
+`RuntimeModelStorage.open` takes **indexes** beside it and passes them to
+`ModelEntity.addIndex`: one property, or several for a compound index. A
+host indexes IDs and relationship keys by itself. Indexes change speed,
+never results; a host may ignore one it can't build.
 
 ### Migration
 
-`open` compares the model with the one the store was last opened with:
+`open` compares the schema with the one the store was last opened with:
 
 | Change | What happens |
 |---|---|
@@ -255,11 +434,10 @@ can't build.
 | A removed entity, attribute or relationship | migrates by itself; that data is dropped |
 | An attribute's type, or a relationship's destination or kind | `open` fails with `migrationRequired` |
 
-The `migration` option says what to do then: fail (the default), or
-`destructive`, which empties the store. A custom migration is app code:
-open the old store under a new name with its old model, copy across, and
-`destroy` it. That needs the stored model back from the host, which is an
-open question (§15).
+`migration` says what to do then: fail (the default), or empty the store.
+A custom migration is app code: open the old store under a new name with
+its old model, copy across, and `destroy` it. That needs the stored model
+back from the host, which is an open question (§15).
 
 ### Where it's kept
 
@@ -282,11 +460,10 @@ keep nothing. Quotas are per origin. `open` reports `unavailable` when
 there's no storage at all, and writes report `outOfSpace` at the quota. An
 app that can't lose its data needs a server.
 
-**A browser host may use SQLite instead:** compiled to wasm, in a worker,
-on the origin's private file system. The contract is asynchronous, so it
-fits, and it gives the same engine as Android and Linux. It costs a worker,
-about a megabyte of download, and in some browsers cross-origin isolation
-headers. IndexedDB needs none of that, so it's the default.
+**The browser's engine is IndexedDB.** It needs no worker, no extra
+download and no special headers. SQLite compiled to wasm in a worker was
+the alternative: the same engine as Android and Linux, for a worker, about
+a megabyte, and in some browsers cross-origin isolation.
 
 ### Errors
 
@@ -296,9 +473,9 @@ headers. IndexedDB needs none of that, so it's the default.
 |---|---|
 | 0 | `unknown` |
 | 1 | `cancelled`: guest-side only, a cancelled task |
-| 2 | `invalidModel`: the model or options don't decode, or contradict themselves |
+| 2 | `invalidModel`: the schema contradicts itself (a relationship to an entity it doesn't have) |
 | 3 | `migrationRequired` |
-| 4 | `invalidRequest`: an entity or key the model doesn't have, or a value of the wrong type |
+| 4 | `invalidRequest`: an entity or key the schema doesn't have, a property of another schema, or a value of the wrong kind |
 | 5 | `unsupported`: a request feature this host lacks |
 | 6 | `outOfSpace` |
 | 7 | `unavailable`: no storage (a private window, a full disk at open) |
@@ -306,47 +483,14 @@ headers. IndexedDB needs none of that, so it's the default.
 
 A failed batch changes nothing.
 
-## Wire format
-
-Four messages, each a byte buffer: little-endian, LEB128 varints, strings
-as a varint length and UTF-8, and a string table first so entity and
-property names appear once. Each starts with two magic bytes and a version
-byte; a host refuses a version it doesn't know with `invalidModel`.
-
-```
-model    := "RM" version strings entity*
-entity   := name attribute* relationship*
-attribute    := key type            type: one byte per AttributeType; composite nests
-relationship := key kind destination inverse
-
-options  := "RO" version strings index* migration
-index    := entity key+
-
-request  := "RQ" version strings entity ids? predicate? sort* limit offset
-predicate := comparison | and | or | not | bool      as CoreModel's enum, by tag
-expression := value | relationship | keyPath | arithmetic
-
-records  := "RR" version strings record*
-record   := entity id (key value)* (key relation)*
-value    := tag payload             tag: null, then one per AttributeType
-relation := null | toOne id | toMany id*
-
-batch    := "RB" version strings insert:record* delete:(entity id)*
-```
-
-The codec is one Swift source in `DynamicCoreModel`, for the guest and for
-hosts written in Swift. Kotlin and JavaScript hosts write theirs from this
-grammar, as the players do for the render IR. Its exact bytes are fixed
-when it's implemented, and tested by round trips and by the conformance
-vectors.
-
 ## For a host in Swift
 
 The Darwin and Linux hosts are Swift, and CoreModel has backends for both.
-`DynamicCoreModel` carries a host half too: an implementation of
-`ModelStore` over **any** `ModelStorage`. It decodes the wire into
-CoreModel's own types, calls the backend on a background executor, and
-answers on the main thread.
+A shared host module implements these contracts over **any**
+`ModelStorage`: its schema, fetch and record objects are thin wrappers
+that build CoreModel's `Model`, `FetchRequest` and `ModelData`; it calls
+the backend on a background executor, keeps what a fetch returned as the
+`ModelResults`, and answers on the main thread.
 
 | Host | Backend it plugs in |
 |---|---|
@@ -355,7 +499,7 @@ answers on the main thread.
 | Android | Kotlin over `android.database.sqlite`, or CoreModel-SQLite if the host carries Swift |
 | Browser | JavaScript over IndexedDB |
 
-What the shared half adds around a backend: the stored model and the
+What the shared module adds around a backend: the stored model and the
 migration rules above, serial ordering, batches as one transaction, and
 `didChange`.
 
@@ -363,7 +507,8 @@ migration rules above, serial ordering, batches as one transaction, and
 
 Every callback and delegate method runs on the main thread (§6.4). Hosts
 do the I/O elsewhere and hop back. Nothing blocks the main thread: there
-is no synchronous fetch, on any host.
+is no synchronous fetch, on any host, and reading a `ModelResults` reads
+memory.
 
 ## Not in this design
 
