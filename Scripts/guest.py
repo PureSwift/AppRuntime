@@ -49,6 +49,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import gles2
 import manifest as app_manifest
 
 ABI_VERSION = 1
@@ -70,6 +71,10 @@ ALLOWED_APPLE = re.compile(
     r"|fix|fixuns|float|floatun|extend|trunc|pow)[a-z]*[0-9]?)$"
 )
 GUEST_EXPORTS = ("rt_main", "rt_dispatch", "rt_finalize")
+# OpenGL ES 2.0 under WebGL 1 rules (§8.1): the same functions in every
+# mode, as `env.gl` imports on wasm32 and the platform's symbols natively.
+GL_FUNCTIONS = {function.name for function in gles2.functions()}
+GL_IMPORTS = gles2.imports()
 SUPPORT = Path(__file__).resolve().parent / "support"
 GLIBC_ONLY = re.compile(r"(_chk$|^__errno_location$|^__errno$|^__tls_get_addr$|@)")
 
@@ -646,6 +651,8 @@ def check_sealed(toolchain, obj, macho, manifest=None):
             problems.append(f"guest export {symbol} is undefined")
         elif GLIBC_ONLY.search(symbol):
             problems.append(f"glibc-only reference {symbol}")
+        elif re.match(r"gl[A-Z]", symbol) and symbol not in GL_FUNCTIONS:
+            problems.append(f"{symbol} isn't in OpenGL ES 2.0 under WebGL 1 rules (Scripts/gles2.py)")
         elif not (ALLOWED_UNDEFINED.match(symbol)
                   or (macho and ALLOWED_APPLE.match(symbol))
                   or (not macho and ALLOWED_ARM_EABI.match(symbol))):
@@ -804,8 +811,8 @@ def build_wasm(toolchain, graph, product, targets, plugins, output, contracts_se
     imports, exports, custom = wasm_sections(wasm.read_bytes())
     problems = []
     for name in imports:
-        if not (name.startswith("rt.") or name.startswith("wasi_snapshot_preview1.")):
-            problems.append(f"import outside rt and WASI preview 1: {name}")
+        if not (name.startswith("rt.") or name.startswith("wasi_snapshot_preview1.") or name in GL_IMPORTS):
+            problems.append(f"import outside rt, WASI preview 1 and OpenGL ES 2.0: {name}")
     for name in ("_initialize", "rt_main", "rt_dispatch", "rt_finalize", "rt_alloc", "rt_free", "memory"):
         if name not in exports:
             problems.append(f"missing export {name}")
