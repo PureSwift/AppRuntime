@@ -31,6 +31,7 @@ let package = Package(
         .library(name: "DynamicNetworking", targets: ["DynamicNetworking"]),
         .library(name: "DynamicNFC", targets: ["DynamicNFC"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
+        .library(name: "DynamicFiles", targets: ["DynamicFiles"]),
         // Shared: OpenGL ES 2.0 for guests (§8), and the surface it draws to.
         .library(name: "CGLES2", targets: ["CGLES2"]),
         .library(name: "DynamicGraphics", targets: ["DynamicGraphics"]),
@@ -60,6 +61,8 @@ let package = Package(
         .library(name: "ExampleGL", type: .static, targets: ["ExampleGL"]),
         // Example web guest app: a small browser around a WebView.
         .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
+        // Example files guest app: a notebook kept as text files.
+        .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example host contracts, for tests in nested packages (Packages/).
         .library(name: "ExampleHost", targets: ["ExampleHost"]),
     ],
@@ -156,6 +159,7 @@ let package = Package(
                 "CRuntime",
                 "RuntimeABI",
                 "DynamicRuntime",
+                "DynamicFiles",
                 "RuntimeNative",
             ]
         ),
@@ -237,6 +241,15 @@ let package = Package(
             path: "Contracts/DynamicFormatting"
         ),
         .target(
+            name: "DynamicFiles",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicFiles"
+        ),
+        .testTarget(
+            name: "DynamicFilesTests",
+            dependencies: ["DynamicFiles", "RuntimeNative"]
+        ),
+        .target(
             name: "DynamicGraphics",
             dependencies: ["DynamicRuntime", "CGLES2"],
             path: "Contracts/DynamicGraphics"
@@ -293,6 +306,11 @@ let package = Package(
             name: "ExampleUI",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI"],
             path: "examples/ExampleUI"
+        ),
+        .target(
+            name: "ExampleFiles",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles"],
+            path: "examples/ExampleFiles"
         ),
         .target(
             name: "ExampleWeb",
@@ -352,7 +370,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RuntimeHostTests",
-            dependencies: ["RuntimeHost", "RuntimeNative"]
+            dependencies: ["RuntimeHost", "RuntimeNative", "DynamicFiles"]
         ),
         .testTarget(
             name: "DynamicRuntimeTests",
