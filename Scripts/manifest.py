@@ -254,6 +254,17 @@ def default_targets(manifest, targets, groups):
     return selected
 
 
+# Capabilities a contract works without, and does more with: a web page
+# shows bundled content without `network`, and anything with it. Declaring
+# one for such a contract isn't unused.
+OPTIONAL_CAPABILITIES = {"org.pureswift.web.WebContent": "network"}
+
+
+def optional_capabilities(contracts):
+    """The capabilities the app's contracts can use without requiring them."""
+    return {OPTIONAL_CAPABILITIES[c["name"]] for c in contracts if c["name"] in OPTIONAL_CAPABILITIES}
+
+
 def localized_keys(manifest):
     """Every `.localized` key the manifest uses, with where it's used."""
     keys = []
@@ -305,7 +316,7 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
         if name not in declared:
             users = ", ".join(c["name"] for c in contracts if c["capability"] == name)
             errors.append(f"capability {name!r} isn't declared, but {users} requires it")
-    for name in sorted(set(declared) - set(required)):
+    for name in sorted(set(declared) - set(required) - optional_capabilities(contracts)):
         warnings.append(f"capability {name!r} is declared but no contract requires it")
     for name in sorted(set(declared) - KNOWN_CAPABILITIES):
         warnings.append(f"capability {name!r} isn't one hosts know")
