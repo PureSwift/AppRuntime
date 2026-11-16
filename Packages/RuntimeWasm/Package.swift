@@ -41,6 +41,8 @@ let package = Package(
                 .product(name: "DynamicUI", package: "AppRuntime"),
                 .product(name: "DynamicGraphics", package: "AppRuntime"),
                 .product(name: "DynamicWebKit", package: "AppRuntime"),
+                .product(name: "DynamicFiles", package: "AppRuntime"),
+                .product(name: "RuntimeHost", package: "AppRuntime"),
                 .product(name: "CGLES2", package: "AppRuntime"),
                 .product(name: "CRuntimeGL", package: "AppRuntime"),
                 .product(name: "WAT", package: "WasmKit"),
