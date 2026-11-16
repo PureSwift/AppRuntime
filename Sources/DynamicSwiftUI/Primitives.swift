@@ -309,3 +309,27 @@ extension ForEach {
         self.tag = { TagRecord(id($0)) }
     }
 }
+
+/// Where a `Surface` draws with OpenGL ES (§8.2): the host puts its GL view
+/// here, laid out, layered and clipped like any other view.
+///
+/// ```swift
+/// GLSurface(surface.identifier())
+///     .frame(height: 240)
+/// ```
+///
+/// It takes the space offered. Views over it in a `ZStack` get their
+/// pointers first; the rest go to the surface's delegate.
+public struct GLSurface: PrimitiveView {
+
+    let surface: Int32
+
+    /// - Parameter surface: The surface's `identifier()`.
+    public init(_ surface: Int32) {
+        self.surface = surface
+    }
+
+    func makeNode(_ id: RenderNode.ID, context: RenderContext) -> RenderNode {
+        RenderNode("GLSurface", id: id, props: ["surface": .int(Int(surface))])
+    }
+}
