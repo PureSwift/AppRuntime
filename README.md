@@ -150,8 +150,8 @@ on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
 `examples/ExampleWeb` is a small browser around a `WebView`: guest code
 says `import WebKit`, shows a `WebPage`, follows its title and progress,
 decides its navigations and runs scripts in it
-([Web views](Documentation/Contracts/WebKit.md)). No host has a browser
-engine behind it yet.
+([Web views](Documentation/Contracts/WebKit.md)). The Darwin host runs it
+over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`).
 
 ## Building
 
