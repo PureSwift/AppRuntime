@@ -333,3 +333,25 @@ public struct GLSurface: PrimitiveView {
         RenderNode("GLSurface", id: id, props: ["surface": .int(Int(surface))])
     }
 }
+
+/// A view that is one render node, for a module that adds a node of its
+/// own to the vocabulary, as `WebKit`'s `WebView` does. A player that
+/// doesn't know the type shows a placeholder (§9.2).
+///
+/// The node gets its identity from the view's position, like any other, so
+/// wrap it in a view of your own rather than building it in a loop.
+public struct _RenderNodeView: PrimitiveView {
+
+    let type: String
+
+    let props: [String: PropValue]
+
+    public init(_ type: String, props: [String: PropValue] = [:]) {
+        self.type = type
+        self.props = props
+    }
+
+    func makeNode(_ id: RenderNode.ID, context: RenderContext) -> RenderNode {
+        RenderNode(type, id: id, props: props)
+    }
+}
