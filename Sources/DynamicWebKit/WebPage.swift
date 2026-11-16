@@ -95,6 +95,8 @@ public final class WebPage: Observable {
 
     // MARK: Loading
 
+    /// Loads `url`. A remote one needs `.network` in the app's manifest;
+    /// without it the load fails with `WebError.Code.notPermitted`.
     public func load(_ url: String) {
         content.load(url)
     }
