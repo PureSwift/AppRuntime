@@ -1,8 +1,5 @@
 # Files
 
-> **Draft.** Nothing here is implemented: no module, no host. It specifies
-> §7.9 of `DynamicRuntime.md`.
-
 Module `DynamicFiles`: the app's own files, and the files in its bundle.
 The guest's `FileManager`.
 
@@ -13,6 +10,11 @@ The guest's `FileManager`.
 
 Guest-side Swift: `FileDirectory`, `FilePath`, `FileAttributes`,
 `FileError`, and `FileManager`, the async API app code uses.
+
+The guest side is implemented, and so is the host side for any host with a
+POSIX file system: `HostFiles` in `RuntimeHost`, which the Darwin and Linux
+hosts can register as it is. Android and the browser need their own. The
+design is §7.9 of `DynamicRuntime.md`.
 
 ## Why a contract is needed
 
@@ -31,8 +33,8 @@ A guest can't open a file today, in any mode:
   And `Bundle` (§7.4) only has strings and metadata: a guest can't read a
   shader or a level from its own bundle.
 
-So files go through a contract, the same one in every mode, and §3.3's
-WASI preopens go away.
+So files go through a contract, the same one in every mode, and WASI has
+no files (§3.3).
 
 ## What shapes it
 
@@ -100,8 +102,16 @@ try await files.removeItem(at: .caches / "thumbnails")
 
 The names follow Foundation's, so code reads the same; the calls are
 `async throws(FileError)`, and take a `FilePath` where Foundation takes a
-URL. Completion-handler forms exist for slices built without the
-concurrency runtime.
+URL. Each has a completion-handler form, for code that isn't `async` and
+for slices built without the concurrency runtime.
+
+- A cancelled task stops waiting, with `cancelled`. The operation isn't
+  undone, and may still happen.
+- A `FilePath` drops one trailing `/`, so a name from a listing can be
+  used as it is. `isValid` says beforehand whether a host will accept it.
+- The class is named `FileManager`, as Foundation's is. Host-side Swift
+  that imports both writes `DynamicFiles.FileManager`; a guest has no
+  Foundation to confuse it with.
 
 ## The contract
 
@@ -130,7 +140,7 @@ protocol FileCallback {
     func didList(_ names: [String])
     /// `kind`: 0 file, 1 directory. `modified`: milliseconds since 1970 UTC, 0 if unknown.
     func didGetAttributes(kind: Int32, size: Int64, modified: Int64)
-    func didFail(_ error: Int32, message: String)
+    func didFail(_ error: Int32)
 }
 ```
 
@@ -143,7 +153,12 @@ protocol FileCallback {
 - **A replacing write is atomic:** a reader sees the old file or the new
   one, never part of each, and a crash leaves one of them. (A temporary
   file and a rename; `createWritable` in a browser.)
-- **Writes make missing directories.** Reads never do.
+- **Writes make missing directories**, and so do moves and copies, for
+  their destination. Reads never do.
+- **Removing the empty path** empties the directory, which stays. A
+  directory itself can't be moved, copied or replaced: `invalidPath`.
+- **A file where a directory is needed** on the way to a path is
+  `notDirectory`; where the last directory would go, `alreadyExists`.
 - **`bundle` is read-only:** writes, removes and moves from it fail with
   `readOnly`. Copies out of it work.
 - **A read past the end** returns what's there: empty at or after the
@@ -161,7 +176,7 @@ protocol FileCallback {
 | 0 | `unknown` |
 | 1 | `cancelled`: guest-side only |
 | 2 | `notFound` |
-| 3 | `alreadyExists`: a move's or copy's destination |
+| 3 | `alreadyExists`: a move's or copy's destination, or a file where a directory was to be made |
 | 4 | `notDirectory`: a file where a directory is needed |
 | 5 | `isDirectory`: a directory where a file is needed |
 | 6 | `invalidPath` |
@@ -176,13 +191,37 @@ engine. A host accepts at least 64 MB in one call; past its limit it
 answers `tooLarge`, and the guest uses ranges and `append`. Files of any
 size can be listed, moved, copied and removed.
 
+### A host with a POSIX file system
+
+`HostFiles` (in `RuntimeHost`) is the whole contract over `open`, `pread`,
+`rename` and the rest, with no Foundation. A host says where each directory
+is and registers the module:
+
+```swift
+try HostFiles.configure(HostFiles.Configuration(directories: [
+    .documents: container + "/Documents",
+    .data: container + "/Library/Application Support",
+    .caches: container + "/Library/Caches",
+    .temporary: container + "/tmp",
+    .bundle: bundle + "/resources",
+]))
+HostFilesModule.register(in: runtime)
+```
+
+- `configure` makes the writable directories and empties `temporary`.
+- Work runs on a serial queue, and answers on the main dispatch queue. A
+  host with a loop of its own passes `deliver`, to post answers to it.
+- A path is confined to its directory: a symbolic link that leads out of
+  it is `invalidPath`, for reads and writes alike.
+- `maximumTransfer` is 256 MB unless the host says otherwise.
+
 ### Per host
 
 | | Notes |
 |---|---|
-| iOS / macOS | `FileManager` on a background queue. `documents` shows in the Files app only if the app's manifest asks for file sharing (a manifest option, later). |
+| iOS / macOS | `HostFiles`, with the container's directories. `documents` shows in the Files app only if the app's manifest asks for file sharing (a manifest option, later). |
 | Android | `bundle` is the APK's assets: `AssetManager.open` and `list`. An asset has no modification date (0), and a compressed one must be read through to find its size. |
-| Linux distro | The launcher already binds `/data` read-write and `/app` read-only (§7.8). Landlock confines the host to them. |
+| Linux distro | `HostFiles`. The launcher already binds `/data` read-write and `/app` read-only (§7.8), and Landlock confines the host to them. `/tmp` is often another volume, which a move from `temporary` handles by copying. |
 | Browser | `navigator.storage.getDirectory()`, one subdirectory per `FileDirectory`. Where a browser lacks asynchronous writes on the main thread, the host writes from a worker. `bundle` is `fetch` of the packaged resources; listing needs an index the packager writes beside them. `temporary` is emptied by the host at start. |
 
 ## Capability
@@ -194,6 +233,15 @@ reaches another app's files or the user's.
 
 Every callback runs on the main thread (§6.4). Hosts do the I/O elsewhere
 and hop back.
+
+## Example
+
+`examples/ExampleFiles`: a notebook kept as text files. It reads a welcome
+text from the bundle, saves, lists, opens and deletes notes in `documents`,
+and exports them all with `async`/`await`. Its tests run it against
+`HostFiles` and a temporary directory, checking the files on disk, as
+`App.wasm` under WasmKit (`Packages/RuntimeWasm`) and as a sealed native
+slice and wasm2c output (`Packages/LinkedSlice`).
 
 ## Not in this design
 
