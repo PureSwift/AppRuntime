@@ -66,7 +66,7 @@ ALLOWED_ARM_EABI = re.compile(r"^__aeabi_mem(cpy|move|set|clr)[48]?$")
 # re-exports compiler-rt (soft-float and 64-bit integer helpers that the
 # soft-float armv7-apple-none-macho target calls, as Swift-iOS6 does).
 ALLOWED_APPLE = re.compile(
-    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod|__stack_chk_fail|__stack_chk_guard"
+    r"^(bzero|__bzero|ceil|floor|trunc|round|roundf|sqrt|fmod|fma|fmaf|__stack_chk_fail|__stack_chk_guard"
     r"|__(ashl|ashr|lshr|mul|div|udiv|mod|umod|neg|add|sub|eq|ne|lt|le|gt|ge|unord|cmp|ucmp"
     r"|fix|fixuns|float|floatun|extend|trunc|pow)[a-z]*[0-9]?)$"
 )
