@@ -7,7 +7,10 @@ import DynamicRuntime
 /// `identifier()`. A page loads whether or not it's on screen. App code
 /// uses `WebPage`, which wraps this contract.
 ///
-/// It requires `network`: web content fetches what it likes.
+/// It needs no capability: a page can show an HTML string or a file from
+/// the app bundle. Reaching the network does: without `network` in the
+/// app's manifest, the host loads nothing remote, and a navigation to a
+/// remote URL fails with `WebError.Code.notPermitted`.
 ///
 /// | Host | Implementation |
 /// |---|---|
@@ -15,7 +18,7 @@ import DynamicRuntime
 /// | Android | `android.webkit.WebView` |
 /// | Linux | WPE WebKit (`WebKitWebView`), drawn into the player's scene |
 /// | Browser | an `<iframe>` |
-@DynamicRuntime("org.pureswift.web.WebContent", requires: .network)
+@DynamicRuntime("org.pureswift.web.WebContent")
 public protocol WebContent: AnyObject {
 
     static func make(_ delegate: WebContentDelegate) -> Self
@@ -27,7 +30,7 @@ public protocol WebContent: AnyObject {
     // MARK: Loading
 
     /// Starts loading `url`. Progress and failure arrive through the
-    /// delegate.
+    /// delegate. A remote URL needs the `network` capability.
     func load(_ url: String)
 
     /// Shows `html`. Relative URLs in it resolve against `baseURL`; without
