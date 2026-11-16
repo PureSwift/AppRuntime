@@ -24,6 +24,7 @@ builds and the first provider contracts:
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
+| Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. Android and the browser need their own host side. `Defaults` and the model store are designs only |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
@@ -267,6 +268,34 @@ which are each host's. TCP and UDP are not part of the spec.
 - **Embedded constraints met:** no key paths, no existentials of non-class
   protocols, no generic code on `AnyObject` values (identity uses `===`),
   and `String` comparison links `libswiftUnicodeDataTables`.
+- **Files (§7.9).**
+  - **WASI has no files.** §3.3 gave wasm guests preopened directories;
+    the `Files` contract replaces them, so one API serves native slices,
+    which have no file functions, and browsers, which can't block.
+  - **The host side is shared and has no Foundation.** `HostFiles` is the
+    contract over `open`, `pread`, `rename`, `readdir`; a host gives it
+    the directories' paths. It's in `RuntimeHost`, which now depends on
+    `DynamicFiles`.
+  - **Every operation is asynchronous**, also for a host that could
+    answer at once: work runs on a serial queue and answers on the main
+    thread. A host passes `deliver` when its main loop isn't the main
+    dispatch queue, and tests pass closures that run at once.
+  - **`didFail` carries a code and no message**, unlike the draft. The
+    guest's `FileError` is an enum to switch over, with nowhere to keep
+    one.
+  - **Confinement is by resolved path.** The deepest part of a path that
+    exists is resolved, and must still be inside the directory, so a
+    symbolic link out of it is refused for reads and for writes.
+  - **A replacing write** is a temporary file beside the target and a
+    `rename` over it.
+  - **Listings sort by UTF-8 bytes**, so every host gives the same order.
+  - **`FileManager` collides with Foundation's** where both are imported:
+    host-side Swift writes `DynamicFiles.FileManager`.
+  - **Typed throws and `Task`.** A closure written `() throws(FileError)`
+    and handed to `Task { }` threw a garbage error value in a host test
+    (Swift 6.4.2). An ordinary throwing closure around the same call is
+    right. The guest's API isn't affected; it's worth knowing when
+    writing tests.
 - **Web views (§9.6).**
   - **A page is a contract object, and the node only places it**, as
     `Surface` and `GLSurface` do. A web view is mostly commands and
@@ -532,6 +561,24 @@ Each of these needs a decision, or is verified only as far as noted:
 - `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
   and `Application` built-ins against fake hosts, calls before a host
   implements them, and their descriptors against `BuiltinContracts`.
+- `DynamicFilesTests`: the file contracts' keys and signatures, `FilePath`,
+  and the guest's `FileManager` against a scripted host: what each call
+  asks, answers and failures, an answer of the wrong kind, a second
+  answer, answers out of order, awaiting, and cancellation.
+- `RuntimeHostTests/HostFilesTests`: `HostFiles` on real files in a
+  temporary directory: atomic replacement, appends, ranges, the transfer
+  limit, sorted listings, attributes, making and removing trees, moves and
+  copies, the read-only bundle, paths that would leave their directory,
+  symbolic links out of it, names that differ by case, and `temporary`
+  emptied at start; then the guest's `FileManager` through `NativeRuntime`
+  to those files, with completion handlers and with `await`. The async
+  tests run on the main actor, so the guest's calls and the host's answers
+  share a thread as they do in a host; answered from another thread, they
+  crashed now and then on Linux. Both suites also pass on Linux
+  (`swift:6.4-noble` in Docker).
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
+  against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
+  output, and check the files it leaves.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
@@ -594,7 +641,9 @@ Each of these needs a decision, or is verified only as far as noted:
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
-8. App data (§7.9), which is a design only: the `Files` and `Defaults`
-   contracts, and `ModelStore` behind CoreModel
-   (`Documentation/Contracts/Files.md`, `Persistence.md`). CoreModel
-   needs its `@Entity` macro to work under Embedded Swift first.
+8. The rest of app data (§7.9), which is a design only: the `Defaults`
+   contract, and `ModelStore` behind CoreModel
+   (`Documentation/Contracts/Persistence.md`). CoreModel needs its
+   `@Entity` macro to work under Embedded Swift first. And `Files` in the
+   hosts: registering `HostFiles` in the Darwin and Linux hosts, and
+   Android's and the browser's own.
