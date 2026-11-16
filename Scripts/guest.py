@@ -1057,7 +1057,7 @@ def build_bundle(arguments):
         missing = [c for c in required if c not in capabilities]
         if missing:
             raise BuildError(f"contracts require undeclared capabilities: {', '.join(missing)}")
-        for unused in sorted(set(capabilities) - set(required)):
+        for unused in sorted(set(capabilities) - set(required) - app_manifest.optional_capabilities(contracts)):
             print(f"warning: capability '{unused}' is declared but no contract uses it")
 
     output = Path(arguments.output) if arguments.output else builder.root
