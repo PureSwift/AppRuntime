@@ -48,6 +48,9 @@ public struct WebError: Error, Equatable, Sendable {
         case badURL = 5
         /// A script threw.
         case javaScript = 6
+        /// The URL is remote, and the app's manifest doesn't declare the
+        /// `network` capability.
+        case notPermitted = 7
     }
 
     public var code: Code
