@@ -300,7 +300,7 @@ struct FileSystem: Sendable {
         return String(cString: resolved)
     }
 
-    private static func parent(_ path: String) -> String {
+    static func parent(_ path: String) -> String {
         guard let slash = path.lastIndex(of: "/") else { return path }
         return String(path[..<slash])
     }
@@ -345,7 +345,7 @@ struct FileSystem: Sendable {
 
     /// `mkdir -p`. A file in the way is `notDirectory`, or `alreadyExists`
     /// when it's where the last directory would go.
-    private func makeDirectories(_ path: String) throws(FileError) {
+    func makeDirectories(_ path: String) throws(FileError) {
         if let existing = try status(path) {
             guard Self.isDirectory(existing) else { throw .alreadyExists }
             return
@@ -441,28 +441,55 @@ struct FileSystem: Sendable {
             defer { close(descriptor) }
             try Self.writeAll(descriptor, data)
         case .replace:
-            // A temporary file beside it, then a rename over it: a reader
-            // sees the old file or the new one.
-            let suffix = UInt32.random(in: .min ... .max)
-            let temporary = Self.parent(full) + "/." + Self.name(full) + ".tmp-" + String(suffix, radix: 16)
-            let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0o644)
-            guard descriptor >= 0 else {
-                throw Self.error(errno)
-            }
-            do throws(FileError) {
-                try Self.writeAll(descriptor, data)
-            } catch {
-                close(descriptor)
-                unlink(temporary)
-                throw error
-            }
-            close(descriptor)
-            if rename(temporary, full) != 0 {
-                let code = errno
-                unlink(temporary)
-                throw Self.error(code)
-            }
+            try Self.replace(file: full, with: data)
         }
+    }
+
+    /// Replaces the file at `path` with `data`, atomically: a temporary file
+    /// beside it, then a rename over it, so a reader sees the old file or
+    /// the new one. The directory must exist.
+    static func replace(file path: String, with data: [UInt8]) throws(FileError) {
+        let suffix = UInt32.random(in: .min ... .max)
+        let temporary = parent(path) + "/." + name(path) + ".tmp-" + String(suffix, radix: 16)
+        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+        guard descriptor >= 0 else {
+            throw error(errno)
+        }
+        do throws(FileError) {
+            try writeAll(descriptor, data)
+        } catch {
+            close(descriptor)
+            unlink(temporary)
+            throw error
+        }
+        close(descriptor)
+        if rename(temporary, path) != 0 {
+            let code = errno
+            unlink(temporary)
+            throw Self.error(code)
+        }
+    }
+
+    /// The whole file at `path`; `nil` when there's none.
+    static func contents(ofFile path: String) throws(FileError) -> [UInt8]? {
+        let descriptor = open(path, O_RDONLY)
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return nil }
+            throw error(errno)
+        }
+        defer { close(descriptor) }
+        var bytes: [UInt8] = []
+        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        while true {
+            let count = buffer.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, $0.count, off_t(bytes.count)) }
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw error(errno)
+            }
+            if count == 0 { break }
+            bytes += buffer[..<count]
+        }
+        return bytes
     }
 
     private static func name(_ path: String) -> String {
