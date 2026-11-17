@@ -11,7 +11,9 @@ Guest-side Swift: `UserDefaults` and `@AppStorage`.
 
 The guest side is implemented, and so is a host side: `HostDefaults` in
 `RuntimeHost`, over any store a host gives it, with a file-backed one
-included. The design is §7.9 of `DynamicRuntime.md`.
+included. The Darwin host gives it a `UserDefaults` suite of the app's own
+on iOS and macOS (DarwinAppRuntime's `DarwinDefaults`). The design is §7.9
+of `DynamicRuntime.md`.
 
 ## Why it's synchronous
 
@@ -135,7 +137,7 @@ HostDefaultsModule.register(in: runtime)
 
 | | Notes |
 |---|---|
-| iOS / macOS | `UserDefaults(suiteName:)` behind `DefaultsStorage`, or `FileDefaultsStorage` in Application Support. |
+| iOS / macOS | `UserDefaults(suiteName:)` behind `DefaultsStorage`: DarwinAppRuntime's `DarwinDefaults`, in the suite `<app id>.defaults`, apart from the host's own settings. Reads look only at that suite's own values (`persistentDomain(forName:)`), so the global domain's, such as `AppleLanguages`, don't show. A value over 64 KB is refused. |
 | Android | `SharedPreferences`, with `apply()`; bytes as Base64 under a marked key, since it has no byte type. |
 | Linux distro | `FileDefaultsStorage` in `/data`. |
 | Browser | `localStorage` under `<app id>.`; bytes as Base64 with a marker. `setItem` throws at the quota: answer `false`. Private windows may keep nothing after they close. |
@@ -155,4 +157,5 @@ name, a theme kept as an enum, and a count of launches. Its tests keep the
 settings in a real file through `HostDefaults`: as `App.wasm` under
 WasmKit, launched twice, where the second launch finds what the first
 stored (`Packages/RuntimeWasm`), and as a sealed native slice and wasm2c
-output (`Packages/LinkedSlice`).
+output (`Packages/LinkedSlice`). The Darwin host runs it
+(DarwinAppRuntime's `DarwinDefaults`).
