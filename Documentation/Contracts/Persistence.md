@@ -1,18 +1,16 @@
 # Persistence
 
-> **Draft.** Nothing here is implemented: no module, no host. It specifies
-> §7.9 of `DynamicRuntime.md`.
-
-A model store for apps: entities, attributes and relationships, fetched with
-predicates and kept across launches, on iOS, macOS, Android, Linux and the
-web. App code is written against [CoreModel](https://github.com/PureSwift/CoreModel);
-each host keeps the data in what its platform has.
+Module `DynamicCoreModel`: a model store for apps. Entities, attributes and
+relationships, fetched with predicates and kept across launches. App code
+is written against [CoreModel](https://github.com/PureSwift/CoreModel);
+each host keeps the data in what its platform has. It specifies §7.9 of
+`DynamicRuntime.md`.
 
 | Piece | What | Where |
 |---|---|---|
-| CoreModel | `@Entity`, `Model`, `ModelData`, `FetchRequest`, `ModelStorage` | the guest, unchanged |
-| `DynamicCoreModel` | `RuntimeModelStorage`, a `ModelStorage` over the contracts; `FetchedResults`, a fetch read as it's used; `Query`, results that stay current for SwiftUI | new, guest |
-| The contracts | a store, and the objects it's described and queried with | hosts |
+| CoreModel | `Entity`, `Model`, `ModelData`, `FetchRequest`, `ModelStorage` | the guest, unchanged; re-exported by `DynamicCoreModel` |
+| `DynamicCoreModel` | the contracts; `RuntimeModelStorage`, a `ModelStorage` over them; `FetchedResults`, a fetch read as it's used; `Query`, results that stay current for SwiftUI | guest and host |
+| `RuntimeCoreModel` | `HostModelStore`: the contracts over any CoreModel backend, for hosts written in Swift | host |
 
 | Contract | Stands for | Core Data's counterpart |
 |---|---|---|
@@ -28,6 +26,13 @@ each host keeps the data in what its platform has.
 | | iOS / macOS | Android | Linux | Browser |
 |---|---|---|---|---|
 | Kept in | Core Data, through CoreModel's `CoreDataModel` | SQLite (`android.database.sqlite`) | SQLite, through CoreModel-SQLite | IndexedDB |
+
+The guest side is implemented, and so is the host side for any host
+written in Swift: `HostModelStore` in `RuntimeCoreModel`, which takes a
+CoreModel backend from the host. No platform host has given it one that
+keeps data yet: the Darwin and Linux hosts have that to do, and Android and
+the browser need hosts of their own. The backend the tests use is
+CoreModel's in-memory one.
 
 For small settings, see [Defaults](Defaults.md). For files, see
 [Files](Files.md).
@@ -64,27 +69,41 @@ is a struct the app decodes from `ModelData` and encodes back.
 
 **The guest has no Foundation.** CoreModel compiles under Embedded Swift,
 with `Date`, `UUID`, `Data`, `URL` and `Decimal` from
-swift-embedded-foundation. Nothing here needs `Codable`, `Mirror` or key
-paths.
+swift-embedded-foundation, which the guest build brings in with it.
+Nothing here needs `Codable`, `Mirror` or key paths.
 
 ## For a guest
 
 ```swift
-import CoreModel
-import DynamicCoreModel
+import DynamicCoreModel   // CoreModel comes with it
 
-@Entity
-struct Person: Identifiable {
-    let id: UUID
-    @Attribute var name: String
-    @Attribute var age: Int32
-    @Relationship(destination: Team.self, inverse: .members)
-    var team: Team.ID?
+struct Person: Entity {
+
+    static var entityName: EntityName { "Person" }
+    static var attributes: [CodingKeys: AttributeType] { [.name: .string, .age: .int32] }
+    static var relationships: [CodingKeys: Relationship] {
+        [.team: Relationship(id: "team", type: .toOne, destinationEntity: "Team", inverseRelationship: "members")]
+    }
+    enum CodingKeys: String, CodingKey { case id, name, age, team }
+
+    let id: String
+    var name: String
+    var age: Int32
+    var team: String?
+
+    init(from model: ModelData) throws(ModelDataDecodingError) {
+        id = model.id.rawValue
+        name = try model.decode(String.self, forKey: CodingKeys.name)
+        age = try model.decode(Int32.self, forKey: CodingKeys.age)
+        team = try model.decodeRelationship(String?.self, forKey: CodingKeys.team)
+    }
+
+    func encode() -> ModelData { … }
 }
 
 let model = Model(entities: [EntityDescription(entity: Person.self),
                              EntityDescription(entity: Team.self)])
-let store = try await RuntimeModelStorage.open(
+let store = RuntimeModelStorage(
     "library",
     model: model,
     indexes: [Person.entityName: [["name"], ["age"]]]
@@ -101,27 +120,51 @@ let adults = try await store.results(Person.self, for: request)   // read as it'
 let first = adults.first
 ```
 
+Entities are written by hand, as CoreModel's README shows: its macros are
+off under Embedded Swift (below).
+
 `RuntimeModelStorage` is a `ModelStorage`, so code written against the
-protocol runs unchanged on it, on `InMemoryStorage` in tests, and on
-CoreModel's own backends in a full-Swift app.
+protocol runs unchanged on it, on `InMemoryModelStorage` in tests, and on
+CoreModel's own backends in a full-Swift app. (Under Embedded Swift the
+conformance itself is missing, because a typed `throws` can't witness the
+protocol's untyped one there; the methods are the same.)
+
+- **A storage can be used as soon as it's made.** Operations wait for the
+  store to open, and fail with what it failed with if it doesn't.
+  `RuntimeModelStorage.open(…)` is the same, awaited: it returns once the
+  store is open, or throws.
+- **Errors are `ModelStoreError`:** a `code` (the table below) and the
+  backend's own `message`, for logs.
+- **Releasing the storage** closes the store, once its pending operations
+  finish. `RuntimeModelStorage.destroy(_:)` deletes a store by name.
 
 What it adds to the protocol:
 
-- **`open(_:model:indexes:migration:)`**: opens the app's store of that
-  name, creating or migrating it.
-- **`results(_:for:)`**: a fetch as a `FetchedResults`, below.
-- **`perform(_:)`**: one atomic batch of inserts and deletes. `insert` and
-  `delete` are batches of their own.
-- **`changes`**: an `EventStream` of the entity names each committed batch
-  touched.
-- **Completion-handler forms** of every call, for slices built without the
-  concurrency runtime.
+| | |
+|---|---|
+| `results(_:for:)`, `records(for:)` | a fetch as a `FetchedResults` or `FetchedRecords`, below |
+| `fetch(_:for:)` with an entity type | one entity by ID, decoded |
+| `perform(_:)` | a `ModelChanges`: inserts and deletes applied together, in order. `insert` and `delete` are batches of their own |
+| `addChangeObserver(_:)`, `changes` | the entity names each committed batch touched: a closure, or an `EventStream` |
+| a `completion:` form of every call | for code that isn't `async`, and for slices built without the concurrency runtime |
+
+**An insert over an object merges.** Where there's an object with the
+record's ID, the properties the record has are set and the others are left
+as they are, which is CoreModel's `insert`. So one property can be changed
+without reading the object first:
+
+```swift
+var change = ModelData(entity: Person.entityName, id: "ada")
+change.encode(Int32(37), forKey: Person.CodingKeys.age)
+try await store.insert(change)
+```
 
 ### Two ways to fetch
 
 | | Returns | Reads |
 |---|---|---|
-| `results(_:for:)` | `FetchedResults<T>`, a `RandomAccessCollection` | a record when it's first subscripted, then kept |
+| `results(_:for:)` | `FetchedResults<T>`, a `RandomAccessCollection` of entities | a record when it's first subscripted, then kept |
+| `records(for:)` | `FetchedRecords`, the same of `ModelData` | the same |
 | `fetch(_:)`, the protocol's | `[ModelData]` | every record, before it returns |
 
 - `FetchedResults` knows its `count` at once, without reading a record.
@@ -130,9 +173,13 @@ What it adds to the protocol:
 - The frontend's lists take any `RandomAccessCollection` and ask for rows
   by index, so `List(results)` reads the rows on screen.
 - `fetch(_:)` is right for small results and for code shared with other
-  backends. For a large one it makes a call per value, about 10,000 for a
-  thousand records of ten attributes; give it a `fetchLimit`, or use
-  `results`.
+  backends. For a large one it makes a call or two per value; give it a
+  `fetchLimit`, or use `results`.
+- **A record that doesn't decode stops the app** when `FetchedResults` is
+  subscripted, as a force-unwrap would. The usual cause is an attribute
+  added to the model since the object was stored: it reads as null, so the
+  property wants to be optional. `element(at:)` throws instead, and
+  `records` has the `ModelData`.
 
 ### Query: results that stay current
 
@@ -154,10 +201,20 @@ let people = Query<Person>(store, sort: [.init(property: "name")])
 `Query` is observable: `results` (a `FetchedResults`), `isLoading` and
 `error`. It fetches when made, and again when the store reports a change
 to its entity or to one its predicate reaches through a relationship. Each
-refetch swaps in a new snapshot. Refetches are coalesced to one per turn of
-the guest (`GuestExecutor.whenIdle`), and `predicate`, `sort` and `limit`
-can be changed, which refetches. This is the place of
+refetch swaps in a new snapshot; a failed one leaves the last, and sets
+`error`. Refetches are coalesced to one per turn of the guest
+(`GuestExecutor.whenIdle`), and `predicate`, `sort` and `limit` can be
+changed, which refetches. This is the place of
 `NSFetchedResultsController` and SwiftData's `@Query`.
+
+### Custom functions
+
+`register(function:)` takes a CoreModel `DatabaseFunction`, a closure in
+the guest, which a host can't call per row. A request that uses one in its
+predicate or its sort is fetched whole, without them, and evaluated in the
+guest with CoreModel's evaluator. It's correct and reads the entire
+entity, so apps keep such requests to small entities. Key paths through
+relationships aren't followed in them.
 
 ### What CoreModel needs first
 
@@ -166,9 +223,12 @@ can be changed, which refetches. This is the place of
   macro plugins for the build machine, so they can run; their expansion
   must then write `init(from:)` and `encode()` out with
   `ModelData.decode` / `encode` instead of leaning on `Codable`. Until
-  then, entities are written by hand, as CoreModel's README shows.
+  then, entities are written by hand.
 - **A batch requirement on `ModelStorage`** (inserts and deletes together),
-  so atomic writes aren't particular to this backend.
+  so atomic writes aren't particular to this module. Until then,
+  `RuntimeCoreModel` has `AtomicModelStorage` for backends that can.
+- **Composite attributes** aren't kept: a model with one fails to open
+  with `invalidModel`.
 - **Later, perhaps, `FetchedResults` itself:** a lazily read result is
   useful to the Core Data and SQLite backends too.
 
@@ -182,7 +242,7 @@ protocol ModelStore {
     /// Opens the store `name` for `schema`. `migration`: 0 fail when the
     /// stored model can't be migrated, 1 empty the store. Operations may
     /// be issued at once; they wait for the open, whose outcome is
-    /// `callback`'s `didComplete` or `didFail`.
+    /// `callback`'s `didComplete` or `didFail`, and fail as it did.
     static func open(_ name: String, schema: ModelSchema, migration: Int32,
                      delegate: ModelStoreDelegate, callback: ModelStoreCallback) -> Self
 
@@ -223,10 +283,8 @@ protocol ModelSchema {
 
 @DynamicRuntime("org.pureswift.data.ModelEntity")
 protocol ModelEntity {
-    /// `type`: an `AttributeType` code (the table under Types).
+    /// `type`: a `ModelAttributeType` code (the table under Types).
     func addAttribute(_ key: String, type: Int32) -> ModelProperty
-    /// A composite attribute: add its elements to the entity returned.
-    func addComposite(_ key: String) -> ModelEntity
     func addRelationship(_ key: String, toMany: Bool, destination: String, inverse: String) -> ModelProperty
     func addIndex(_ properties: [ModelProperty])
 }
@@ -240,6 +298,9 @@ protocol ModelProperty {
 A `ModelProperty` is how a record's values are named afterwards. The guest
 gets each once, while it builds the schema, and passes the handle from then
 on, so reading a value doesn't send its name as a string every time.
+
+A key is unique within its entity and has no `.` in it. Every relationship
+names its inverse, which the destination entity must have.
 
 ### A fetch
 
@@ -258,7 +319,7 @@ protocol ModelFetch {
 @DynamicRuntime("org.pureswift.data.ModelPredicate")
 protocol ModelPredicate {
     /// `operation`, `modifier` and `options` are CoreModel's `Operator`,
-    /// `Modifier` and `Option` set, as codes.
+    /// `Modifier` and `Option` set, as codes (below).
     static func comparison(_ left: ModelExpression, operation: Int32, right: ModelExpression,
                            modifier: Int32, options: Int32) -> Self
     static func and(_ predicates: [ModelPredicate]) -> Self
@@ -272,12 +333,14 @@ protocol ModelExpression {
     static func keyPath(_ path: String) -> Self
     static func null() -> Self
     static func bool(_ value: Bool) -> Self
-    static func integer(_ value: Int64) -> Self
-    static func double(_ value: Double) -> Self
-    static func string(_ value: String) -> Self
+    /// `type`: which attribute type the constant is (the table under Types).
+    static func integer(_ value: Int64, type: Int32) -> Self
+    static func double(_ value: Double, type: Int32) -> Self
+    static func string(_ value: String, type: Int32) -> Self
     static func data(_ value: [UInt8]) -> Self
-    /// Several values: the right side of `IN` and `BETWEEN`, or a to-many's IDs.
-    static func list(_ values: [ModelExpression]) -> Self
+    /// The ID of a to-one relationship's object, and the IDs of a to-many's.
+    static func toOne(_ id: String) -> Self
+    static func toMany(_ ids: [String]) -> Self
     static func arithmetic(_ left: ModelExpression, operation: Int32, right: ModelExpression) -> Self
 }
 ```
@@ -286,6 +349,31 @@ It's `NSComparisonPredicate` and `NSCompoundPredicate` over `NSExpression`,
 which is also CoreModel's `FetchRequest.Predicate`: a host on Core Data
 builds those objects one for one, and a host on SQLite walks the tree into
 a `WHERE` clause.
+
+- **A constant carries its type**, so a date isn't taken for a number, or
+  a UUID for a string. One that isn't of its type (an integer called a
+  string, text that isn't a UUID, a number too big for `int16`) makes the
+  fetch fail with `invalidRequest`.
+- **There's no list of values**, because CoreModel's expressions have
+  none. `IN` is membership in a to-many relationship, or, for strings, "is
+  a substring of"; `BETWEEN` matches nothing.
+- **A sort is by an attribute's key.** After the sorts, and with none,
+  objects are in order of their IDs.
+
+| Code | `operation` | | Code | `operation` |
+|---|---|---|---|---|
+| 0 | `<` | | 7 | `LIKE` |
+| 1 | `<=` | | 8 | `BEGINSWITH` |
+| 2 | `>` | | 9 | `ENDSWITH` |
+| 3 | `>=` | | 10 | `IN` |
+| 4 | `==` | | 11 | `CONTAINS` |
+| 5 | `!=` | | 12 | `BETWEEN` |
+| 6 | `MATCHES` | | | |
+
+`modifier`: 0 none, 1 `ALL`, 2 `ANY`. `options` is a set of bits: 1 case
+insensitive, 2 diacritic insensitive, 4 normalized, 8 locale sensitive.
+An arithmetic `operation`: 0 add, 1 subtract, 2 multiply, 3 divide,
+4 modulus.
 
 ### Records, results and batches
 
@@ -302,7 +390,6 @@ protocol ModelRecord {
     func double(_ property: ModelProperty) -> Double
     func string(_ property: ModelProperty) -> String?
     func data(_ property: ModelProperty) -> [UInt8]?
-    func composite(_ property: ModelProperty) -> ModelRecord?
     func toOne(_ property: ModelProperty) -> String?
     func toMany(_ property: ModelProperty) -> [String]
 
@@ -312,7 +399,6 @@ protocol ModelRecord {
     func setDouble(_ value: Double, for property: ModelProperty)
     func setString(_ value: String, for property: ModelProperty)
     func setData(_ value: [UInt8], for property: ModelProperty)
-    func setComposite(_ value: ModelRecord, for property: ModelProperty)
     func setToOne(_ id: String?, for property: ModelProperty)
     func setToMany(_ ids: [String], for property: ModelProperty)
 }
@@ -333,6 +419,16 @@ protocol ModelBatch {
 
 - **A fetched record is read-only:** its setters do nothing. A record to
   insert is made with `make`, filled in, and added to a batch.
+- **An insert merges.** Where there's an object with the record's ID, the
+  properties the record has values for are set, and the object's others
+  are left as they are. A property set to null is set; one never
+  mentioned isn't touched.
+- **A batch's changes are applied in the order they were added.** Deleting
+  an object that isn't there is fine.
+- **A record that was given something it can't hold** fails its batch with
+  `invalidRequest`: a property of another entity, a value of the wrong
+  kind for its attribute, a number that doesn't fit, text that isn't a
+  UUID. A number that fits a narrower integer type is that type's.
 - **Writes aren't lazy.** Inserting a thousand records of ten attributes
   is about eleven thousand calls. Batches that size are rare, and are what
   a first import is; they don't hold up the store, which starts work only
@@ -364,11 +460,11 @@ comparison of every attribute type, the string options (`[c]`, `[d]`),
 down to its engine what the engine does exactly that way, and filters and
 sorts the rest itself. Results must match the reference; a set of
 **conformance vectors** (a model, records, requests, the expected IDs),
-generated from `InMemoryStorage`, is how a host checks.
+generated from `InMemoryModelStorage`, is to be how a host checks.
 
 | Request feature | Core Data | SQLite | IndexedDB |
 |---|---|---|---|
-| `==`, `<`, `>`, `BETWEEN`, `IN` on an indexed attribute | predicate | `WHERE`, uses the index | a key range on the index |
+| `==`, `<`, `>` on an indexed attribute | predicate | `WHERE`, uses the index | a key range on the index |
 | The same, not indexed | predicate | `WHERE` | cursor scan, filtered in script |
 | `BEGINSWITH` | predicate | `WHERE … >= ? AND … < ?` on the index | a key range |
 | `CONTAINS`, `ENDSWITH`, `LIKE` | predicate | `LIKE` / `GLOB` when case-sensitive | in script |
@@ -382,22 +478,27 @@ IDs. The host keeps a relationship and its declared inverse in step:
 setting one side sets the other in the same batch. Deleting an object
 removes it from the relationships that point at it (nullify).
 
-**Custom functions** (`ModelStorage.register(function:)`) are closures in
-the guest, which a host can't call per row. A request that uses one is
-fetched without its predicate and sort, and evaluated in the guest with the
-reference evaluator. It's correct and reads the whole entity; apps keep
-such requests to small entities.
+CoreModel's in-memory backend does the first half only: the to-many side
+of a one-to-many is whichever objects point back, worked out when it's
+read. It doesn't nullify, so a to-one there can hold the ID of an object
+that's gone.
 
-**IDs** are the app's strings (`ObjectID`), unique within an entity. An
-insert with an existing ID replaces that object's attributes and
-relationships, as CoreModel's `insert` does.
+**Custom functions** never reach a host: the guest evaluates the requests
+that use them (above).
+
+**IDs** are the app's strings (`ObjectID`), unique within an entity.
+
+**`didChange`'s entities** are the ones a batch's objects belong to, and
+the ones their relationships point at, whose other side changes with them.
+A host may say more than changed, never less: a `Query` fetches again for
+any entity it reads.
 
 ### Types
 
 Each attribute type crosses as one of five kinds of value, which is the
 getter, the setter and the `ModelExpression` constant used for it:
 
-| `AttributeType` | Code | Crosses as | Core Data | SQLite | IndexedDB |
+| `ModelAttributeType` | Code | Crosses as | Core Data | SQLite | IndexedDB |
 |---|---|---|---|---|---|
 | `bool` | 0 | `bool` | Boolean | `INTEGER` | boolean |
 | `int16`, `int32` | 1, 2 | `integer` | Integer 16 / 32 | `INTEGER` | number |
@@ -408,8 +509,10 @@ getter, the setter and the `ModelExpression` constant used for it:
 | `date` | 8 | `double`: seconds since 1970 UTC | Date | `REAL` | number |
 | `uuid` | 9 | `string`: lowercase, hyphenated | UUID | `TEXT` | string |
 | `url` | 10 | `string` | URI | `TEXT` | string |
-| `decimal` | 11 | `string`: its canonical form | Decimal | `TEXT`, compared in host code | string, compared in script |
-| composite | — | a nested `ModelRecord` | flattened attributes | flattened columns (`address.city`) | a nested object |
+| `decimal` | 11 | `string`: its description | Decimal | `TEXT`, compared in host code | string, compared in script |
+
+CoreModel's composite attributes have no code: a store doesn't keep them
+yet, and a model with one fails to open.
 
 Every attribute may be `null`: `isNull` says so, and the typed getters
 then answer `false`, 0 or `nil`. A getter of the wrong kind for the
@@ -434,7 +537,8 @@ never results; a host may ignore one it can't build.
 | A removed entity, attribute or relationship | migrates by itself; that data is dropped |
 | An attribute's type, or a relationship's destination or kind | `open` fails with `migrationRequired` |
 
-`migration` says what to do then: fail (the default), or empty the store.
+`migration` says what to do then: fail (the default, `ModelMigration.fail`),
+or empty the store (`.reset`). A refused open changes nothing.
 A custom migration is app code: open the old store under a new name with
 its old model, copy across, and `destroy` it. That needs the stored model
 back from the host, which is an open question (§15).
@@ -450,7 +554,8 @@ In the app's container, never visible to other apps, with no capability:
 | Linux distro | `/data/stores/<name>.sqlite` | the distro's business | |
 | Browser | IndexedDB database `<app id>.<name>` | no | see below |
 
-`name` is one safe path component (§7.5's rule).
+`name` is one path component: up to 64 letters, digits, `-`, `_` and `.`,
+not starting with `.`. Anything else fails with `invalidRequest`.
 
 **The browser can throw the data away.** Storage is "best effort" until
 the host asks for it to persist (`navigator.storage.persist()`), which the
@@ -473,35 +578,97 @@ a megabyte, and in some browsers cross-origin isolation.
 |---|---|
 | 0 | `unknown` |
 | 1 | `cancelled`: guest-side only, a cancelled task |
-| 2 | `invalidModel`: the schema contradicts itself (a relationship to an entity it doesn't have) |
+| 2 | `invalidModel`: the schema contradicts itself or has what a store doesn't keep (a relationship to an entity it doesn't have, an inverse that isn't there, a key used twice, a composite attribute, an index on a key that isn't the entity's) |
 | 3 | `migrationRequired` |
-| 4 | `invalidRequest`: an entity or key the schema doesn't have, a property of another schema, or a value of the wrong kind |
-| 5 | `unsupported`: a request feature this host lacks |
+| 4 | `invalidRequest`: an entity or key the schema doesn't have, a property of another entity, a value of the wrong kind, a store name that isn't one |
+| 5 | `unsupported`: a request feature this host lacks; guest-side, a composite value |
 | 6 | `outOfSpace` |
-| 7 | `unavailable`: no storage (a private window, a full disk at open) |
+| 7 | `unavailable`: no storage (a private window, a full disk at open, a host that keeps no stores) |
 | 8 | `corrupted`: the store can't be read |
+| 9 | `undecodable`: guest-side only, a record that doesn't decode as the entity asked for |
+
+A code a guest doesn't know reads as `unknown`. Two `ModelStoreError`s are
+equal when their codes are.
 
 A failed batch changes nothing.
 
 ## For a host in Swift
 
-The Darwin and Linux hosts are Swift, and CoreModel has backends for both.
-A shared host module implements these contracts over **any**
-`ModelStorage`: its schema, fetch and record objects are thin wrappers
-that build CoreModel's `Model`, `FetchRequest` and `ModelData`; it calls
-the backend on a background executor, keeps what a fetch returned as the
-`ModelResults`, and answers on the main thread.
+`RuntimeCoreModel` implements these contracts over **any** CoreModel
+`ModelStorage`. A host says where stores are kept and registers the
+module:
 
-| Host | Backend it plugs in |
+```swift
+HostModelStore.configure(.init(provider: MyStores(directory: container + "/Stores")))
+HostModelStoreModule.register(in: runtime)
+```
+
+```swift
+public protocol ModelStorageProvider: Sendable {
+    /// Opens the store `name` for `model`, creating or migrating it.
+    func open(_ name: String, model: Model, indexes: [EntityName: [[PropertyKey]]],
+              migration: ModelMigration) async throws -> any ModelStorage
+    func destroy(_ name: String) async throws
+}
+```
+
+| Host | The backend its provider opens |
 |---|---|
-| iOS / macOS | `CoreDataModel`: an `NSPersistentContainer` whose model is built from the schema |
+| iOS / macOS | `CoreDataModel`: an `NSPersistentContainer` whose model is built from the `Model` |
 | Linux | CoreModel-SQLite |
-| Android | Kotlin over `android.database.sqlite`, or CoreModel-SQLite if the host carries Swift |
-| Browser | JavaScript over IndexedDB |
+| Tests, and a host with nowhere to keep stores yet | `InMemoryModelStorageProvider`, in this module |
+| Android | Kotlin over `android.database.sqlite`, or CoreModel-SQLite if the host carries Swift: not this module |
+| Browser | JavaScript over IndexedDB: not this module |
 
-What the shared module adds around a backend: the stored model and the
-migration rules above, serial ordering, batches as one transaction, and
-`didChange`.
+What the adapter does:
+
+- **The objects.** Its schema, fetch, predicate, expression and record
+  objects build CoreModel's `Model`, `FetchRequest` and `ModelData`, and
+  check what the guest gives them against the model: that's where
+  `invalidModel` and `invalidRequest` come from, before a backend is asked
+  anything.
+- **Order.** Operations for one store name run one at a time, in the order
+  issued, off the main thread; `destroy` takes its turn among them.
+- **Answers** go to the main dispatch queue, or wherever `deliver` posts
+  them, for a host with a loop of its own. What a fetch returned is kept
+  as its `ModelResults`.
+- **`didChange`**, after a batch's callback, to every open store of that
+  name.
+- **Errors.** A `ModelStoreError` a backend or provider throws goes to the
+  guest as it is; CoreModel's `invalidEntity` is `invalidRequest`; any
+  other error is `unknown`, with its description as the message.
+
+What's the provider's and its backend's:
+
+- **Where a store is, and the stored model.** The provider compares the
+  model with the one the store was made with, migrates, and throws
+  `ModelStoreError(.migrationRequired)` or empties the store, by the rules
+  above. `InMemoryModelStorageProvider` follows them, and
+  `canMigrate(from:to:)` is the check.
+- **Atomic batches.** A backend that conforms to `AtomicModelStorage` gets
+  the batch whole (`perform(_:)`). Any other gets its inserts and deletes
+  one after another, and one that fails leaves the ones before it in
+  place. The adapter has checked every change against the model by then,
+  so what's left to fail is the storage itself.
+- **Relationships:** keeping the two sides in step, and what a delete does
+  to the objects that pointed at it.
+- **Indexes**, which it may ignore.
+
+`HostModelStore.waitUntilIdle()` returns once every operation issued has
+been answered, and every one those answers led the guest to issue: for
+tests that drive a guest and then look at what it shows.
+
+A callback or a delegate is the runtime's object, and so the main
+thread's, to release as well as to call. Work on another thread carries
+one in a `MainThreadHeld` (in `RuntimeHost`), which the main thread
+empties.
+
+### Not checked yet
+
+**Conformance vectors** (a model, records, requests, the expected IDs,
+generated from the in-memory backend) are how a host that isn't built on
+CoreModel will check itself against the reference. They don't exist yet:
+the tests here compare the adapter with the backend it's over.
 
 ## Threading
 
@@ -509,6 +676,23 @@ Every callback and delegate method runs on the main thread (§6.4). Hosts
 do the I/O elsewhere and hop back. Nothing blocks the main thread: there
 is no synchronous fetch, on any host, and reading a `ModelResults` reads
 memory.
+
+In host-side Swift, `RuntimeModelStorage`'s `async` methods run where
+they're called from, so code on the main actor makes its contract calls
+there. Called through the `ModelStorage` protocol they run on Swift's
+pool, as any `async` requirement does: fine for one call after another,
+and not for two at once.
+
+## Example
+
+`examples/ExampleModel`: to-dos in lists. Two entities and the
+relationship between them; two `Query`s that keep the screen current; the
+lists made in one batch at the first launch; a fetch with a sort and a
+limit to number a new to-do; an insert of one property to tick one off; a
+predicate through the relationship, counted with `async`/`await`. Its
+tests run it against `HostModelStore` and the in-memory backend, across
+two launches, as `App.wasm` under WasmKit (`Packages/RuntimeWasm`) and as a
+sealed native slice and wasm2c output (`Packages/LinkedSlice`).
 
 ## Not in this design
 
@@ -523,5 +707,4 @@ memory.
 
 A model store is the wrong tool for "has the user seen the welcome
 screen". That's [Defaults](Defaults.md): a small synchronous key-value
-store, with `UserDefaults` and `@AppStorage` for the guest. It's
-implemented.
+store, with `UserDefaults` and `@AppStorage` for the guest.
