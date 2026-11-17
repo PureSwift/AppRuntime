@@ -25,7 +25,8 @@ builds and the first provider contracts:
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
-| Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`). The model store is a design only |
+| Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
+| Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. No host keeps a store on disk yet: the Darwin and Linux hosts need a provider each, and Android and the browser a host side of their own |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
@@ -317,6 +318,56 @@ which are each host's. TCP and UDP are not part of the spec.
     since Apple's and Android's own stores are the right ones there.
     `FileDefaultsStorage`, for Linux, rewrites one file atomically at each
     change, sharing the replace-by-rename of `HostFiles`.
+- **Model store (§7.9).**
+  - **CoreModel is the API, and a dependency.** `DynamicCoreModel`
+    re-exports it; the package now depends on CoreModel 2.11.1 or later,
+    and guest builds bring swift-embedded-foundation with it (§4,
+    finding 10).
+  - **A storage can be used before it's open.** `RuntimeModelStorage` is
+    made synchronously, so an app's `Query`s can be made with it at
+    launch; the contract says operations wait for the open and fail as it
+    did. `open` is the same thing, awaited.
+  - **An insert merges**, as CoreModel's does: the properties a record has
+    are set and the object's others are left. The draft said "replaces".
+  - **The contract has what CoreModel can say, and no more.** Expression
+    constants carry their attribute type, so a date isn't taken for a
+    number; a to-one's ID and a to-many's IDs are constants of their own;
+    there's no list of values, since CoreModel's expressions have none
+    (its `IN` is membership in a to-many or a substring test, and its
+    `BETWEEN` matches nothing). Composite attributes aren't kept: a model
+    with one fails to open.
+  - **Reading a record is a call per value, two for a zero.** A null reads
+    as false, 0 or `nil`, so only a false or a zero needs `isNull` asked
+    as well.
+  - **`FetchedResults` stops the app on a record that doesn't decode.** A
+    collection's subscript can't throw, and there's no entity to return
+    in its place. `element(at:)` throws, for code that would rather.
+  - **Requests with custom functions are evaluated in the guest**, on the
+    whole entity, with CoreModel's evaluator: a host can't call the guest
+    for each object.
+  - **`RuntimeModelStorage` is a `ModelStorage` only outside Embedded
+    Swift**, where a typed `throws` can't witness the protocol's untyped
+    one. The methods are the same; CoreModel's own in-memory storage has
+    the same gap.
+  - **The adapter works over any `ModelStorage`, and leaves it what only
+    a backend can do:** migration, atomic batches (`AtomicModelStorage`,
+    until CoreModel has a batch requirement), and both sides of a
+    relationship. It does the checking against the model, the ordering,
+    the answers on the main thread and the change notices.
+  - **`didChange` names more entities than a batch wrote to:** also the
+    ones its objects' relationships point at, whose other side changes
+    with them. A `Query` on a list's to-dos' count would miss an added
+    to-do otherwise.
+  - **A host's callback is released on the main thread**
+    (`MainThreadHeld`). Carried in a closure to another thread, it was
+    released there whenever the main thread had finished with it first,
+    and that last release tells the runtime, which isn't thread-safe. The
+    model store's tests crashed on it; `HostFiles` had the same fault.
+  - **The guest's `async` calls run where they're called from**
+    (`nonisolated(nonsending)`, on `withCallback`, `RuntimeModelStorage`
+    and `FileManager`). In a guest there's one thread anyway. In host-side
+    Swift they used to hop to the pool and make their contract calls
+    there, beside whatever the main thread was doing with the runtime.
 - **Web views (§9.6).**
   - **A page is a contract object, and the node only places it**, as
     `Surface` and `GLSurface` do. A web view is mostly commands and
@@ -527,6 +578,24 @@ Each of these needs a decision, or is verified only as far as noted:
    aren't read by `guest.py`; every target is compiled as an Embedded Swift
    library with fixed flags, plus its package's default traits as defines.
    Traits a dependent package sets on its dependencies aren't read either.
+10. **CoreModel in a guest.** What `ExampleModel` needed:
+    - CoreModel's manifest adds swift-embedded-foundation only when
+      `SWIFT_EMBEDDED=1` is in the environment, so `guest.py` reads the
+      package graph with it set. Macro plugins are built without it: they
+      run on the build machine, where that dependency asks for a newer
+      macOS than the package does.
+    - Embedded Swift doesn't import `_Concurrency` implicitly, and
+      CoreModel's sources don't import it themselves. Every Swift module
+      of a slice that has the concurrency runtime now gets
+      `-import-module _Concurrency`.
+    - swift-embedded-foundation's default trait
+      `FloatingPointParsingShims` defines `Float16` parsing, which doesn't
+      compile for x86_64 Apple targets. `guest.py` leaves that trait off
+      (`GUEST_DISABLED_TRAITS`).
+    - armv7 ELF slices seal two more helpers (`Scripts/support/armv7-eabi.c`):
+      `__aeabi_ldivmod`, the signed 64-bit division CoreModel's integer
+      arithmetic and Foundation's dates need, and `floor`. Both agree with
+      a 64-bit host on about 100 million inputs.
 
 ## 5. Tests
 
@@ -602,9 +671,10 @@ Each of these needs a decision, or is verified only as far as noted:
   emptied at start; then the guest's `FileManager` through `NativeRuntime`
   to those files, with completion handlers and with `await`. The async
   tests run on the main actor, so the guest's calls and the host's answers
-  share a thread as they do in a host; answered from another thread, they
-  crashed now and then on Linux. Both suites also pass on Linux
-  (`swift:6.4-noble` in Docker).
+  share a thread as they do in a host; they crashed now and then on Linux
+  before the callback was released on the main thread and the `async`
+  calls stayed on their caller's actor (§3, the model store's notes).
+  Both suites also pass on Linux (`swift:6.4-noble` in Docker).
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
@@ -622,6 +692,26 @@ Each of these needs a decision, or is verified only as far as noted:
   through `NativeRuntime` across launches. `RuntimeWasmTests` launches
   `examples/ExampleDefaults` twice as `App.wasm` on one settings file, and
   `LinkedSliceTests` runs it as a sealed macOS slice and wasm2c output.
+- `DynamicCoreModelTests`: the guest's `RuntimeModelStorage`,
+  `FetchedResults` and `Query` through `NativeRuntime` to `HostModelStore`
+  over CoreModel's in-memory backend. Every attribute type there and back,
+  and nulls as nulls; about five hundred requests (comparisons of each
+  type, string operators and options, relationships and key paths through
+  them, arithmetic, compounds, sorts, limits and offsets) answered the
+  same as the backend answers them itself; results read a record at a
+  time, and unchanged by later writes; functions run in the guest; a
+  batch applied in order, merging, and one that can't be applied changing
+  nothing; requests and models the store refuses; observers told once per
+  batch, in every storage of a store; a `Query` that follows writes,
+  changes of its request and what its predicate reaches, and keeps its
+  results when a fetch fails; a storage used before it's open; a store
+  kept between openings, migrated, refused or emptied; no provider;
+  the same code through `ModelStorage` on this and on CoreModel's own
+  storage; the host's objects given what they can't hold; and every
+  handle released at the end.
+  `RuntimeWasmTests` runs `examples/ExampleModel` as `App.wasm` across two
+  launches on one store, and `LinkedSliceTests` as a sealed macOS slice
+  and wasm2c output on a store that has objects in it already.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
@@ -684,10 +774,13 @@ Each of these needs a decision, or is verified only as far as noted:
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
-8. The rest of app data (§7.9), which is a design only: `ModelStore`
-   behind CoreModel (`Documentation/Contracts/Persistence.md`). CoreModel
-   needs its `@Entity` macro to work under Embedded Swift first. And
-   `Files` and `Defaults` in the other hosts: registering `HostFiles` and
-   `HostDefaults` in the Linux host, and Android's and the browser's own.
-   The Darwin host has them (DarwinAppRuntime's `DarwinFiles` and
-   `DarwinDefaults`).
+8. App data (§7.9) in the hosts. The model store needs a provider in
+   each Swift host (`Documentation/Contracts/Persistence.md`):
+   `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux, each
+   with the stored model and the migration rules; then Android's and the
+   browser's own host side, and the conformance vectors they'd check
+   themselves with. In CoreModel: `@Entity` under Embedded Swift, and a
+   batch requirement on `ModelStorage`. And `Files` and `Defaults` in
+   the other hosts: registering `HostFiles` and `HostDefaults` in the
+   Linux host, and Android's and the browser's own. The Darwin host has
+   them (DarwinAppRuntime's `DarwinFiles` and `DarwinDefaults`).
