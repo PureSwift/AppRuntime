@@ -91,23 +91,25 @@ public final class HostFiles: Files {
     private func run(_ callback: any FileCallback, _ operation: @escaping (FileSystem) -> Result<FileSystem.Answer, FileError>) {
         let system = self.system
         let deliver = configuration.deliver
-        // The callback is only touched again on the main thread, in `deliver`.
-        let callback = Unchecked(callback)
+        // The callback is only touched again on the main thread, in
+        // `deliver`, and released there.
+        let held = MainThreadHeld(callback)
         let operation = Unchecked(operation)
         configuration.work {
             let answer = Unchecked(operation.value(system))
             deliver {
+                guard let callback = held.take() else { return }
                 switch answer.value {
                 case .success(.complete):
-                    callback.value.didComplete()
+                    callback.didComplete()
                 case .success(.data(let data)):
-                    callback.value.didRead(data)
+                    callback.didRead(data)
                 case .success(.names(let names)):
-                    callback.value.didList(names)
+                    callback.didList(names)
                 case .success(.attributes(let attributes)):
-                    callback.value.didGetAttributes(kind: attributes.kind.rawValue, size: attributes.size, modified: attributes.modified ?? 0)
+                    callback.didGetAttributes(kind: attributes.kind.rawValue, size: attributes.size, modified: attributes.modified ?? 0)
                 case .failure(let error):
-                    callback.value.didFail(error.rawValue)
+                    callback.didFail(error.rawValue)
                 }
             }
         }
