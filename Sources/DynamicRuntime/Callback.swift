@@ -16,7 +16,11 @@ import _Concurrency
 ///
 /// Typed throws, so it works in Embedded Swift, which has no `any Error`
 /// values (and so no `withCheckedThrowingContinuation`).
-public func withCallback<Value, Failure: Error>(
+///
+/// It runs where it's called from, and so `start` does: host-side Swift
+/// that calls it on the main actor makes its contract call there, and not
+/// on a thread of the pool.
+public nonisolated(nonsending) func withCallback<Value, Failure: Error>(
     _ start: (Callback<Value, Failure>) -> Void,
     onCancel: @escaping (Callback<Value, Failure>) -> Void
 ) async throws(Failure) -> Value {
