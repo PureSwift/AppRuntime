@@ -47,6 +47,11 @@ let package = Package(
         // Shared: web views (`WebKit` in guest builds): the `WebContent`
         // contract, `WebPage` and the `WebView` view.
         .library(name: "DynamicWebKit", targets: ["DynamicWebKit"]),
+        // Shared: the model store behind CoreModel (§7.9): its contracts, and
+        // the guest's storage, lazy results and Query.
+        .library(name: "DynamicCoreModel", targets: ["DynamicCoreModel"]),
+        // Host only: the model store's contracts over any CoreModel backend.
+        .library(name: "RuntimeCoreModel", targets: ["RuntimeCoreModel"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
@@ -66,6 +71,8 @@ let package = Package(
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example settings guest app: UserDefaults and @AppStorage.
         .library(name: "ExampleDefaults", type: .static, targets: ["ExampleDefaults"]),
+        // Example model guest app: to-dos in a model store, with CoreModel.
+        .library(name: "ExampleModel", type: .static, targets: ["ExampleModel"]),
         // Example host contracts, for tests in nested packages (Packages/).
         .library(name: "ExampleHost", targets: ["ExampleHost"]),
     ],
@@ -79,6 +86,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax.git", "603.0.0"..<"605.0.0"),
         .package(url: "https://github.com/PureSwift/Bluetooth.git", from: "8.2.1"),
+        .package(url: "https://github.com/PureSwift/CoreModel.git", from: "2.11.1"),
     ],
     targets: [
 
@@ -129,6 +137,24 @@ let package = Package(
         .target(
             name: "DynamicSwiftUI",
             dependencies: ["DynamicRuntime", "DynamicObservation", "DynamicUI"]
+        ),
+        .target(
+            name: "DynamicCoreModel",
+            dependencies: [
+                "DynamicRuntime",
+                "DynamicObservation",
+                .product(name: "CoreModel", package: "CoreModel"),
+            ]
+        ),
+        .target(
+            name: "RuntimeCoreModel",
+            dependencies: [
+                "DynamicCoreModel",
+                "DynamicRuntime",
+                "RuntimeHost",
+                "RuntimeNative",
+                .product(name: "CoreModel", package: "CoreModel"),
+            ]
         ),
         .target(
             name: "DynamicWebKit",
@@ -331,6 +357,11 @@ let package = Package(
             path: "examples/ExampleFiles"
         ),
         .target(
+            name: "ExampleModel",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicCoreModel"],
+            path: "examples/ExampleModel"
+        ),
+        .target(
             name: "ExampleWeb",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicWebKit"],
             path: "examples/ExampleWeb"
@@ -377,6 +408,13 @@ let package = Package(
         .testTarget(
             name: "DynamicWebKitTests",
             dependencies: ["DynamicWebKit", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "DynamicCoreModelTests",
+            dependencies: [
+                "DynamicCoreModel", "RuntimeCoreModel", "DynamicSwiftUI", "DynamicUI", "RuntimeNative",
+                .product(name: "CoreModel", package: "CoreModel"),
+            ]
         ),
         .testTarget(
             name: "CRuntimeGLTests",
