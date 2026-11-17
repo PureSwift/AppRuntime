@@ -184,9 +184,19 @@ class BuildError(Exception):
     pass
 
 
-def run(arguments, cwd=None, quiet=False, filter_warnings=()):
+# Packages add what only an Embedded build needs behind this variable, as
+# CoreModel does its Foundation replacement. The guest's package graph is
+# read with it set. The build machine's own build, for macro plugins, runs
+# without it: those dependencies needn't build for the build machine, and
+# may refuse to (a higher platform minimum than the package's).
+EMBEDDED_VARIABLE = "SWIFT_EMBEDDED"
+GUEST_ENVIRONMENT = dict(os.environ, **{EMBEDDED_VARIABLE: "1"})
+HOST_ENVIRONMENT = {key: value for key, value in os.environ.items() if key != EMBEDDED_VARIABLE}
+
+
+def run(arguments, cwd=None, quiet=False, filter_warnings=(), environment=None):
     """Runs a command; raises BuildError with its output on failure."""
-    result = subprocess.run([str(a) for a in arguments], cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run([str(a) for a in arguments], cwd=cwd, capture_output=True, text=True, env=environment)
     output = (result.stdout + result.stderr).strip()
     if result.returncode != 0:
         raise BuildError(f"{' '.join(str(a) for a in arguments[:3])} … failed:\n{output}")
@@ -295,18 +305,26 @@ class Target:
         self.traits = []
 
 
+# Default traits guest builds leave off. swift-embedded-foundation's
+# FloatingPointParsingShims supplies the C parsing functions older standard
+# libraries call; this toolchain's parses in Swift, and the shims don't
+# compile for x86_64 Apple triples, which have no Float16.
+GUEST_DISABLED_TRAITS = {"FloatingPointParsingShims"}
+
+
 def default_traits(manifest):
     """The traits a package enables by default, including the ones they enable.
 
-    Guest builds use every package's default traits; SwiftPM passes enabled
-    traits to the package's own targets as compilation conditions.
+    Guest builds use every package's default traits, but for
+    GUEST_DISABLED_TRAITS; SwiftPM passes enabled traits to the package's
+    own targets as compilation conditions.
     """
     traits = {trait["name"]: trait for trait in manifest.get("traits", [])}
     enabled = set()
     pending = list(traits.get("default", {}).get("enabledTraits", []))
     while pending:
         name = pending.pop()
-        if name not in enabled:
+        if name not in enabled and name not in GUEST_DISABLED_TRAITS:
             enabled.add(name)
             pending.extend(traits.get(name, {}).get("enabledTraits", []))
     return enabled
@@ -338,7 +356,8 @@ class PackageGraph:
         self.products = {}   # product name -> (package path, [target names])
         self.uses_build_plugins = False
         self.load(self.root)
-        dependencies = json.loads(run(["swift", "package", "show-dependencies", "--format", "json"], cwd=self.root, quiet=True))
+        dependencies = json.loads(run(["swift", "package", "show-dependencies", "--format", "json"], cwd=self.root, quiet=True,
+                                      environment=GUEST_ENVIRONMENT))
         pending = list(dependencies.get("dependencies", []))
         while pending:
             dependency = pending.pop()
@@ -348,8 +367,9 @@ class PackageGraph:
     def load(self, path):
         if any(key[0] == path for key in self.targets):
             return
-        description = json.loads(run(["swift", "package", "describe", "--type", "json"], cwd=path, quiet=True))
-        manifest = json.loads(run(["swift", "package", "dump-package"], cwd=path, quiet=True))
+        description = json.loads(run(["swift", "package", "describe", "--type", "json"], cwd=path, quiet=True,
+                                     environment=GUEST_ENVIRONMENT))
+        manifest = json.loads(run(["swift", "package", "dump-package"], cwd=path, quiet=True, environment=GUEST_ENVIRONMENT))
         disabled = disabled_trait_dependencies(manifest)
         traits = sorted(default_traits(manifest))
         for target in description["targets"]:
@@ -450,6 +470,11 @@ class Compiler:
             flags += ["-I", path]
         for define in self.defines:
             flags += ["-D", define]
+        if NO_CONCURRENCY[0] not in self.defines:
+            # Embedded Swift doesn't import the concurrency module by
+            # itself, and packages written for SwiftPM's Embedded builds
+            # (CoreModel) use `async` without importing it.
+            flags += ["-Xfrontend", "-import-module", "-Xfrontend", "_Concurrency"]
         if self.wasm_sdk:
             flags += ["-sdk", self.wasm_sdk / "WASI.sdk",
                       "-resource-dir", self.wasm_sdk / "swift.xctoolchain/usr/lib/swift"]
@@ -516,7 +541,7 @@ def build_plugins(graph, product, macros):
     """Builds the product's macro plugins for the build machine."""
     if not macros and not graph.uses_build_plugins:
         return []
-    run(["swift", "build", "--product", product], cwd=graph.root, quiet=True)
+    run(["swift", "build", "--product", product], cwd=graph.root, quiet=True, environment=HOST_ENVIRONMENT)
     plugins = []
     for macro in macros:
         candidates = [p for p in (graph.root / ".build").rglob(macro.name) if p.is_file() and os.access(p, os.X_OK)]
