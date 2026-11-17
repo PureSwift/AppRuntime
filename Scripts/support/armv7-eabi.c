@@ -168,6 +168,30 @@ __attribute__((naked)) void __aeabi_uldivmod(void) {
         "pop {r11, pc}\n");
 }
 
+/*
+ * 64-bit signed division, on the unsigned one: the quotient rounds toward
+ * zero, and the remainder has the dividend's sign.
+ */
+s64 rt_divmod64(s64 n, s64 d, s64 *remainder) {
+    u64 rest;
+    u64 quotient = rt_udivmod64(n < 0 ? 0 - (u64)n : (u64)n, d < 0 ? 0 - (u64)d : (u64)d, &rest);
+    *remainder = n < 0 ? (s64)(0 - rest) : (s64)rest;
+    return (n < 0) != (d < 0) ? (s64)(0 - quotient) : (s64)quotient;
+}
+
+/* As __aeabi_uldivmod: the quotient in r0:r1 and the remainder in r2:r3. */
+__attribute__((naked)) void __aeabi_ldivmod(void) {
+    __asm__(
+        "push {r11, lr}\n"
+        "sub sp, sp, #16\n"
+        "add r12, sp, #8\n"
+        "str r12, [sp]\n"
+        "bl rt_divmod64\n"
+        "ldrd r2, r3, [sp, #8]\n"
+        "add sp, sp, #16\n"
+        "pop {r11, pc}\n");
+}
+
 /* Half-precision conversions. Integer signatures use core registers under
  * both the soft-float and hard-float AAPCS variants, as the EABI requires. */
 u32 __aeabi_f2h(u32 value) {
@@ -336,6 +360,31 @@ double ceil(double x) {
         return x;
     }
     if (!(value.bits >> 63)) {
+        value.bits += 1ull << (52 - exponent);
+    }
+    value.bits &= ~fraction;
+    return value.d;
+}
+
+/* floor, the same way: calendar arithmetic on dates calls it. */
+double floor(double x) {
+    union { double d; u64 bits; } value = { x };
+    int exponent = (int)((value.bits >> 52) & 0x7FF) - 1023;
+    if (exponent >= 52) {
+        return x;                       /* integral, infinite or NaN */
+    }
+    if (exponent < 0) {
+        if ((value.bits << 1) == 0) {
+            return x;                   /* ±0 */
+        }
+        return (value.bits >> 63) ? -1.0 : 0.0;
+    }
+    u64 fraction = 0x000FFFFFFFFFFFFFull >> exponent;
+    if ((value.bits & fraction) == 0) {
+        return x;
+    }
+    if (value.bits >> 63) {
+        /* Away from zero: the next integer down. */
         value.bits += 1ull << (52 - exponent);
     }
     value.bits &= ~fraction;
