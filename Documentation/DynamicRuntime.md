@@ -651,7 +651,7 @@ Carried over from AppRuntime's `bundle-runtime` and its sandbox design, which is
 
 ### 7.9 App data: files, settings and a model store
 
-**Status:** `Files` and `Defaults` are implemented: the guest sides (`DynamicFiles`, `DynamicDefaults`), and `HostFiles` and `HostDefaults` in `RuntimeHost` for hosts with a POSIX file system. `ModelStore` is a draft. Detail: `Documentation/Contracts/Files.md`, `Defaults.md` and `Persistence.md`.
+**Status:** all three are implemented in the guest. For hosts: `HostFiles` and `HostDefaults` in `RuntimeHost`, for those with a POSIX file system, and `HostModelStore` in `RuntimeCoreModel`, the model store over any CoreModel backend, for those written in Swift. No platform host has given the model store a backend that keeps data yet. Detail: `Documentation/Contracts/Files.md`, `Defaults.md` and `Persistence.md`.
 
 An app keeps data in its own container, through three contracts. None needs a capability: the container is the app's.
 
@@ -663,12 +663,13 @@ An app keeps data in its own container, through three contracts. None needs a ca
 
 - **The web decides the shape.** A browser's larger storage can't be used synchronously on the main thread, where the guest runs. So `Files` and `ModelStore` complete every operation through a callback, and guest code awaits them. `Defaults` is synchronous because every platform, the browser included, has a small synchronous store.
 - **`Files`** names directories (`documents`, `data`, `caches`, `temporary`, `bundle`) and takes relative paths, because no absolute path means the same on four platforms. The guest API follows Foundation's `FileManager`, made `async`. It replaces WASI's files (§3.3) and is how a guest reads its bundle, which on Android and the web isn't a directory.
-- **`ModelStore`** is the storage behind [CoreModel](https://github.com/PureSwift/CoreModel), which compiles under Embedded Swift: app code uses its `@Entity`, `FetchRequest` and `ModelStorage` unchanged.
-  - A write is one atomic **batch**; there are no transactions held open, since IndexedDB can't hold one across turns.
+- **`ModelStore`** is the storage behind [CoreModel](https://github.com/PureSwift/CoreModel), which compiles under Embedded Swift: app code uses its `Entity`, `FetchRequest` and `ModelStorage` unchanged, through `RuntimeModelStorage`. Entities are written by hand for now, since CoreModel's macros are off under Embedded Swift.
+  - A write is one atomic **batch**; there are no transactions held open, since IndexedDB can't hold one across turns. An insert over an object sets the properties it has and leaves the rest, as CoreModel's does.
   - The model, a fetch request, a predicate and a record are host objects with methods (§4.4), the shape of Core Data's own classes; there's no byte format.
   - A fetch answers with a result object the host holds, and the guest reads the records it needs by index. A list of 10,000 that shows twenty rows reads twenty.
-  - CoreModel's in-memory evaluator defines what a request returns. Each host pushes down what its engine does the same way and filters the rest; shared conformance vectors check it.
-  - Hosts written in Swift share one adapter over any CoreModel backend: `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux.
+  - CoreModel's in-memory evaluator defines what a request returns. Each host pushes down what its engine does the same way and filters the rest; shared conformance vectors are to check it, and aren't written yet.
+  - Hosts written in Swift share one adapter over any CoreModel backend, which a host's provider opens: `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux. Migration, atomic batches and keeping both sides of a relationship in step are the backend's.
+  - Requests that use a custom function are evaluated in the guest, since a host can't call the guest for each object.
   - A `Query` object keeps a fetch's results current for SwiftUI, refetching when the store reports a change.
   - The browser's engine is IndexedDB.
 - **A browser may evict all of it.** Storage there is best effort unless the browser grants persistence. The contracts report it (`unavailable`, `outOfSpace`); they can't prevent it.
