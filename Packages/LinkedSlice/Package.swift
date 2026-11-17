@@ -11,7 +11,8 @@ import PackageDescription
 /// - `APPRUNTIME_LINKED_PRODUCT`: `ExampleApp` (the default), `ExampleUI`,
 ///   `ExampleWeb`, whose browser engine the test stands in for,
 ///   `ExampleFiles`, which keeps real files in a temporary directory,
-///   `ExampleDefaults`, whose settings are kept in a real file, or
+///   `ExampleDefaults`, whose settings are kept in a real file,
+///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
 ///   writes down what it's asked.
 /// - `APPRUNTIME_LINKED_ENGINE`:
@@ -56,6 +57,8 @@ let package = Package(
                 .product(name: "DynamicWebKit", package: "AppRuntime"),
                 .product(name: "DynamicFiles", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
+                .product(name: "DynamicCoreModel", package: "AppRuntime"),
+                .product(name: "RuntimeCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeHost", package: "AppRuntime"),
                 .product(name: "CRuntime", package: "AppRuntime"),
                 .product(name: "DynamicRuntime", package: "AppRuntime"),
