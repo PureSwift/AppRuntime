@@ -151,11 +151,14 @@ on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
 
 `examples/ExampleFiles` is a notebook kept as text files: it reads its
 bundle, and saves, lists, opens and deletes notes with the guest's
-`FileManager` ([Files](Documentation/Contracts/Files.md)).
+`FileManager` ([Files](Documentation/Contracts/Files.md)). The Darwin host
+runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
 
 `examples/ExampleDefaults` is a settings screen whose values survive a
 relaunch, with `@AppStorage`
-([Defaults](Documentation/Contracts/Defaults.md)).
+([Defaults](Documentation/Contracts/Defaults.md)). The Darwin host keeps
+them in a `UserDefaults` suite of the app's own (DarwinAppRuntime's
+`DarwinDefaults`).
 
 `examples/ExampleWeb` is a small browser around a `WebView`: guest code
 says `import WebKit`, shows a `WebPage`, follows its title and progress,
