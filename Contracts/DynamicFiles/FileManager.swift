@@ -127,59 +127,63 @@ public final class FileManager: @unchecked Sendable {
 
     // MARK: Async
 
+    // Each runs where it's called from, as the guest's one thread wants
+    // (§6.4): in host-side Swift, that's the caller's actor, and not a
+    // thread of the pool.
+
     #if !EMBEDDED_NO_CONCURRENCY
     /// The whole file.
-    public func contents(at path: FilePath) async throws(FileError) -> [UInt8] {
+    public nonisolated(nonsending) func contents(at path: FilePath) async throws(FileError) -> [UInt8] {
         try await wait { self.contents(at: path, completion: $0) }
     }
 
     /// `length` bytes from `offset`, or to the end when `length` is `nil`.
-    public func contents(at path: FilePath, offset: Int64, length: Int64?) async throws(FileError) -> [UInt8] {
+    public nonisolated(nonsending) func contents(at path: FilePath, offset: Int64, length: Int64?) async throws(FileError) -> [UInt8] {
         try await wait { self.contents(at: path, offset: offset, length: length, completion: $0) }
     }
 
     /// Replaces the file, atomically, and makes the directories above it.
-    public func write(_ data: [UInt8], to path: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func write(_ data: [UInt8], to path: FilePath) async throws(FileError) {
         try await wait { self.write(data, to: path, completion: $0) }
     }
 
     /// Adds to the end of the file, creating it.
-    public func append(_ data: [UInt8], to path: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func append(_ data: [UInt8], to path: FilePath) async throws(FileError) {
         try await wait { self.append(data, to: path, completion: $0) }
     }
 
     /// The names in a directory, sorted. A directory's name ends in `/`.
-    public func contentsOfDirectory(at path: FilePath) async throws(FileError) -> [String] {
+    public nonisolated(nonsending) func contentsOfDirectory(at path: FilePath) async throws(FileError) -> [String] {
         try await wait { self.contentsOfDirectory(at: path, completion: $0) }
     }
 
-    public func attributesOfItem(at path: FilePath) async throws(FileError) -> FileAttributes {
+    public nonisolated(nonsending) func attributesOfItem(at path: FilePath) async throws(FileError) -> FileAttributes {
         try await wait { self.attributesOfItem(at: path, completion: $0) }
     }
 
-    public func fileExists(at path: FilePath) async throws(FileError) -> Bool {
+    public nonisolated(nonsending) func fileExists(at path: FilePath) async throws(FileError) -> Bool {
         try await wait { self.fileExists(at: path, completion: $0) }
     }
 
-    public func createDirectory(at path: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func createDirectory(at path: FilePath) async throws(FileError) {
         try await wait { self.createDirectory(at: path, completion: $0) }
     }
 
-    public func removeItem(at path: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func removeItem(at path: FilePath) async throws(FileError) {
         try await wait { self.removeItem(at: path, completion: $0) }
     }
 
-    public func moveItem(at path: FilePath, to destination: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func moveItem(at path: FilePath, to destination: FilePath) async throws(FileError) {
         try await wait { self.moveItem(at: path, to: destination, completion: $0) }
     }
 
-    public func copyItem(at path: FilePath, to destination: FilePath) async throws(FileError) {
+    public nonisolated(nonsending) func copyItem(at path: FilePath, to destination: FilePath) async throws(FileError) {
         try await wait { self.copyItem(at: path, to: destination, completion: $0) }
     }
 
     /// Waits for a completion handler. A cancelled task stops waiting with
     /// `cancelled`; the operation itself isn't undone.
-    private func wait<Value>(_ start: (@escaping (Result<Value, FileError>) -> Void) -> Void) async throws(FileError) -> Value {
+    private nonisolated(nonsending) func wait<Value>(_ start: (@escaping (Result<Value, FileError>) -> Void) -> Void) async throws(FileError) -> Value {
         try await withCallback { (callback: Callback<Value, FileError>) in
             start { callback.resume(with: $0) }
         } onCancel: { callback in
