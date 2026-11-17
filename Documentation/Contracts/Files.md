@@ -12,9 +12,10 @@ Guest-side Swift: `FileDirectory`, `FilePath`, `FileAttributes`,
 `FileError`, and `FileManager`, the async API app code uses.
 
 The guest side is implemented, and so is the host side for any host with a
-POSIX file system: `HostFiles` in `RuntimeHost`, which the Darwin and Linux
-hosts can register as it is. Android and the browser need their own. The
-design is §7.9 of `DynamicRuntime.md`.
+POSIX file system: `HostFiles` in `RuntimeHost`. The Darwin host registers
+it on iOS and macOS, over the app's own directories (DarwinAppRuntime's
+`DarwinFiles`), and the Linux host can register it as it is. Android and
+the browser need their own. The design is §7.9 of `DynamicRuntime.md`.
 
 ## Why a contract is needed
 
@@ -219,7 +220,7 @@ HostFilesModule.register(in: runtime)
 
 | | Notes |
 |---|---|
-| iOS / macOS | `HostFiles`, with the container's directories. `documents` shows in the Files app only if the app's manifest asks for file sharing (a manifest option, later). |
+| iOS / macOS | `HostFiles`, registered by DarwinAppRuntime's `DarwinFiles`. In a sandbox (always on iOS) the directories are the container's `Documents`, `Library/Application Support`, `Library/Caches` and `tmp`; a Mac app outside one gets its own folders under `~/Library/Application Support/<app id>`, `~/Library/Caches/<app id>` and the temporary directory. `bundle` is the app's resources, and `temporary` is emptied at launch. `documents` shows in the Files app only if the app's manifest asks for file sharing (a manifest option, later). |
 | Android | `bundle` is the APK's assets: `AssetManager.open` and `list`. An asset has no modification date (0), and a compressed one must be read through to find its size. |
 | Linux distro | `HostFiles`. The launcher already binds `/data` read-write and `/app` read-only (§7.8), and Landlock confines the host to them. `/tmp` is often another volume, which a move from `temporary` handles by copying. |
 | Browser | `navigator.storage.getDirectory()`, one subdirectory per `FileDirectory`. Where a browser lacks asynchronous writes on the main thread, the host writes from a worker. `bundle` is `fetch` of the packaged resources; listing needs an index the packager writes beside them. `temporary` is emptied by the host at start. |
@@ -241,7 +242,8 @@ text from the bundle, saves, lists, opens and deletes notes in `documents`,
 and exports them all with `async`/`await`. Its tests run it against
 `HostFiles` and a temporary directory, checking the files on disk, as
 `App.wasm` under WasmKit (`Packages/RuntimeWasm`) and as a sealed native
-slice and wasm2c output (`Packages/LinkedSlice`).
+slice and wasm2c output (`Packages/LinkedSlice`). The Darwin host runs it
+(DarwinAppRuntime's `DarwinFiles`).
 
 ## Not in this design
 
