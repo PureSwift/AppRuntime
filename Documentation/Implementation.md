@@ -17,7 +17,8 @@ builds and the first provider contracts:
 | `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
-| Provider contracts: Bluetooth, Location, URL/HTTP, number and date formatting | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting`; no host implementations |
+| Provider contracts: Bluetooth, Location, URL/HTTP | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`; the platform hosts implement them |
+| Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux host registers it; the Darwin host has its own `DarwinFormatting`, which it's a port of |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 | `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
@@ -712,6 +713,17 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` runs `examples/ExampleModel` as `App.wasm` across two
   launches on one store, and `LinkedSliceTests` as a sealed macOS slice
   and wasm2c output on a store that has objects in it already.
+- `RuntimeFormattingTests`: the formatting contracts over Swift Foundation,
+  on macOS and Linux (Debian 13 in Docker): through the proxies as a guest
+  calls them; locales and their separators, currencies and clocks; every
+  number style, fraction digits and grouping, integers exact past 2^53;
+  date styles, patterns, templates, parsing, time zones and relative
+  dates; the user's locale from `LC_ALL`, `LANG` and `LANGUAGE` outside
+  Apple platforms; formatters shared by configuration. Foundation differs
+  between the two in three places, which `RuntimeFormatting` hides: Linux
+  has no `RelativeDateTimeFormatter` (`Date.AnchoredRelativeFormatStyle`
+  is used), its `NumberFormatter` loses integers past 2^53
+  (`IntegerFormatStyle`), and it groups the POSIX locale's digits.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
