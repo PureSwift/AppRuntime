@@ -29,10 +29,10 @@ each host keeps the data in what its platform has. It specifies §7.9 of
 
 The guest side is implemented, and so is the host side for any host
 written in Swift: `HostModelStore` in `RuntimeCoreModel`, which takes a
-CoreModel backend from the host. No platform host has given it one that
-keeps data yet: the Darwin and Linux hosts have that to do, and Android and
-the browser need hosts of their own. The backend the tests use is
-CoreModel's in-memory one.
+CoreModel backend from the host. The Darwin host gives it CoreModel's Core
+Data store on iOS and macOS (DarwinAppRuntime's `DarwinModelStore`). The
+Linux host has that to do, and Android and the browser need hosts of their
+own. The backend the tests use is CoreModel's in-memory one.
 
 For small settings, see [Defaults](Defaults.md). For files, see
 [Files](Files.md).
@@ -549,7 +549,7 @@ In the app's container, never visible to other apps, with no capability:
 
 | Host | Place | Backed up | Notes |
 |---|---|---|---|
-| iOS / macOS | `Application Support/Stores/<name>` | yes | Data Protection: complete until first unlock |
+| iOS / macOS | `Library/Stores/<name>/Store.sqlite`; without a sandbox, `Application Support/<bundle ID>/Stores` | yes | Data Protection: complete until first unlock. Beside the `Files` directories, not in `data`, so the app's files can't reach a store |
 | Android | `getDatabasePath(name)` | Auto Backup, if the app allows it | |
 | Linux distro | `/data/stores/<name>.sqlite` | the distro's business | |
 | Browser | IndexedDB database `<app id>.<name>` | no | see below |
@@ -614,7 +614,7 @@ public protocol ModelStorageProvider: Sendable {
 
 | Host | The backend its provider opens |
 |---|---|
-| iOS / macOS | `CoreDataModel`: an `NSPersistentContainer` whose model is built from the `Model` |
+| iOS / macOS | `CoreDataModel`: an `NSPersistentContainer` whose model is built from the `Model`. DarwinAppRuntime's `DarwinModelStore` keeps the stored model in the store's metadata, and migrates with a mapping Core Data infers |
 | Linux | CoreModel-SQLite |
 | Tests, and a host with nowhere to keep stores yet | `InMemoryModelStorageProvider`, in this module |
 | Android | Kotlin over `android.database.sqlite`, or CoreModel-SQLite if the host carries Swift: not this module |
@@ -670,6 +670,20 @@ generated from the in-memory backend) are how a host that isn't built on
 CoreModel will check itself against the reference. They don't exist yet:
 the tests here compare the adapter with the backend it's over.
 
+**`CoreDataModel` against the reference.** DarwinAppRuntime's tests compare
+the Core Data store with the in-memory backend, and it differs. These are
+CoreModel's to fix:
+
+- Without a sort, and among objects that sort equal, results come in Core
+  Data's order, not in order of their IDs.
+- An offset without a limit, and `IN` with a string, raise exceptions in
+  Core Data.
+- A batch isn't atomic: its changes are applied one after another.
+
+And the reference itself has two bugs: it finds "ra" in "Édsger", since
+its substring search steps through the pattern with the subject's indices,
+and it doesn't read `[d]`.
+
 ## Threading
 
 Every callback and delegate method runs on the main thread (§6.4). Hosts
@@ -692,7 +706,8 @@ limit to number a new to-do; an insert of one property to tick one off; a
 predicate through the relationship, counted with `async`/`await`. Its
 tests run it against `HostModelStore` and the in-memory backend, across
 two launches, as `App.wasm` under WasmKit (`Packages/RuntimeWasm`) and as a
-sealed native slice and wasm2c output (`Packages/LinkedSlice`).
+sealed native slice and wasm2c output (`Packages/LinkedSlice`). The Darwin
+host runs it over Core Data (DarwinAppRuntime's `DarwinModelStore`).
 
 ## Not in this design
 
