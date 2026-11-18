@@ -10,41 +10,41 @@ import DynamicRuntime
     }
 
     static let descriptors = [
-        CentralProxy.descriptor, CentralDelegateProxy.descriptor, PeripheralProxy.descriptor,
-        PeripheralDelegateProxy.descriptor, ServiceProxy.descriptor, CharacteristicProxy.descriptor,
-        DescriptorProxy.descriptor, AdvertisementProxy.descriptor,
+        BluetoothCentralProxy.descriptor, BluetoothCentralDelegateProxy.descriptor, BluetoothPeripheralProxy.descriptor,
+        BluetoothPeripheralDelegateProxy.descriptor, BluetoothServiceProxy.descriptor, BluetoothCharacteristicProxy.descriptor,
+        BluetoothDescriptorProxy.descriptor, BluetoothAdvertisementProxy.descriptor,
     ]
 
     @Test func permissionsFirst() {
-        let central = CentralProxy.descriptor
+        let central = BluetoothCentralProxy.descriptor
         #expect(central.capability == .bluetooth)
         // Checking never needs an instance, and making one never prompts.
         #expect(method(central, "authorizationStatus") == MethodDescriptor("authorizationStatus", "()I", .static))
         #expect(method(central, "make:") == MethodDescriptor("make:", "(O)O", .constructor))
         #expect(method(central, "requestAuthorization")?.signature == Signature("()V"))
-        #expect(method(CentralDelegateProxy.descriptor, "didChangeAuthorization:status:")?.signature == Signature("(OI)V"))
+        #expect(method(BluetoothCentralDelegateProxy.descriptor, "didChangeAuthorization:status:")?.signature == Signature("(OI)V"))
         // Only the central is gated; everything else comes from it.
         #expect(Self.descriptors.filter { $0.capability != nil }.map(\.name) == ["org.pureswift.bluetooth.Central"])
     }
 
     @Test func centralRoleOnly() {
-        let central = CentralProxy.descriptor
+        let central = BluetoothCentralProxy.descriptor
         #expect(method(central, "scan:allowDuplicates:mode:")?.signature == Signature("(OZI)V"))
         #expect(method(central, "connect:timeout:")?.signature == Signature("(OI)V"))
         #expect(method(central, "retrievePeripherals:")?.signature == Signature("(O)O"))
-        #expect(method(CentralDelegateProxy.descriptor, "didDiscover:peripheral:advertisement:rssi:")?.signature == Signature("(OOOI)V"))
+        #expect(method(BluetoothCentralDelegateProxy.descriptor, "didDiscover:peripheral:advertisement:rssi:")?.signature == Signature("(OOOI)V"))
         let keys = Self.descriptors.flatMap { $0.methods.map { $0.key.lowercased() } }
         #expect(!keys.contains { $0.hasPrefix("startadvertising") || $0.hasPrefix("addservice") })
     }
 
     @Test func peripheralHasNoAddress() {
-        let keys = PeripheralProxy.descriptor.methods.map(\.key)
+        let keys = BluetoothPeripheralProxy.descriptor.methods.map(\.key)
         #expect(keys.contains("identifier"))
         #expect(!keys.contains { $0.lowercased().contains("address") || $0.lowercased().contains("mac") })
-        #expect(method(PeripheralProxy.descriptor, "writeValue:for:type:")?.signature == Signature("(OOI)V"))
-        #expect(method(PeripheralProxy.descriptor, "maximumWriteLength:")?.signature == Signature("(I)I"))
-        #expect(method(PeripheralProxy.descriptor, "setDelegate:")?.signature == Signature("(O)V"))
-        #expect(method(PeripheralDelegateProxy.descriptor, "didUpdateValue:characteristic:value:error:")?.signature == Signature("(OOOI)V"))
+        #expect(method(BluetoothPeripheralProxy.descriptor, "writeValue:for:type:")?.signature == Signature("(OOI)V"))
+        #expect(method(BluetoothPeripheralProxy.descriptor, "maximumWriteLength:")?.signature == Signature("(I)I"))
+        #expect(method(BluetoothPeripheralProxy.descriptor, "setDelegate:")?.signature == Signature("(O)V"))
+        #expect(method(BluetoothPeripheralDelegateProxy.descriptor, "didUpdateValue:characteristic:value:error:")?.signature == Signature("(OOOI)V"))
     }
 
     @Test func recordsRoundTrip() {
@@ -94,9 +94,9 @@ import DynamicRuntime
     }
 
     @Test func uuidsAreStringsOnTheWire() {
-        #expect(method(ServiceProxy.descriptor, "uuid")?.signature == Signature("()O"))
-        #expect(method(AdvertisementProxy.descriptor, "serviceUUIDs")?.signature == Signature("()O"))
-        #expect(method(AdvertisementProxy.descriptor, "serviceData:")?.signature == Signature("(O)O"))
+        #expect(method(BluetoothServiceProxy.descriptor, "uuid")?.signature == Signature("()O"))
+        #expect(method(BluetoothAdvertisementProxy.descriptor, "serviceUUIDs")?.signature == Signature("()O"))
+        #expect(method(BluetoothAdvertisementProxy.descriptor, "serviceData:")?.signature == Signature("(O)O"))
     }
 
     @Test func codes() {
@@ -121,28 +121,28 @@ import DynamicRuntime
 
 // MARK: - Fakes
 
-final class FakePeripheral: Peripheral {
+final class FakePeripheral: BluetoothPeripheral {
     let identifierString: String
     init(identifier: String) { identifierString = identifier }
     func identifier() -> String { identifierString }
     func name() -> String? { nil }
     func state() -> Int32 { 0 }
-    func setDelegate(_ delegate: (any PeripheralDelegate)?) { }
+    func setDelegate(_ delegate: (any BluetoothPeripheralDelegate)?) { }
     func discoverServices(_ uuids: [BluetoothUUID]) { }
-    func services() -> [any Service] { [] }
-    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: any Service) { }
-    func discoverDescriptors(for characteristic: any Characteristic) { }
-    func readValue(_ characteristic: any Characteristic) { }
-    func writeValue(_ value: [UInt8], for characteristic: any Characteristic, type: Int32) { }
-    func setNotifyValue(_ enabled: Bool, for characteristic: any Characteristic) { }
-    func readDescriptor(_ descriptor: any Descriptor) { }
-    func writeDescriptor(_ value: [UInt8], for descriptor: any Descriptor) { }
+    func services() -> [any BluetoothService] { [] }
+    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: any BluetoothService) { }
+    func discoverDescriptors(for characteristic: any BluetoothCharacteristic) { }
+    func readValue(_ characteristic: any BluetoothCharacteristic) { }
+    func writeValue(_ value: [UInt8], for characteristic: any BluetoothCharacteristic, type: Int32) { }
+    func setNotifyValue(_ enabled: Bool, for characteristic: any BluetoothCharacteristic) { }
+    func readDescriptor(_ descriptor: any BluetoothDescriptor) { }
+    func writeDescriptor(_ value: [UInt8], for descriptor: any BluetoothDescriptor) { }
     func readRSSI() { }
     func maximumWriteLength(_ type: Int32) -> Int32 { 20 }
     func canSendWriteWithoutResponse() -> Bool { true }
 }
 
-final class FakeAdvertisement: Advertisement {
+final class FakeAdvertisement: BluetoothAdvertisement {
     let manufacturer: [UInt8]?
     init(manufacturer: [UInt8]?) { self.manufacturer = manufacturer }
     func localName() -> String? { nil }
