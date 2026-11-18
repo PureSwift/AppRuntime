@@ -8,7 +8,7 @@ import Foundation
 /// `java.text.DateFormat.getDateTimeInstance()`. Each object holds its
 /// settings; the formatter for a set of settings comes from
 /// `FormatterCache`. An unknown style is ignored, and an unknown time zone
-/// is the user's.
+/// is the user's; both are logged (`HostFormattingModule.log`).
 public final class HostDateFormat: DateFormat {
 
     /// What overrides the styles.
@@ -37,17 +37,21 @@ public final class HostDateFormat: DateFormat {
     }
 
     public static func make(locale: String?, timeZone: String?) -> HostDateFormat {
-        let zone = timeZone.flatMap { TimeZone(identifier: $0) == nil ? nil : $0 }
+        var zone = timeZone
+        if let timeZone, TimeZone(identifier: timeZone) == nil {
+            HostFormattingModule.log?("DateFormat.make: unknown time zone \(timeZone); using the user's")
+            zone = nil
+        }
         return HostDateFormat(Settings(locale: locale, timeZone: zone))
     }
 
     public func setDateStyle(_ style: Int32) {
-        guard let style = DateStyle(rawValue: style) else { return }
+        guard let style = Self.style(style, method: "setDateStyle") else { return }
         settings.dateStyle = style
     }
 
     public func setTimeStyle(_ style: Int32) {
-        guard let style = DateStyle(rawValue: style) else { return }
+        guard let style = Self.style(style, method: "setTimeStyle") else { return }
         settings.timeStyle = style
     }
 
@@ -146,5 +150,13 @@ public final class HostDateFormat: DateFormat {
 
     static func milliseconds(_ date: Date) -> Int64 {
         Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    private static func style(_ raw: Int32, method: String) -> DateStyle? {
+        guard let style = DateStyle(rawValue: raw) else {
+            HostFormattingModule.log?("DateFormat.\(method): unknown style \(raw); ignored")
+            return nil
+        }
+        return style
     }
 }
