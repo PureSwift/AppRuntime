@@ -3,7 +3,7 @@ import DynamicRuntime
 
 /// A GATT service of a peripheral.
 @DynamicRuntime("org.pureswift.bluetooth.Service")
-public protocol Service: AnyObject {
+public protocol BluetoothService: AnyObject {
 
     /// In the shortest form that represents it. Throws if the host's string
     /// isn't a valid UUID.
@@ -12,7 +12,7 @@ public protocol Service: AnyObject {
     func isPrimary() -> Bool
 
     /// Characteristics discovered so far.
-    func characteristics() -> [Characteristic]
+    func characteristics() -> [BluetoothCharacteristic]
 
-    func peripheral() -> Peripheral
+    func peripheral() -> BluetoothPeripheral
 }
