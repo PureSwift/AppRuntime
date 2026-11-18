@@ -18,7 +18,7 @@ builds and the first provider contracts:
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
 | Provider contracts: Bluetooth, Location, URL/HTTP | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`; the platform hosts implement them |
-| Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux host registers it; the Darwin host has its own `DarwinFormatting`, which it's a port of |
+| Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 | `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
@@ -718,7 +718,7 @@ Each of these needs a decision, or is verified only as far as noted:
   calls them; locales and their separators, currencies and clocks; every
   number style, fraction digits and grouping, integers exact past 2^53;
   date styles, patterns, templates, parsing, time zones and relative
-  dates; the user's locale from `LC_ALL`, `LANG` and `LANGUAGE` outside
+  dates; unknown styles and time zones replaced and logged; the user's locale from `LC_ALL`, `LANG` and `LANGUAGE` outside
   Apple platforms; formatters shared by configuration. Foundation differs
   between the two in three places, which `RuntimeFormatting` hides: Linux
   has no `RelativeDateTimeFormatter` (`Date.AnchoredRelativeFormatStyle`
