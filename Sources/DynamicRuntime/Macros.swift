@@ -5,14 +5,14 @@ import RuntimeABI
 ///
 /// ```swift
 /// @DynamicRuntime("org.pureswift.bluetooth.Central", requires: .bluetooth)
-/// public protocol Central: AnyObject {
-///     static func make(_ delegate: CentralDelegate) -> Self
+/// public protocol BluetoothCentral: AnyObject {
+///     static func make(_ delegate: BluetoothCentralDelegate) -> Self
 ///     func state() -> Int32
 ///     func scan(services: [String], allowDuplicates: Bool)
 /// }
 /// ```
 ///
-/// Generates `CentralProxy`, a final class that conforms to the protocol and
+/// Generates `BluetoothCentralProxy`, a final class that conforms to the protocol and
 /// calls through `rt_call`, plus the descriptor, the dispatch adapters used
 /// to export Swift implementations, and the `rt.contracts` metadata record.
 ///
