@@ -6,12 +6,12 @@ role) are not part of the contract.
 
 | Contract | Kind | Wraps |
 |---|---|---|
-| `Central` | contract, `requires: .bluetooth` | `CBCentralManager` · `BluetoothLeScanner` + `BluetoothAdapter` · BlueZ `Adapter1` |
-| `CentralDelegate` | callback | `CBCentralManagerDelegate` · `ScanCallback` + `BluetoothGattCallback` (connection) |
-| `Peripheral` | contract | `CBPeripheral` · `BluetoothDevice` + `BluetoothGatt` · BlueZ `Device1` |
-| `PeripheralDelegate` | callback | `CBPeripheralDelegate` · `BluetoothGattCallback` |
-| `Service`, `Characteristic`, `Descriptor` | contracts | `CBService` … · `BluetoothGattService` … · `GattService1` … |
-| `Advertisement` | contract | advertisement dictionary · `ScanRecord` · `Device1` properties |
+| `BluetoothCentral` | contract, `requires: .bluetooth` | `CBCentralManager` · `BluetoothLeScanner` + `BluetoothAdapter` · BlueZ `Adapter1` |
+| `BluetoothCentralDelegate` | callback | `CBCentralManagerDelegate` · `ScanCallback` + `BluetoothGattCallback` (connection) |
+| `BluetoothPeripheral` | contract | `CBPeripheral` · `BluetoothDevice` + `BluetoothGatt` · BlueZ `Device1` |
+| `BluetoothPeripheralDelegate` | callback | `CBPeripheralDelegate` · `BluetoothGattCallback` |
+| `BluetoothService`, `BluetoothCharacteristic`, `BluetoothDescriptor` | contracts | `CBService` … · `BluetoothGattService` … · `GattService1` … |
+| `BluetoothAdvertisement` | contract | advertisement dictionary · `ScanRecord` · `Device1` properties |
 
 Guest-side Swift (never crosses the ABI): `BluetoothAuthorization`,
 `CentralState`, `PeripheralState`, `ScanMode`, `WriteType`, `BluetoothError`.
@@ -31,15 +31,15 @@ Every host requires the user's consent before any radio use, and each asks
 differently. The contract makes the steps explicit and the same everywhere:
 
 ```swift
-switch BluetoothAuthorization(rawValue: CentralProxy.authorizationStatus()) {
+switch BluetoothAuthorization(rawValue: BluetoothCentralProxy.authorizationStatus()) {
 case .allowed:       break                          // go ahead
 case .notDetermined: explainThen { central.requestAuthorization() }
 case .denied, .restricted, .none: showSettingsHint() // only the user can change it
 }
 ```
 
-1. `Central.authorizationStatus()` is static and **never prompts**.
-2. `Central.make(_:)` **never prompts**. iOS hosts create the
+1. `BluetoothCentral.authorizationStatus()` is static and **never prompts**.
+2. `BluetoothCentral.make(_:)` **never prompts**. iOS hosts create the
    `CBCentralManager` lazily, because creating one shows the prompt.
 3. `requestAuthorization()` is the only call that may show a prompt. Call
    it from a user action. The result arrives as
@@ -63,13 +63,13 @@ to Settings.
 
 **No Bluetooth address on Apple platforms.** CoreBluetooth never exposes the
 peer address, and Android peripherals usually advertise random private
-addresses that change. `Peripheral.identifier()` is therefore a string that
+addresses that change. `BluetoothPeripheral.identifier()` is therefore a string that
 is **stable for this app on this device only**:
 - the `CBPeripheral.identifier` UUID on Apple platforms;
 - the address on Android and Linux.
 
-Treat it as opaque. Use it with `Central.retrievePeripherals(_:)`, and don't
-share it between devices. `Peripheral.address` returns a `BluetoothAddress`
+Treat it as opaque. Use it with `BluetoothCentral.retrievePeripherals(_:)`, and don't
+share it between devices. `BluetoothPeripheral.address` returns a `BluetoothAddress`
 where the identifier is one, and nil on Apple platforms. Apps that need a
 stable identity across devices must read one from the peripheral itself (for
 example, a serial number characteristic).
@@ -187,23 +187,23 @@ CoreBluetooth's queue, Android's Binder threads, or the D-Bus loop first.
 ## Example
 
 ```swift
-final class Scanner: CentralDelegate {
-    var central: CentralProxy?
+final class Scanner: BluetoothCentralDelegate {
+    var central: BluetoothCentralProxy?
 
     func start() {
-        central = CentralProxy.make(self)
-        if CentralProxy.authorizationStatus() == BluetoothAuthorization.notDetermined.rawValue {
+        central = BluetoothCentralProxy.make(self)
+        if BluetoothCentralProxy.authorizationStatus() == BluetoothAuthorization.notDetermined.rawValue {
             central?.requestAuthorization()
         }
     }
 
-    func didUpdateState(_ central: Central, state: Int32) {
+    func didUpdateState(_ central: BluetoothCentral, state: Int32) {
         guard state == CentralState.poweredOn.rawValue else { return }
         central.scan(services: [BluetoothUUID.bit16(0x180D)], allowDuplicates: false,
                      mode: ScanMode.balanced.rawValue)
     }
 
-    func didDiscover(_ central: Central, peripheral: Peripheral, advertisement: Advertisement, rssi: Int32) {
+    func didDiscover(_ central: BluetoothCentral, peripheral: BluetoothPeripheral, advertisement: BluetoothAdvertisement, rssi: Int32) {
         central.stopScan()
         central.connect(peripheral, timeout: 10_000)
     }
