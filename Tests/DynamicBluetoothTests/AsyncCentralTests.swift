@@ -8,13 +8,13 @@ import RuntimeNative
 // A Swift-registry host's Bluetooth implementation, answering every request
 // at once unless told to hold it.
 
-final class HostCentral: Central {
+final class HostCentral: BluetoothCentral {
 
     nonisolated(unsafe) static var status = BluetoothAuthorization.notDetermined.rawValue
 
     nonisolated(unsafe) static var last: HostCentral?
 
-    let delegate: any CentralDelegate
+    let delegate: any BluetoothCentralDelegate
 
     var stateValue = CentralState.poweredOn.rawValue
 
@@ -25,19 +25,19 @@ final class HostCentral: Central {
     /// Connections the fake holds instead of answering.
     var holdConnections = false
 
-    var heldConnections: [any Peripheral] = []
+    var heldConnections: [any BluetoothPeripheral] = []
 
     var connectionError: Int32 = 0
 
     var cancelledConnections = 0
 
-    init(delegate: any CentralDelegate) {
+    init(delegate: any BluetoothCentralDelegate) {
         self.delegate = delegate
     }
 
     static func authorizationStatus() -> Int32 { status }
 
-    static func make(_ delegate: any CentralDelegate) -> HostCentral {
+    static func make(_ delegate: any BluetoothCentralDelegate) -> HostCentral {
         let central = HostCentral(delegate: delegate)
         last = central
         return central
@@ -68,7 +68,7 @@ final class HostCentral: Central {
         delegate.didDiscover(self, peripheral: peripheral, advertisement: HostAdvertisement(), rssi: rssi)
     }
 
-    func connect(_ peripheral: any Peripheral, timeout: Int32) {
+    func connect(_ peripheral: any BluetoothPeripheral, timeout: Int32) {
         if holdConnections {
             heldConnections.append(peripheral)
         } else if connectionError != 0 {
@@ -78,18 +78,18 @@ final class HostCentral: Central {
         }
     }
 
-    func cancelConnection(_ peripheral: any Peripheral) {
+    func cancelConnection(_ peripheral: any BluetoothPeripheral) {
         cancelledConnections += 1
         heldConnections.removeAll()
         delegate.didDisconnect(self, peripheral: peripheral, error: 0)
     }
 
-    func retrievePeripherals(_ identifiers: [String]) -> [any Peripheral] { [] }
+    func retrievePeripherals(_ identifiers: [String]) -> [any BluetoothPeripheral] { [] }
 
-    func retrieveConnectedPeripherals(_ services: [BluetoothUUID]) -> [any Peripheral] { [] }
+    func retrieveConnectedPeripherals(_ services: [BluetoothUUID]) -> [any BluetoothPeripheral] { [] }
 }
 
-final class HostAdvertisement: Advertisement {
+final class HostAdvertisement: BluetoothAdvertisement {
     func localName() -> String? { "Fake" }
     func manufacturerData() -> [UInt8]? { nil }
     func serviceUUIDs() throws(RuntimeError) -> [BluetoothUUID] { [.bit16(0x180D)] }
@@ -100,7 +100,7 @@ final class HostAdvertisement: Advertisement {
     func isConnectable() -> Int32 { 1 }
 }
 
-final class HostService: Service {
+final class HostService: BluetoothService {
     let uuidValue: BluetoothUUID
     var characteristicList: [HostCharacteristic] = []
     unowned(unsafe) let owner: HostPeripheral
@@ -110,11 +110,11 @@ final class HostService: Service {
     }
     func uuid() throws(RuntimeError) -> BluetoothUUID { uuidValue }
     func isPrimary() -> Bool { true }
-    func characteristics() -> [any Characteristic] { characteristicList }
-    func peripheral() -> any Peripheral { owner }
+    func characteristics() -> [any BluetoothCharacteristic] { characteristicList }
+    func peripheral() -> any BluetoothPeripheral { owner }
 }
 
-final class HostCharacteristic: Characteristic {
+final class HostCharacteristic: BluetoothCharacteristic {
     let uuidValue: BluetoothUUID
     var descriptorList: [HostDescriptor] = []
     var notifying = false
@@ -127,23 +127,23 @@ final class HostCharacteristic: Characteristic {
     func properties() -> Int32 { 0x1A }
     func value() -> [UInt8]? { nil }
     func isNotifying() -> Bool { notifying }
-    func descriptors() -> [any Descriptor] { descriptorList }
-    func service() -> any Service { owner }
+    func descriptors() -> [any BluetoothDescriptor] { descriptorList }
+    func service() -> any BluetoothService { owner }
 }
 
-final class HostDescriptor: Descriptor {
+final class HostDescriptor: BluetoothDescriptor {
     unowned(unsafe) let owner: HostCharacteristic
     init(owner: HostCharacteristic) { self.owner = owner }
     func uuid() throws(RuntimeError) -> BluetoothUUID { .bit16(0x2902) }
     func value() -> [UInt8]? { nil }
-    func characteristic() -> any Characteristic { owner }
+    func characteristic() -> any BluetoothCharacteristic { owner }
 }
 
-final class HostPeripheral: Peripheral {
+final class HostPeripheral: BluetoothPeripheral {
 
     let id: String
 
-    var delegate: (any PeripheralDelegate)?
+    var delegate: (any BluetoothPeripheralDelegate)?
 
     var serviceList: [HostService] = []
 
@@ -167,32 +167,32 @@ final class HostPeripheral: Peripheral {
     func identifier() -> String { id }
     func name() -> String? { "Fake \(id)" }
     func state() -> Int32 { PeripheralState.connected.rawValue }
-    func setDelegate(_ delegate: (any PeripheralDelegate)?) { self.delegate = delegate }
+    func setDelegate(_ delegate: (any BluetoothPeripheralDelegate)?) { self.delegate = delegate }
     func discoverServices(_ uuids: [BluetoothUUID]) { delegate?.didDiscoverServices(self, error: 0) }
-    func services() -> [any Service] { serviceList }
-    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: any Service) {
+    func services() -> [any BluetoothService] { serviceList }
+    func discoverCharacteristics(_ uuids: [BluetoothUUID], for service: any BluetoothService) {
         delegate?.didDiscoverCharacteristics(self, service: service, error: 0)
     }
-    func discoverDescriptors(for characteristic: any Characteristic) {
+    func discoverDescriptors(for characteristic: any BluetoothCharacteristic) {
         delegate?.didDiscoverDescriptors(self, characteristic: characteristic, error: 0)
     }
-    func readValue(_ characteristic: any Characteristic) {
+    func readValue(_ characteristic: any BluetoothCharacteristic) {
         delegate?.didUpdateValue(self, characteristic: characteristic, value: readError == 0 ? [0x2A] : [], error: readError)
     }
-    func writeValue(_ value: [UInt8], for characteristic: any Characteristic, type: Int32) {
+    func writeValue(_ value: [UInt8], for characteristic: any BluetoothCharacteristic, type: Int32) {
         written.append(value)
         if type == WriteType.withResponse.rawValue {
             delegate?.didWriteValue(self, characteristic: characteristic, error: 0)
         }
     }
-    func setNotifyValue(_ enabled: Bool, for characteristic: any Characteristic) {
+    func setNotifyValue(_ enabled: Bool, for characteristic: any BluetoothCharacteristic) {
         notifyChanges.append(enabled)
         delegate?.didUpdateNotificationState(self, characteristic: characteristic, error: 0)
     }
-    func readDescriptor(_ descriptor: any Descriptor) {
+    func readDescriptor(_ descriptor: any BluetoothDescriptor) {
         delegate?.didUpdateDescriptorValue(self, descriptor: descriptor, value: [1, 0], error: 0)
     }
-    func writeDescriptor(_ value: [UInt8], for descriptor: any Descriptor) {
+    func writeDescriptor(_ value: [UInt8], for descriptor: any BluetoothDescriptor) {
         delegate?.didWriteDescriptorValue(self, descriptor: descriptor, error: 0)
     }
     func readRSSI() { delegate?.didReadRSSI(self, rssi: -40, error: 0) }
@@ -218,14 +218,14 @@ final class HostPeripheral: Peripheral {
     init() {
         let native = NativeRuntime.shared
         native.capabilities = nil
-        CentralProxy.register(HostCentral.self, in: native)
-        CentralDelegateProxy.registerInterface(in: native)
-        PeripheralProxy.register(HostPeripheral.self, in: native)
-        PeripheralDelegateProxy.registerInterface(in: native)
-        ServiceProxy.register(HostService.self, in: native)
-        CharacteristicProxy.register(HostCharacteristic.self, in: native)
-        DescriptorProxy.register(HostDescriptor.self, in: native)
-        AdvertisementProxy.register(HostAdvertisement.self, in: native)
+        BluetoothCentralProxy.register(HostCentral.self, in: native)
+        BluetoothCentralDelegateProxy.registerInterface(in: native)
+        BluetoothPeripheralProxy.register(HostPeripheral.self, in: native)
+        BluetoothPeripheralDelegateProxy.registerInterface(in: native)
+        BluetoothServiceProxy.register(HostService.self, in: native)
+        BluetoothCharacteristicProxy.register(HostCharacteristic.self, in: native)
+        BluetoothDescriptorProxy.register(HostDescriptor.self, in: native)
+        BluetoothAdvertisementProxy.register(HostAdvertisement.self, in: native)
         HostCentral.status = BluetoothAuthorization.notDetermined.rawValue
         // Release the previous test's central before anything is counted.
         HostCentral.last = nil
