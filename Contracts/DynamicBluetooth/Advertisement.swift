@@ -4,7 +4,7 @@ import DynamicRuntime
 /// Advertisement and scan response data received while scanning, in the
 /// same form on every host.
 @DynamicRuntime("org.pureswift.bluetooth.Advertisement")
-public protocol Advertisement: AnyObject {
+public protocol BluetoothAdvertisement: AnyObject {
 
     func localName() -> String?
 
