@@ -165,7 +165,8 @@ them in a `UserDefaults` suite of the app's own (DarwinAppRuntime's
 
 `examples/ExampleModel` keeps to-dos in lists in a model store, written
 against CoreModel, with `Query`s that keep the screen current
-([Persistence](Documentation/Contracts/Persistence.md)).
+([Persistence](Documentation/Contracts/Persistence.md)). The Darwin host
+keeps them in Core Data (DarwinAppRuntime's `DarwinModelStore`).
 
 `examples/ExampleWeb` is a small browser around a `WebView`: guest code
 says `import WebKit`, shows a `WebPage`, follows its title and progress,
