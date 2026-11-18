@@ -312,16 +312,22 @@ class Target:
 GUEST_DISABLED_TRAITS = {"FloatingPointParsingShims"}
 
 
-def default_traits(manifest):
-    """The traits a package enables by default, including the ones they enable.
+def default_traits(manifest, requested=None):
+    """The traits a package enables, including the ones they enable.
 
-    Guest builds use every package's default traits, but for
-    GUEST_DISABLED_TRAITS; SwiftPM passes enabled traits to the package's
-    own targets as compilation conditions.
+    `requested` is the union of the traits the package's dependents ask for
+    in `.package(..., traits: [...])`, where "default" stands for the
+    package's default traits; None (the root package) means the defaults.
+    Guest builds leave out GUEST_DISABLED_TRAITS; SwiftPM passes enabled
+    traits to the package's own targets as compilation conditions.
     """
     traits = {trait["name"]: trait for trait in manifest.get("traits", [])}
     enabled = set()
-    pending = list(traits.get("default", {}).get("enabledTraits", []))
+    if requested is None:
+        requested = {"default"}
+    pending = [name for name in requested if name != "default"]
+    if "default" in requested:
+        pending += traits.get("default", {}).get("enabledTraits", [])
     while pending:
         name = pending.pop()
         if name not in enabled and name not in GUEST_DISABLED_TRAITS:
@@ -330,13 +336,12 @@ def default_traits(manifest):
     return enabled
 
 
-def disabled_trait_dependencies(manifest):
-    """Dependencies gated on traits the package doesn't enable by default.
+def disabled_trait_dependencies(manifest, enabled):
+    """Dependencies gated on traits the package doesn't enable.
 
     `swift package describe` lists them unconditionally, but a trait that's
     off means the dependency isn't part of the build.
     """
-    enabled = default_traits(manifest)
     disabled = {}
     for target in manifest.get("targets", []):
         for dependency in target.get("dependencies", []):
@@ -348,6 +353,19 @@ def disabled_trait_dependencies(manifest):
     return disabled
 
 
+def enabled_trait_dependencies(manifest, enabled):
+    """Dependencies gated on traits that are enabled, as (kind, name) per target."""
+    gated = {}
+    for target in manifest.get("targets", []):
+        for dependency in target.get("dependencies", []):
+            for kind, details in dependency.items():
+                condition = next((d for d in details if isinstance(d, dict)), None) if details else None
+                traits = (condition or {}).get("traits") or []
+                if traits and enabled.intersection(traits):
+                    gated.setdefault(target["name"], []).append((kind, details[0]))
+    return gated
+
+
 class PackageGraph:
 
     def __init__(self, root):
@@ -355,29 +373,60 @@ class PackageGraph:
         self.targets = {}    # (package path, name) -> Target
         self.products = {}   # product name -> (package path, [target names])
         self.uses_build_plugins = False
+        self.packages = {}   # path -> (description, manifest)
         self.load(self.root)
         dependencies = json.loads(run(["swift", "package", "show-dependencies", "--format", "json"], cwd=self.root, quiet=True,
                                       environment=GUEST_ENVIRONMENT))
+        paths = {}           # identity -> path
         pending = list(dependencies.get("dependencies", []))
         while pending:
             dependency = pending.pop()
+            paths[dependency["identity"]] = Path(dependency["path"])
             self.load(Path(dependency["path"]))
             pending.extend(dependency.get("dependencies", []))
+        # The traits each dependency is asked for, by every package that depends on it.
+        requested = {}
+        for _, manifest in self.packages.values():
+            for dependency in manifest.get("dependencies", []):
+                for entries in dependency.values():
+                    for entry in entries:
+                        path = paths.get(entry.get("identity"))
+                        if path is None:
+                            continue
+                        names = entry.get("traits")
+                        names = {"default"} if names is None else {trait["name"] for trait in names}
+                        requested.setdefault(path, set()).update(names)
+        for path, (description, manifest) in self.packages.items():
+            self.add(path, description, manifest, requested.get(path))
 
     def load(self, path):
-        if any(key[0] == path for key in self.targets):
+        if path in self.packages:
             return
         description = json.loads(run(["swift", "package", "describe", "--type", "json"], cwd=path, quiet=True,
                                      environment=GUEST_ENVIRONMENT))
         manifest = json.loads(run(["swift", "package", "dump-package"], cwd=path, quiet=True, environment=GUEST_ENVIRONMENT))
-        disabled = disabled_trait_dependencies(manifest)
-        traits = sorted(default_traits(manifest))
+        self.packages[path] = (description, manifest)
+
+    def add(self, path, description, manifest, requested):
+        enabled = default_traits(manifest, requested)
+        disabled = disabled_trait_dependencies(manifest, enabled)
+        traits = sorted(enabled)
+        gated = enabled_trait_dependencies(manifest, enabled)
+        target_names = {target["name"] for target in description["targets"]}
         for target in description["targets"]:
             model = Target(path, target)
             model.traits = traits
             excluded = disabled.get(model.name, set())
             model.target_dependencies = [d for d in model.target_dependencies if d not in excluded]
             model.product_dependencies = [d for d in model.product_dependencies if d not in excluded]
+            # `describe` evaluates the package with its default traits, so it
+            # leaves out dependencies gated on a trait a dependent enabled.
+            for kind, name in gated.get(model.name, []):
+                if kind == "target" or (kind == "byName" and name in target_names):
+                    if name not in model.target_dependencies:
+                        model.target_dependencies.append(name)
+                elif name not in model.product_dependencies:
+                    model.product_dependencies.append(name)
             self.targets[(path, target["name"])] = model
         for product in description["products"]:
             self.products.setdefault(product["name"], (path, product["targets"]))
