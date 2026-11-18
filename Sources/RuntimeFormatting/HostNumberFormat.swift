@@ -14,7 +14,7 @@ import Foundation
 /// - A decimal integer formats with `IntegerFormatStyle`, which keeps every
 ///   digit: `NumberFormatter` goes through a `Double` on Linux, even from an
 ///   `NSDecimalNumber`, and loses those past 2^53.
-/// - An unknown style is `decimal`.
+/// - An unknown style is `decimal`, and is logged (`HostFormattingModule.log`).
 public final class HostNumberFormat: NumberFormat {
 
     /// Everything that shapes the formatter. Nil options keep the style's
@@ -35,7 +35,11 @@ public final class HostNumberFormat: NumberFormat {
     }
 
     public static func make(locale: String?, style: Int32) -> HostNumberFormat {
-        HostNumberFormat(Settings(locale: locale, style: NumberStyle(rawValue: style) ?? .decimal))
+        let numberStyle = NumberStyle(rawValue: style) ?? {
+            HostFormattingModule.log?("NumberFormat.make: unknown style \(style); using decimal")
+            return .decimal
+        }()
+        return HostNumberFormat(Settings(locale: locale, style: numberStyle))
     }
 
     /// Raises the maximum if it was set lower.
