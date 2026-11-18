@@ -36,6 +36,29 @@ let sample: Int64 = 1_709_571_967_250
         #expect(HostFormattingModule.permissionProviders().isEmpty)
     }
 
+    @Test func logsWhatItReplaces() {
+        var messages: [String] = []
+        HostFormattingModule.log = { messages.append($0) }
+        defer { HostFormattingModule.log = nil }
+
+        _ = HostNumberFormat.make(locale: "en-US", style: 99)
+        let date = HostDateFormat.make(locale: "en-US", timeZone: "Mars/Olympus")
+        date.setDateStyle(42)
+        date.setTimeStyle(-1)
+        #expect(messages == [
+            "NumberFormat.make: unknown style 99; using decimal",
+            "DateFormat.make: unknown time zone Mars/Olympus; using the user's",
+            "DateFormat.setDateStyle: unknown style 42; ignored",
+            "DateFormat.setTimeStyle: unknown style -1; ignored",
+        ])
+
+        // Known values log nothing.
+        messages.removeAll()
+        _ = HostNumberFormat.make(locale: "en-US", style: NumberStyle.percent.rawValue)
+        HostDateFormat.make(locale: "en-US", timeZone: "UTC").setDateStyle(DateStyle.short.rawValue)
+        #expect(messages.isEmpty)
+    }
+
     /// As a guest calls them: through the proxies and the runtime.
     @Test func throughTheContracts() throws {
         let native = NativeRuntime.shared
