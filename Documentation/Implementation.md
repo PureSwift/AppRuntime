@@ -177,9 +177,9 @@ which are each host's. TCP and UDP are not part of the spec.
   - The delegates take their object first, like the provider contracts'
     (`didChangeState(_:state:)`), and `ApplicationState`'s raw values match
     `UIApplication.State`.
-- **Contracts are class-bound** (`protocol Central: AnyObject`). Embedded
+- **Contracts are class-bound** (`protocol BluetoothCentral: AnyObject`). Embedded
   Swift only supports existentials of class-bound protocols, and contract
-  parameters such as `Peripheral` are existentials. The macro reports a
+  parameters such as `BluetoothPeripheral` are existentials. The macro reports a
   missing `AnyObject` with a fix-it. The design's examples omit it.
 - **Raw string types.** A contract can declare a `RawRepresentable` type with
   `String` raw values, such as `BluetoothUUID`; it travels as its `rawValue`.
