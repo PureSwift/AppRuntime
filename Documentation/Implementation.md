@@ -27,7 +27,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
-| Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. No host keeps a store on disk yet: the Darwin and Linux hosts need a provider each, and Android and the browser a host side of their own |
+| Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
@@ -787,12 +787,14 @@ Each of these needs a decision, or is verified only as far as noted:
    processes inside the launcher's sandbox are the open question. Then
    messages from a page's scripts to the app.
 8. App data (§7.9) in the hosts. The model store needs a provider in
-   each Swift host (`Documentation/Contracts/Persistence.md`):
-   `CoreDataModel` on Apple platforms, CoreModel-SQLite on Linux, each
-   with the stored model and the migration rules; then Android's and the
-   browser's own host side, and the conformance vectors they'd check
-   themselves with. In CoreModel: `@Entity` under Embedded Swift, and a
-   batch requirement on `ModelStorage`. And `Files` and `Defaults` in
+   the Linux host (`Documentation/Contracts/Persistence.md`):
+   CoreModel-SQLite, with the stored model and the migration rules, as
+   the Darwin host's `DarwinModelStore` has for `CoreDataModel`; then
+   Android's and the browser's own host side, and the conformance vectors
+   they'd check themselves with. In CoreModel: `@Entity` under Embedded
+   Swift, a batch requirement on `ModelStorage`, `CoreDataModel` answering
+   as the reference does, and the reference's own string bugs
+   (`Persistence.md`, "Not checked yet"). And `Files` and `Defaults` in
    the other hosts: registering `HostFiles` and `HostDefaults` in the
    Linux host, and Android's and the browser's own. The Darwin host has
    them (DarwinAppRuntime's `DarwinFiles` and `DarwinDefaults`).
