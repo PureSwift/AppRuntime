@@ -8,17 +8,17 @@ import _Concurrency
 /// A peripheral found by a scan.
 public struct ScanResult: @unchecked Sendable {
 
-    public let peripheral: any Peripheral
+    public let peripheral: any BluetoothPeripheral
 
-    public let advertisement: any Advertisement
+    public let advertisement: any BluetoothAdvertisement
 
     /// Signal strength in dBm.
     public let rssi: Int32
 }
 
-/// Async/await over `Central` (§6.2.1): the guest-side convenience layer.
+/// Async/await over `BluetoothCentral` (§6.2.1): the guest-side convenience layer.
 ///
-/// It makes the `Central` with its own delegate and turns the callbacks into
+/// It makes the `BluetoothCentral` with its own delegate and turns the callbacks into
 /// async calls and `EventStream`s. Native hosts never see it. Permissions
 /// still come first: `authorization` never prompts, and
 /// `requestAuthorization()` is the only call that does.
@@ -39,7 +39,7 @@ public struct ScanResult: @unchecked Sendable {
 public final class AsyncCentral: @unchecked Sendable {
 
     /// The underlying contract object, for calls without an async form.
-    public let central: any Central
+    public let central: any BluetoothCentral
 
     let events: CentralEvents
 
@@ -47,19 +47,19 @@ public final class AsyncCentral: @unchecked Sendable {
     public init() {
         let events = CentralEvents()
         self.events = events
-        self.central = CentralProxy.make(events)
+        self.central = BluetoothCentralProxy.make(events)
     }
 
     /// Whether this host provides Bluetooth, with the capability granted.
     public static var isAvailable: Bool {
-        CentralProxy.isAvailable
+        BluetoothCentralProxy.isAvailable
     }
 
     // MARK: Authorization and state
 
     /// The current authorization. Never prompts.
     public static var authorization: BluetoothAuthorization {
-        BluetoothAuthorization(rawValue: CentralProxy.authorizationStatus()) ?? .notDetermined
+        BluetoothAuthorization(rawValue: BluetoothCentralProxy.authorizationStatus()) ?? .notDetermined
     }
 
     /// Prompts for permission if it hasn't been decided, and returns the
@@ -152,7 +152,7 @@ public final class AsyncCentral: @unchecked Sendable {
     /// - Parameter timeout: Milliseconds; `0` waits until connected or cancelled.
     /// - Throws: The connection error, or `operationCancelled` if the task is
     ///   cancelled, which also cancels the connection attempt.
-    public func connect(_ peripheral: any Peripheral, timeout: Int32 = 0) async throws(BluetoothError) -> AsyncPeripheral {
+    public func connect(_ peripheral: any BluetoothPeripheral, timeout: Int32 = 0) async throws(BluetoothError) -> AsyncPeripheral {
         try await withCallback { (callback: Callback<Void, BluetoothError>) in
             events.connections.append(callback, for: peripheral)
             central.connect(peripheral, timeout: timeout)
@@ -179,7 +179,7 @@ public final class AsyncCentral: @unchecked Sendable {
 }
 
 /// The delegate behind `AsyncCentral`.
-final class CentralEvents: CentralDelegate {
+final class CentralEvents: BluetoothCentralDelegate {
 
     let authorization = PendingCallbacks<BluetoothAuthorization, Never>()
 
@@ -199,13 +199,13 @@ final class CentralEvents: CentralDelegate {
     /// disconnect.
     var connected: [AsyncPeripheral] = []
 
-    func didChangeAuthorization(_ central: any Central, status: Int32) {
+    func didChangeAuthorization(_ central: any BluetoothCentral, status: Int32) {
         let status = BluetoothAuthorization(rawValue: status) ?? .notDetermined
         guard status != .notDetermined else { return }
         authorization.resumeAll(with: .success(status))
     }
 
-    func didUpdateState(_ central: any Central, state: Int32) {
+    func didUpdateState(_ central: any BluetoothCentral, state: Int32) {
         let state = CentralState(rawValue: state) ?? .unknown
         states.yield(state)
         if let result = AsyncCentral.readiness(state) {
@@ -223,23 +223,23 @@ final class CentralEvents: CentralDelegate {
         }
     }
 
-    func didDiscover(_ central: any Central, peripheral: any Peripheral, advertisement: any Advertisement, rssi: Int32) {
+    func didDiscover(_ central: any BluetoothCentral, peripheral: any BluetoothPeripheral, advertisement: any BluetoothAdvertisement, rssi: Int32) {
         scan?.yield(ScanResult(peripheral: peripheral, advertisement: advertisement, rssi: rssi))
     }
 
-    func didStopScanning(_ central: any Central, error: Int32) {
+    func didStopScanning(_ central: any BluetoothCentral, error: Int32) {
         scan?.finish(throwing: BluetoothError(code: error))
     }
 
-    func didConnect(_ central: any Central, peripheral: any Peripheral) {
+    func didConnect(_ central: any BluetoothCentral, peripheral: any BluetoothPeripheral) {
         connections.resume(for: peripheral, with: .success(()))
     }
 
-    func didFailToConnect(_ central: any Central, peripheral: any Peripheral, error: Int32) {
+    func didFailToConnect(_ central: any BluetoothCentral, peripheral: any BluetoothPeripheral, error: Int32) {
         connections.resume(for: peripheral, with: .failure(BluetoothError(code: error) ?? .connectionFailed))
     }
 
-    func didDisconnect(_ central: any Central, peripheral: any Peripheral, error: Int32) {
+    func didDisconnect(_ central: any BluetoothCentral, peripheral: any BluetoothPeripheral, error: Int32) {
         // A disconnect while connecting fails the connection attempt.
         connections.resume(for: peripheral, with: .failure(BluetoothError(code: error) ?? .peripheralDisconnected))
         while disconnections.resume(for: peripheral, with: .success(())) { }
