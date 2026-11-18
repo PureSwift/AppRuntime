@@ -3,7 +3,7 @@ import DynamicRuntime
 
 /// A GATT characteristic of a service.
 @DynamicRuntime("org.pureswift.bluetooth.Characteristic")
-public protocol Characteristic: AnyObject {
+public protocol BluetoothCharacteristic: AnyObject {
 
     /// In the shortest form that represents it. Throws if the host's string
     /// isn't a valid UUID.
@@ -18,7 +18,7 @@ public protocol Characteristic: AnyObject {
     func isNotifying() -> Bool
 
     /// Descriptors discovered so far.
-    func descriptors() -> [Descriptor]
+    func descriptors() -> [BluetoothDescriptor]
 
-    func service() -> Service
+    func service() -> BluetoothService
 }

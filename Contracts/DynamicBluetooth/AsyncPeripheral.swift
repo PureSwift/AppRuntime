@@ -5,7 +5,7 @@ import DynamicRuntime
 import _Concurrency
 #endif
 
-/// Async/await over a connected `Peripheral`'s GATT calls (§6.2.1).
+/// Async/await over a connected `BluetoothPeripheral`'s GATT calls (§6.2.1).
 /// `AsyncCentral.connect` returns one.
 ///
 /// It sets itself as the peripheral's delegate. Requests about the same
@@ -17,11 +17,11 @@ import _Concurrency
 public final class AsyncPeripheral: @unchecked Sendable {
 
     /// The underlying contract object, for calls without an async form.
-    public let peripheral: any Peripheral
+    public let peripheral: any BluetoothPeripheral
 
     let events: PeripheralEvents
 
-    init(_ peripheral: any Peripheral) {
+    init(_ peripheral: any BluetoothPeripheral) {
         let events = PeripheralEvents()
         self.peripheral = peripheral
         self.events = events
@@ -48,7 +48,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
     // MARK: Discovery
 
     /// Discovers services; all of them if `uuids` is empty.
-    public func discoverServices(_ uuids: [BluetoothUUID] = []) async throws(BluetoothError) -> [any Service] {
+    public func discoverServices(_ uuids: [BluetoothUUID] = []) async throws(BluetoothError) -> [any BluetoothService] {
         try await request { (callback: Callback<Void, BluetoothError>) in
             events.services.append(callback)
             peripheral.discoverServices(uuids)
@@ -57,7 +57,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
     }
 
     /// Discovers a service's characteristics; all of them if `uuids` is empty.
-    public func discoverCharacteristics(_ uuids: [BluetoothUUID] = [], for service: any Service) async throws(BluetoothError) -> [any Characteristic] {
+    public func discoverCharacteristics(_ uuids: [BluetoothUUID] = [], for service: any BluetoothService) async throws(BluetoothError) -> [any BluetoothCharacteristic] {
         try await request { callback in
             events.characteristics.append(callback, for: service)
             peripheral.discoverCharacteristics(uuids, for: service)
@@ -65,7 +65,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
         return service.characteristics()
     }
 
-    public func discoverDescriptors(for characteristic: any Characteristic) async throws(BluetoothError) -> [any Descriptor] {
+    public func discoverDescriptors(for characteristic: any BluetoothCharacteristic) async throws(BluetoothError) -> [any BluetoothDescriptor] {
         try await request { callback in
             events.descriptors.append(callback, for: characteristic)
             peripheral.discoverDescriptors(for: characteristic)
@@ -76,7 +76,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
     // MARK: Characteristics
 
     /// Reads a characteristic's value.
-    public func read(_ characteristic: any Characteristic) async throws(BluetoothError) -> [UInt8] {
+    public func read(_ characteristic: any BluetoothCharacteristic) async throws(BluetoothError) -> [UInt8] {
         try await request { callback in
             events.reads.append(callback, for: characteristic)
             peripheral.readValue(characteristic)
@@ -86,7 +86,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
     /// Writes a characteristic's value. With `withResponse` it returns when
     /// the peripheral acknowledges the write; `withoutResponse` waits until
     /// the host can queue the write, then returns.
-    public func write(_ value: [UInt8], to characteristic: any Characteristic, type: WriteType = .withResponse) async throws(BluetoothError) {
+    public func write(_ value: [UInt8], to characteristic: any BluetoothCharacteristic, type: WriteType = .withResponse) async throws(BluetoothError) {
         switch type {
         case .withResponse:
             try await request { callback in
@@ -112,7 +112,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
     /// Values arrive until the stream is released or its task is cancelled,
     /// which unsubscribes; the stream finishes by throwing if subscribing
     /// fails or the peripheral disconnects.
-    public func notifications(for characteristic: any Characteristic) -> EventStream<[UInt8], BluetoothError> {
+    public func notifications(for characteristic: any BluetoothCharacteristic) -> EventStream<[UInt8], BluetoothError> {
         let (stream, continuation) = EventStream<[UInt8], BluetoothError>.makeStream()
         let id = events.notifications.add(continuation, for: characteristic)
         continuation.onTermination = { [events, peripheral] in
@@ -127,14 +127,14 @@ public final class AsyncPeripheral: @unchecked Sendable {
 
     // MARK: Descriptors
 
-    public func read(_ descriptor: any Descriptor) async throws(BluetoothError) -> [UInt8] {
+    public func read(_ descriptor: any BluetoothDescriptor) async throws(BluetoothError) -> [UInt8] {
         try await request { callback in
             events.descriptorReads.append(callback, for: descriptor)
             peripheral.readDescriptor(descriptor)
         }
     }
 
-    public func write(_ value: [UInt8], to descriptor: any Descriptor) async throws(BluetoothError) {
+    public func write(_ value: [UInt8], to descriptor: any BluetoothDescriptor) async throws(BluetoothError) {
         try await request { callback in
             events.descriptorWrites.append(callback, for: descriptor)
             peripheral.writeDescriptor(value, for: descriptor)
@@ -168,7 +168,7 @@ public final class AsyncPeripheral: @unchecked Sendable {
 }
 
 /// The delegate behind `AsyncPeripheral`.
-final class PeripheralEvents: PeripheralDelegate {
+final class PeripheralEvents: BluetoothPeripheralDelegate {
 
     let services = PendingCallbacks<Void, BluetoothError>()
 
@@ -216,19 +216,19 @@ final class PeripheralEvents: PeripheralDelegate {
         BluetoothError(code: error).map { .failure($0) } ?? .success(())
     }
 
-    func didDiscoverServices(_ peripheral: any Peripheral, error: Int32) {
+    func didDiscoverServices(_ peripheral: any BluetoothPeripheral, error: Int32) {
         services.resume(with: Self.result(error))
     }
 
-    func didDiscoverCharacteristics(_ peripheral: any Peripheral, service: any Service, error: Int32) {
+    func didDiscoverCharacteristics(_ peripheral: any BluetoothPeripheral, service: any BluetoothService, error: Int32) {
         characteristics.resume(for: service, with: Self.result(error))
     }
 
-    func didDiscoverDescriptors(_ peripheral: any Peripheral, characteristic: any Characteristic, error: Int32) {
+    func didDiscoverDescriptors(_ peripheral: any BluetoothPeripheral, characteristic: any BluetoothCharacteristic, error: Int32) {
         descriptors.resume(for: characteristic, with: Self.result(error))
     }
 
-    func didUpdateValue(_ peripheral: any Peripheral, characteristic: any Characteristic, value: [UInt8], error: Int32) {
+    func didUpdateValue(_ peripheral: any BluetoothPeripheral, characteristic: any BluetoothCharacteristic, value: [UInt8], error: Int32) {
         // A read's reply and a notification arrive the same way: the value
         // answers the oldest read, and every subscriber sees it.
         let error = BluetoothError(code: error)
@@ -238,34 +238,34 @@ final class PeripheralEvents: PeripheralDelegate {
         }
     }
 
-    func didWriteValue(_ peripheral: any Peripheral, characteristic: any Characteristic, error: Int32) {
+    func didWriteValue(_ peripheral: any BluetoothPeripheral, characteristic: any BluetoothCharacteristic, error: Int32) {
         writes.resume(for: characteristic, with: Self.result(error))
     }
 
-    func didUpdateNotificationState(_ peripheral: any Peripheral, characteristic: any Characteristic, error: Int32) {
+    func didUpdateNotificationState(_ peripheral: any BluetoothPeripheral, characteristic: any BluetoothCharacteristic, error: Int32) {
         if let error = BluetoothError(code: error) {
             notifications.finish(for: characteristic, throwing: error)
         }
     }
 
-    func didUpdateDescriptorValue(_ peripheral: any Peripheral, descriptor: any Descriptor, value: [UInt8], error: Int32) {
+    func didUpdateDescriptorValue(_ peripheral: any BluetoothPeripheral, descriptor: any BluetoothDescriptor, value: [UInt8], error: Int32) {
         descriptorReads.resume(for: descriptor, with: BluetoothError(code: error).map { .failure($0) } ?? .success(value))
     }
 
-    func didWriteDescriptorValue(_ peripheral: any Peripheral, descriptor: any Descriptor, error: Int32) {
+    func didWriteDescriptorValue(_ peripheral: any BluetoothPeripheral, descriptor: any BluetoothDescriptor, error: Int32) {
         descriptorWrites.resume(for: descriptor, with: Self.result(error))
     }
 
-    func didReadRSSI(_ peripheral: any Peripheral, rssi: Int32, error: Int32) {
+    func didReadRSSI(_ peripheral: any BluetoothPeripheral, rssi: Int32, error: Int32) {
         self.rssi.resume(with: BluetoothError(code: error).map { .failure($0) } ?? .success(rssi))
     }
 
-    func isReadyToSendWriteWithoutResponse(_ peripheral: any Peripheral) {
+    func isReadyToSendWriteWithoutResponse(_ peripheral: any BluetoothPeripheral) {
         readyToWrite.resumeAll(with: .success(()))
     }
 
-    func didModifyServices(_ peripheral: any Peripheral) { }
+    func didModifyServices(_ peripheral: any BluetoothPeripheral) { }
 
-    func didUpdateName(_ peripheral: any Peripheral) { }
+    func didUpdateName(_ peripheral: any BluetoothPeripheral) { }
 }
 #endif

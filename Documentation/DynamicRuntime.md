@@ -194,22 +194,22 @@ A contract is a Swift protocol that marks a portable API. The guest calls it, an
 
 ```swift
 @DynamicRuntime("org.pureswift.bluetooth.Central", requires: .bluetooth)
-protocol Central {
-    static func make(_ delegate: CentralDelegate) -> Self
+protocol BluetoothCentral {
+    static func make(_ delegate: BluetoothCentralDelegate) -> Self
     func state() -> Int32
     func scan(services: [String], allowDuplicates: Bool)
     func stopScan()
-    func connect(_ peripheral: Peripheral)
-    func disconnect(_ peripheral: Peripheral)
+    func connect(_ peripheral: BluetoothPeripheral)
+    func disconnect(_ peripheral: BluetoothPeripheral)
 }
 
 @DynamicCallback("org.pureswift.bluetooth.CentralDelegate")
-protocol CentralDelegate {
-    func didUpdateState(_ central: Central)
-    func didDiscover(_ peripheral: Peripheral, advertisement: Advertisement, rssi: Int32)
-    func didConnect(_ peripheral: Peripheral)
-    func didFailToConnect(_ peripheral: Peripheral, error: Int32)
-    func didDisconnect(_ peripheral: Peripheral, error: Int32)
+protocol BluetoothCentralDelegate {
+    func didUpdateState(_ central: BluetoothCentral)
+    func didDiscover(_ peripheral: BluetoothPeripheral, advertisement: BluetoothAdvertisement, rssi: Int32)
+    func didConnect(_ peripheral: BluetoothPeripheral)
+    func didFailToConnect(_ peripheral: BluetoothPeripheral, error: Int32)
+    func didDisconnect(_ peripheral: BluetoothPeripheral, error: Int32)
 }
 ```
 
@@ -230,14 +230,14 @@ A protocol is the source of truth because it:
 
 The same contract file compiles in two contexts:
 
-**Guest (Embedded Swift, wasm32):** generates `final class CentralProxy: Central`
+**Guest (Embedded Swift, wasm32):** generates `final class BluetoothCentralProxy: BluetoothCentral`
 - caches `rt_class` / `rt_method` lookups in globals, resolved lazily;
 - each method marshals its arguments into slots, then calls `rt_call` and unmarshals the result;
 - `deinit` calls `rt_release`;
 - callback parameters are wrapped with `rt_implement`, and a generated `rt_dispatch` switch routes back into Swift;
 - writes contract metadata into a wasm custom section (§10).
 
-**Host (native Swift):** generates a registration adapter, so a native type conforming to `Central` can be registered under the contract name with the Swift backend.
+**Host (native Swift):** generates a registration adapter, so a native type conforming to `BluetoothCentral` can be registered under the contract name with the Swift backend.
 
 ### 4.3 Generated contracts for other languages
 
@@ -267,46 +267,46 @@ Method key mapping (portable key `connect:timeout:`):
 - **Structured data is objects with getters**, plus `List` for collections and `[UInt8]` only for data that is bytes by nature (a characteristic value, manufacturer data).
 - **Host obligations stay the same as any native SDK's:** queue operations the platform can't run concurrently (Android's `BluetoothGatt` runs one operation per device at a time), report a failure when a target disappears, and call every delegate on the main thread.
 
-Example, continuing `Central` above:
+Example, continuing `BluetoothCentral` above:
 
 ```swift
 @DynamicRuntime("org.pureswift.bluetooth.Peripheral")
-protocol Peripheral {
+protocol BluetoothPeripheral {
     func identifier() -> String
     func name() -> String?
-    func setDelegate(_ delegate: PeripheralDelegate)
+    func setDelegate(_ delegate: BluetoothPeripheralDelegate)
     func discoverServices(_ uuids: [String])
-    func services() -> [Service]
-    func discoverCharacteristics(_ uuids: [String], for service: Service)
-    func readValue(_ characteristic: Characteristic)
-    func writeValue(_ value: [UInt8], for characteristic: Characteristic, withResponse: Bool)
-    func setNotifyValue(_ enabled: Bool, for characteristic: Characteristic)
+    func services() -> [BluetoothService]
+    func discoverCharacteristics(_ uuids: [String], for service: BluetoothService)
+    func readValue(_ characteristic: BluetoothCharacteristic)
+    func writeValue(_ value: [UInt8], for characteristic: BluetoothCharacteristic, withResponse: Bool)
+    func setNotifyValue(_ enabled: Bool, for characteristic: BluetoothCharacteristic)
 }
 
 @DynamicCallback("org.pureswift.bluetooth.PeripheralDelegate")
-protocol PeripheralDelegate {
-    func didDiscoverServices(_ peripheral: Peripheral, error: Int32)
-    func didDiscoverCharacteristics(_ peripheral: Peripheral, service: Service, error: Int32)
-    func didUpdateValue(_ peripheral: Peripheral, characteristic: Characteristic, value: [UInt8], error: Int32)
-    func didWriteValue(_ peripheral: Peripheral, characteristic: Characteristic, error: Int32)
-    func didUpdateNotificationState(_ peripheral: Peripheral, characteristic: Characteristic, error: Int32)
+protocol BluetoothPeripheralDelegate {
+    func didDiscoverServices(_ peripheral: BluetoothPeripheral, error: Int32)
+    func didDiscoverCharacteristics(_ peripheral: BluetoothPeripheral, service: BluetoothService, error: Int32)
+    func didUpdateValue(_ peripheral: BluetoothPeripheral, characteristic: BluetoothCharacteristic, value: [UInt8], error: Int32)
+    func didWriteValue(_ peripheral: BluetoothPeripheral, characteristic: BluetoothCharacteristic, error: Int32)
+    func didUpdateNotificationState(_ peripheral: BluetoothPeripheral, characteristic: BluetoothCharacteristic, error: Int32)
 }
 
 @DynamicRuntime("org.pureswift.bluetooth.Service")
-protocol Service {
+protocol BluetoothService {
     func uuid() -> String
     func isPrimary() -> Bool
-    func characteristics() -> [Characteristic]
+    func characteristics() -> [BluetoothCharacteristic]
 }
 
 @DynamicRuntime("org.pureswift.bluetooth.Characteristic")
-protocol Characteristic {
+protocol BluetoothCharacteristic {
     func uuid() -> String
     func properties() -> Int32
 }
 
 @DynamicRuntime("org.pureswift.bluetooth.Advertisement")
-protocol Advertisement {
+protocol BluetoothAdvertisement {
     func localName() -> String?
     func manufacturerData() -> [UInt8]?
     func serviceUUIDs() -> [String]
@@ -1001,7 +1001,7 @@ App.wasm sections ──┴► packager ──► validate ──► per-platfor
 
 1. `rt.h` runtime core with the Swift-registry backend, linked two ways: natively and behind a WasmKit import shim (Linux/macOS). Same test app in both modes.
 2. `@DynamicRuntime` / `@DynamicCallback` macros + guest proxy generation.
-3. `Central` / `Peripheral` Bluetooth contracts end to end on Linux (BluetoothLinux).
+3. `BluetoothCentral` / `BluetoothPeripheral` Bluetooth contracts end to end on Linux (BluetoothLinux).
 4. ObjC backend (libffi, `_objc_msgForward` callbacks) + iOS host app.
 5. JNI backend + Java interface generator + Android host.
 6. Manifest packager: Info.plist / AndroidManifest / Linux bundle, with capability validation.

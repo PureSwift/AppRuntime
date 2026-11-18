@@ -52,17 +52,17 @@ don't depend on WasmKit.
 import DynamicRuntime
 
 @DynamicRuntime("org.pureswift.bluetooth.Central", requires: .bluetooth)
-public protocol Central: AnyObject {
-    static func make(_ delegate: CentralDelegate) -> Self
+public protocol BluetoothCentral: AnyObject {
+    static func make(_ delegate: BluetoothCentralDelegate) -> Self
     func state() -> Int32
     func scan(services: [String], allowDuplicates: Bool)
 }
 ```
 
-The macro generates `CentralProxy` (calls through `rt_call`), the descriptor
+The macro generates `BluetoothCentralProxy` (calls through `rt_call`), the descriptor
 and an `rt.contracts` record, plus adapters that export a Swift
-implementation to the runtime. Guest code uses `CentralProxy.make(delegate)`;
-a Swift host registers `CentralProxy.register(MyCentral.self, in: registrar)`.
+implementation to the runtime. Guest code uses `BluetoothCentralProxy.make(delegate)`;
+a Swift host registers `BluetoothCentralProxy.register(MyCentral.self, in: registrar)`.
 
 An app exports one entry point and no `main`. `Runtime.main` runs the async
 work it starts before returning to the host:

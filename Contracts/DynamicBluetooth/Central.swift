@@ -17,7 +17,7 @@ import DynamicRuntime
 /// | Android ≤ 11 | same | `ACCESS_FINE_LOCATION` |
 /// | Linux | BlueZ D-Bus (`org.bluez`) | sandbox `bluetooth` capability |
 @DynamicRuntime("org.pureswift.bluetooth.Central", requires: .bluetooth)
-public protocol Central: AnyObject {
+public protocol BluetoothCentral: AnyObject {
 
     /// The app's Bluetooth authorization, a `BluetoothAuthorization` raw
     /// value. Never prompts.
@@ -25,7 +25,7 @@ public protocol Central: AnyObject {
 
     /// Creates a central. Never prompts; the delegate receives the current
     /// state soon after.
-    static func make(_ delegate: CentralDelegate) -> Self
+    static func make(_ delegate: BluetoothCentralDelegate) -> Self
 
     /// Shows the system permission prompt if the status is `notDetermined`;
     /// the result arrives through `didChangeAuthorization`. Call it in
@@ -47,16 +47,16 @@ public protocol Central: AnyObject {
     /// Connects to `peripheral`. `timeout` is in milliseconds; `0` waits
     /// indefinitely (the host enforces the timeout, since CoreBluetooth has
     /// none). Results arrive through `didConnect` / `didFailToConnect`.
-    func connect(_ peripheral: Peripheral, timeout: Int32)
+    func connect(_ peripheral: BluetoothPeripheral, timeout: Int32)
 
     /// Cancels a pending or active connection.
-    func cancelConnection(_ peripheral: Peripheral)
+    func cancelConnection(_ peripheral: BluetoothPeripheral)
 
-    /// Peripherals this app saw before, by `Peripheral.identifier()`.
+    /// Peripherals this app saw before, by `BluetoothPeripheral.identifier()`.
     /// Unknown identifiers are skipped.
-    func retrievePeripherals(_ identifiers: [String]) -> [Peripheral]
+    func retrievePeripherals(_ identifiers: [String]) -> [BluetoothPeripheral]
 
     /// Peripherals already connected to the system (by any app) that expose
     /// any of `services`.
-    func retrieveConnectedPeripherals(_ services: [BluetoothUUID]) -> [Peripheral]
+    func retrieveConnectedPeripherals(_ services: [BluetoothUUID]) -> [BluetoothPeripheral]
 }
