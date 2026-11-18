@@ -1,7 +1,7 @@
 /// Guest-side names for the integer codes the Bluetooth contracts carry.
 /// Contracts use `Int32` on the wire; these never cross the boundary.
 
-/// `Central.authorizationStatus()`.
+/// `BluetoothCentral.authorizationStatus()`.
 public enum BluetoothAuthorization: Int32, Sendable {
     /// Not asked yet (`CBManagerAuthorization.notDetermined`; Android
     /// runtime permission never requested).
@@ -14,7 +14,7 @@ public enum BluetoothAuthorization: Int32, Sendable {
     case allowed = 3
 }
 
-/// `Central.state()`.
+/// `BluetoothCentral.state()`.
 public enum CentralState: Int32, Sendable {
     case unknown = 0
     case resetting = 1
@@ -26,7 +26,7 @@ public enum CentralState: Int32, Sendable {
     case poweredOn = 5
 }
 
-/// `Peripheral.state()`.
+/// `BluetoothPeripheral.state()`.
 public enum PeripheralState: Int32, Sendable {
     case disconnected = 0
     case connecting = 1
@@ -34,7 +34,7 @@ public enum PeripheralState: Int32, Sendable {
     case disconnecting = 3
 }
 
-/// `Central.scan(services:allowDuplicates:mode:)`. Android only; other hosts
+/// `BluetoothCentral.scan(services:allowDuplicates:mode:)`. Android only; other hosts
 /// ignore it.
 public enum ScanMode: Int32, Sendable {
     case balanced = 0
@@ -42,7 +42,7 @@ public enum ScanMode: Int32, Sendable {
     case lowLatency = 2
 }
 
-/// `Peripheral.writeValue(_:for:type:)`.
+/// `BluetoothPeripheral.writeValue(_:for:type:)`.
 public enum WriteType: Int32, Sendable {
     case withResponse = 0
     case withoutResponse = 1
