@@ -52,6 +52,8 @@ let package = Package(
         .library(name: "DynamicCoreModel", targets: ["DynamicCoreModel"]),
         // Host only: the model store's contracts over any CoreModel backend.
         .library(name: "RuntimeCoreModel", targets: ["RuntimeCoreModel"]),
+        // Host only: the formatting contracts over Swift Foundation.
+        .library(name: "RuntimeFormatting", targets: ["RuntimeFormatting"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
@@ -300,6 +302,14 @@ let package = Package(
         .testTarget(
             name: "DynamicFormattingTests",
             dependencies: ["DynamicFormatting", "RuntimeNative"]
+        ),
+        .target(
+            name: "RuntimeFormatting",
+            dependencies: ["DynamicFormatting", "DynamicRuntime", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "RuntimeFormattingTests",
+            dependencies: ["RuntimeFormatting", "DynamicFormatting", "RuntimeNative"]
         ),
 
         // MARK: - Linux bundle and sandbox
