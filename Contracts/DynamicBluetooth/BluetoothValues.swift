@@ -13,7 +13,7 @@
 // `BluetoothUUID` compares by form, so `.bit16(0x180D)` isn't equal to the same
 // UUID spelled as `.bit128`. Compare `.bit128` values when forms may differ.
 
-public extension Peripheral {
+public extension BluetoothPeripheral {
 
     /// The Bluetooth address, on hosts whose identifier is one (Android,
     /// Linux). Nil on Apple platforms, which never expose addresses.
@@ -22,14 +22,14 @@ public extension Peripheral {
     }
 }
 
-public extension Characteristic {
+public extension BluetoothCharacteristic {
 
     var gattProperties: GATTCharacteristicProperties {
         GATTCharacteristicProperties(rawValue: UInt8(truncatingIfNeeded: properties()))
     }
 }
 
-public extension Advertisement {
+public extension BluetoothAdvertisement {
 
     /// The company identifier that starts the manufacturer data.
     var companyIdentifier: CompanyIdentifier? {
