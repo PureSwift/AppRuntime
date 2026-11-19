@@ -300,8 +300,8 @@ swift test
 
 ### Loading a slice on Linux
 
-A Linux slice is also built as `libapp.so`, so a device installs an app by
-copying files: it needs a runner, and no compiler or linker. The runner
+A Linux slice is `libapp.so`, not `libapp.a`, so a device installs an app
+by copying files: it needs a runner, and no compiler or linker. The runner
 loads the library and finds the three guest exports:
 
 ```c
