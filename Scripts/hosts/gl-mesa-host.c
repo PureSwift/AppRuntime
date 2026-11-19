@@ -15,7 +15,8 @@
  * and the app must draw in the new one.
  *
  * HOST_GENERATION: defines rt_gl_context_generation, which a wasm2c slice
- * that draws asks of its host (gl_shim.h).
+ * that draws asks of its host (gl_shim.h), whether it's compiled in or a
+ * libapp.so made from App.wasm.
  *
  * HOST_LOADS: the app isn't linked in. The host loads a Linux slice, the
  * libapp.so given as its first argument, as a runner does (DynamicRuntime.md
