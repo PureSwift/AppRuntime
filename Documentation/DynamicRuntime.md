@@ -340,7 +340,7 @@ Each platform implements this as a thin wrapper over its own object model:
 | iOS / macOS native (arm64) | Embedded Swift for the Apple triple → `libapp.a` |
 | iOS 6 native (armv7) | Embedded Swift for `armv7-apple-none-macho`, with Swift-iOS6's setup (`-marm -ffixed-r9`, rebuilt concurrency runtime) → `libapp.a` |
 | Android native | Embedded Swift for a freestanding ELF triple per ABI (arm64-v8a, armeabi-v7a, x86_64) → `libapp.a` (PIC, libc-agnostic) |
-| Linux distro native | Embedded Swift for a freestanding ELF triple per arch → `libapp.a` and `libapp.so` (PIC, libc-agnostic; §7.5) |
+| Linux distro native | Embedded Swift for a freestanding ELF triple per arch → `libapp.so` (PIC, libc-agnostic; §7.5) |
 
 Each library is built **once per target, in one language mode**. There's no full-Swift build of the SDK.
 
@@ -563,7 +563,7 @@ Guest-side SDK libraries (the SwiftUI frontend, the Observation module, contract
 | `ios-arm64`, `ios-armv7` (iOS 6) | `libapp.a`, Mach-O objects |
 | `ios-simulator` | `libapp.a`, Mach-O objects stamped for the iOS Simulator (arm64 + x86_64 in one archive) |
 | `macos` | `libapp.a`, Mach-O objects (arm64 + x86_64 in one archive allowed) |
-| `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.so`, the slice as a shared library a runner loads (below), and `libapp.a`, ELF PIC objects |
+| `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.so`, an ELF shared library a runner loads (below) |
 | `android-arm64-v8a`, `android-armeabi-v7a`, `android-x86_64` | `libapp.a`, ELF PIC objects |
 
 Native slices are optional. A host without a matching slice uses `App.wasm`.
@@ -571,17 +571,17 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 **No slice is an executable.** Both forms are libraries with the same three exports (`rt_main`, `rt_dispatch`, `rt_finalize`) and the same imports; `App.wasm` adds `rt_alloc` and `rt_free`. The host always owns `main` and the run loop:
 - `App.wasm` is built as a WASI reactor (`-mexec-model=reactor`): no `_start`, an `_initialize` the host calls once, then `rt_main`. It needs no link step because it's already self-contained.
 - `libapp.a` is the same thing in native object form, linked by the host.
-- `libapp.so` is that object as a shared library, loaded by the host.
+- `libapp.so`, the Linux slice, is that object as a shared library, loaded by the host.
 - Apps have no `@main`. The entry point is an exported `rt_main` (via `@c`), which sets up the app and returns.
 
 **A native slice is sealed like a wasm module:**
-- **One prelinked object.** The archive holds a single `ld -r` object with the guest, the SDK libraries and the Embedded Swift runtime pieces.
+- **One prelinked object.** The archive holds, or the Linux library is linked from, a single `ld -r` object with the guest, the SDK libraries and the Embedded Swift runtime pieces.
 - **Only the guest exports stay visible:** `rt_main`, `rt_dispatch`, `rt_finalize`. Everything else, including `swift_retain` and the concurrency runtime, is localized, so a host that also contains Swift code (any toolchain version) can't collide with it.
 - **Allowed undefined symbols:** `rt_*`, `gl*`, and a fixed small libc set (`malloc`, `free`, `posix_memalign`, `memcpy`, `memmove`, `memset`, `memcmp`, `abort`, `write`, clock/random). The packager rejects slices with anything else. The guest never brings its own libc; the host's libc (libSystem, bionic, musl) satisfies them.
 - **libc-agnostic by construction (ELF targets):** Linux and Android slices are compiled for **freestanding ELF triples** (for example `aarch64-none-none-elf`, `armv7-none-none-eabihf`, `x86_64-unknown-none-elf`) with position-independent code. Those use the same calling conventions as Linux (AAPCS64, AAPCS hard-float, SysV), so no glibc, musl or bionic headers or assumptions get compiled in. The packager also rejects glibc-only references such as `_FORTIFY_SOURCE` `*_chk` functions, `__errno_location`/`__errno`, versioned symbols, and TLS (`__tls_get_addr`); the guest is single-threaded and has no `thread_local`. Guest code can't `import Glibc`/`Musl` anyway, because the same source must compile to wasm.
 - **Metadata sections** (`rt.abi`, `rt.contracts`, `rt.manifest`, §10) are kept in the object, so a host checks compatibility before linking.
 
-**A Linux slice is also a shared library.** `lib/linux-<arch>/libapp.so` is the same sealed object, linked when the bundle is built. Installing an app is then copying files: a device needs the runner, and no compiler or linker (§7.6).
+**A Linux slice is a shared library.** `lib/linux-<arch>/libapp.so` is the sealed object, linked when the bundle is built, and the slice has no `libapp.a`. Installing an app is then copying files: a device needs the runner, and no compiler or linker (§7.6).
 - **It names no other library** (no `DT_NEEDED`). What it leaves undefined is the allowed set above, and the runner's process supplies it when it loads the library. So the file holds no libc's name and no symbol versions, and the same file loads under glibc and under musl.
 - **It binds as it loads** (`-z now`). A symbol the runner lacks fails the launch, by name, and not a call made later.
 - **Its exports are the three guest exports,** bound inside it (`-Bsymbolic`) whatever else the process defines by those names.
@@ -589,16 +589,14 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 - **It's stripped,** and keeps the metadata sections, which a host reads without loading it.
 - `guest.py` checks each of these and fails the build otherwise.
 
-`libapp.a` stays in the Linux slice for a host that links the app into its own executable, as a self-contained port does.
-
 **Layout** (carried over from AppRuntime's format, generalized from `<arch>` to `<target>`):
 
 ```
 <bundle-id>.app/
 ├── Info.plist                  generated from App.swift (§7.1); lists RTTargets
 ├── wasm32/App.wasm
-├── lib/<target>/libapp.a       optional native slices
-├── lib/linux-<arch>/libapp.so  the Linux slices, as a runner loads them
+├── lib/<target>/libapp.a       optional native slices, which a host links
+├── lib/linux-<arch>/libapp.so  the Linux slices, which a runner loads
 ├── resources/                  shared; <lang>.lproj/ for localized strings
 ├── icon.png
 └── _CodeSignature/CodeResources   per-file hashes, signed (§7.6)
@@ -615,8 +613,8 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 Choosing a slice, linking it and handling SDK compatibility are **host jobs**. The app's build only produces the bundle.
 
 **App packaging (developer machine):**
-1. Build `App.wasm` and any native `libapp.a` slices.
-2. Seal and check the native slices, and link each Linux one into `libapp.so` (§7.5).
+1. Build `App.wasm` and any native slices: `libapp.a`, or `libapp.so` for Linux.
+2. Seal and check them (§7.5).
 3. Sign: `CodeResources` lists a hash per file, and the signature covers that list.
 
 **Host packaging and install:**
@@ -652,7 +650,7 @@ Generalized from AppRuntime's `ArchSelector`, using the same host probing (`unam
 | x86_64 | `linux-x86_64` → `linux-i386` (needs multilib) → `wasm32` | `linux-x86_64` → `linux-i386` |
 | other | `wasm32` | native only |
 
-A native slice's `libapp.so` is loaded as it is (§7.6). A `wasm32` slice runs through the system host, if it has an engine: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. wasm2c needs a C compiler, so on Linux it isn't a step for the device: a developer's machine or a store would run it, to make a `libapp.so` for an architecture a bundle lacks (`Scripts/wasm2c-shim.py` makes a `libapp.a` only, so far). rt apps never use translators, because an x86 guest would need an x86 runner.
+A native slice's `libapp.so` is loaded as it is (§7.6). A `wasm32` slice runs through the system host, if it has an engine: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. wasm2c needs a C compiler, so on Linux it isn't a step for the device: a developer's machine or a store would run it, to make a `libapp.so` for an architecture a bundle lacks (`Scripts/wasm2c-shim.py` makes a `libapp.a` only, so far, which no Linux host takes). rt apps never use translators, because an x86 guest would need an x86 runner.
 
 ### 7.8 Linux launcher and sandbox
 
