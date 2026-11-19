@@ -96,7 +96,7 @@ The app's native slice is a static library. The **host** owns `main`, links the 
 | iOS / macOS | `libapp.a` + host runtime (static) → app executable, at packaging time | Swift / Objective-C runtime core, ObjC backend, renderer | host `main` → app's `rt_main` |
 | iOS 6 (armv7) | same, with Swift-iOS6's call-in realignment shims | Objective-C / C or Embedded Swift | same |
 | Android | `libapp.a` + JNI shim → `libapp.so` per ABI, at packaging time | Java / Kotlin (contracts, Compose renderer) + a small C JNI shim implementing `rt_*` | host `Activity` → `System.loadLibrary` → `JNI_OnLoad` |
-| Linux (own distro) | `libapp.a` → `libapp.so` against the system `librt.so`, **at install time** | system runtime (`rt-host`, `librt.so`) | launcher → `rt-host` → `dlopen` → `rt_main` |
+| Linux (own distro) | nothing: the bundle's `libapp.so` is loaded as it is (§7.5, §7.6) | system runtime (`rt-host`) | launcher → `rt-host` → `dlopen` → `rt_main` |
 | Browser | n/a (wasm only) | JavaScript | — |
 
 ### 2.4 Keeping the modes equivalent
@@ -340,7 +340,7 @@ Each platform implements this as a thin wrapper over its own object model:
 | iOS / macOS native (arm64) | Embedded Swift for the Apple triple → `libapp.a` |
 | iOS 6 native (armv7) | Embedded Swift for `armv7-apple-none-macho`, with Swift-iOS6's setup (`-marm -ffixed-r9`, rebuilt concurrency runtime) → `libapp.a` |
 | Android native | Embedded Swift for a freestanding ELF triple per ABI (arm64-v8a, armeabi-v7a, x86_64) → `libapp.a` (PIC, libc-agnostic) |
-| Linux distro native | Embedded Swift for a freestanding ELF triple per arch → `libapp.a` (PIC, libc-agnostic; §7.5) |
+| Linux distro native | Embedded Swift for a freestanding ELF triple per arch → `libapp.a` and `libapp.so` (PIC, libc-agnostic; §7.5) |
 
 Each library is built **once per target, in one language mode**. There's no full-Swift build of the SDK.
 
@@ -406,7 +406,7 @@ The Embedded requirement applies only to the guest. Hosts and contract implement
 | Apple contract implementations | full Swift, Objective-C (CoreBluetooth, CoreLocation, … with all of Foundation) |
 | iOS 6 host | Objective-C / C, or Embedded Swift (there's no Swift runtime on iOS 6) |
 | Android | Kotlin / Java (contracts, Compose renderer) + C or Swift for `librt.so` and JNI |
-| Linux distro | C or Swift for `librt.so`; any language for system services behind contracts |
+| Linux distro | C or Swift for `rt-host`; any language for system services behind contracts |
 | Browser | JavaScript / TypeScript |
 
 ---
@@ -563,7 +563,7 @@ Guest-side SDK libraries (the SwiftUI frontend, the Observation module, contract
 | `ios-arm64`, `ios-armv7` (iOS 6) | `libapp.a`, Mach-O objects |
 | `ios-simulator` | `libapp.a`, Mach-O objects stamped for the iOS Simulator (arm64 + x86_64 in one archive) |
 | `macos` | `libapp.a`, Mach-O objects (arm64 + x86_64 in one archive allowed) |
-| `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.a`, ELF PIC objects |
+| `linux-arm64`, `linux-armv7`, `linux-x86_64`, `linux-i386` | `libapp.so`, the slice as a shared library a runner loads (below), and `libapp.a`, ELF PIC objects |
 | `android-arm64-v8a`, `android-armeabi-v7a`, `android-x86_64` | `libapp.a`, ELF PIC objects |
 
 Native slices are optional. A host without a matching slice uses `App.wasm`.
@@ -571,6 +571,7 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 **No slice is an executable.** Both forms are libraries with the same three exports (`rt_main`, `rt_dispatch`, `rt_finalize`) and the same imports; `App.wasm` adds `rt_alloc` and `rt_free`. The host always owns `main` and the run loop:
 - `App.wasm` is built as a WASI reactor (`-mexec-model=reactor`): no `_start`, an `_initialize` the host calls once, then `rt_main`. It needs no link step because it's already self-contained.
 - `libapp.a` is the same thing in native object form, linked by the host.
+- `libapp.so` is that object as a shared library, loaded by the host.
 - Apps have no `@main`. The entry point is an exported `rt_main` (via `@c`), which sets up the app and returns.
 
 **A native slice is sealed like a wasm module:**
@@ -580,6 +581,16 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 - **libc-agnostic by construction (ELF targets):** Linux and Android slices are compiled for **freestanding ELF triples** (for example `aarch64-none-none-elf`, `armv7-none-none-eabihf`, `x86_64-unknown-none-elf`) with position-independent code. Those use the same calling conventions as Linux (AAPCS64, AAPCS hard-float, SysV), so no glibc, musl or bionic headers or assumptions get compiled in. The packager also rejects glibc-only references such as `_FORTIFY_SOURCE` `*_chk` functions, `__errno_location`/`__errno`, versioned symbols, and TLS (`__tls_get_addr`); the guest is single-threaded and has no `thread_local`. Guest code can't `import Glibc`/`Musl` anyway, because the same source must compile to wasm.
 - **Metadata sections** (`rt.abi`, `rt.contracts`, `rt.manifest`, §10) are kept in the object, so a host checks compatibility before linking.
 
+**A Linux slice is also a shared library.** `lib/linux-<arch>/libapp.so` is the same sealed object, linked when the bundle is built. Installing an app is then copying files: a device needs the runner, and no compiler or linker (§7.6).
+- **It names no other library** (no `DT_NEEDED`). What it leaves undefined is the allowed set above, and the runner's process supplies it when it loads the library. So the file holds no libc's name and no symbol versions, and the same file loads under glibc and under musl.
+- **It binds as it loads** (`-z now`). A symbol the runner lacks fails the launch, by name, and not a call made later.
+- **Its exports are the three guest exports,** bound inside it (`-Bsymbolic`) whatever else the process defines by those names.
+- **Nothing in it runs before `rt_main`:** no constructors (`DT_INIT`, `DT_INIT_ARRAY`), and no thread-local storage. It has no relocations in code, so its code is shared between processes.
+- **It's stripped,** and keeps the metadata sections, which a host reads without loading it.
+- `guest.py` checks each of these and fails the build otherwise.
+
+`libapp.a` stays in the Linux slice for a host that links the app into its own executable, as a self-contained port does.
+
 **Layout** (carried over from AppRuntime's format, generalized from `<arch>` to `<target>`):
 
 ```
@@ -587,6 +598,7 @@ Native slices are optional. A host without a matching slice uses `App.wasm`.
 ├── Info.plist                  generated from App.swift (§7.1); lists RTTargets
 ├── wasm32/App.wasm
 ├── lib/<target>/libapp.a       optional native slices
+├── lib/linux-<arch>/libapp.so  the Linux slices, as a runner loads them
 ├── resources/                  shared; <lang>.lproj/ for localized strings
 ├── icon.png
 └── _CodeSignature/CodeResources   per-file hashes, signed (§7.6)
@@ -604,7 +616,7 @@ Choosing a slice, linking it and handling SDK compatibility are **host jobs**. T
 
 **App packaging (developer machine):**
 1. Build `App.wasm` and any native `libapp.a` slices.
-2. Seal and check the native slices (§7.5).
+2. Seal and check the native slices, and link each Linux one into `libapp.so` (§7.5).
 3. Sign: `CodeResources` lists a hash per file, and the signature covers that list.
 
 **Host packaging and install:**
@@ -615,11 +627,19 @@ Choosing a slice, linking it and handling SDK compatibility are **host jobs**. T
 | macOS | same, into `.app/Contents/MacOS/` |
 | Android | links `android-*/libapp.a` with the JNI shim into `lib/<abi>/libapp.so` (or wasm2c per ABI). **Or, with no native code at all:** keeps `App.wasm` and runs it with Chicory, a pure-Java Wasm runtime whose build-time AOT turns Wasm into JVM bytecode for d8, so the host can be entirely Java/Kotlin. |
 | Browser | `App.wasm` + the JavaScript host |
-| Linux distro | **installer** selects a slice (§7.7), keeps `Info.plist`, `resources/` and that slice (plus `App.wasm` as a fallback by default), drops the rest, and repacks a read-only squashfs. A native slice is linked to `libapp.so` against the system `librt.so` with the distro's `ld.lld`, and the result is cached outside the bundle. |
+| Linux distro | **installer** selects a slice (§7.7), keeps `Info.plist`, `resources/` and that slice's `libapp.so` (plus `App.wasm` as a fallback, where the runner has an engine), drops the rest, and repacks a read-only squashfs. Nothing is compiled or linked: the device has the runner and no toolchain. A store can thin a bundle the same way before it's downloaded. |
 
-**Independent updates on Linux:** `librt.so` is a dynamic library with versioned, add-only symbols (§2.3), so a host update needs no relink. An installed app's `libapp.so` keeps resolving against the new `librt.so`. A wasm slice depends only on the engine's imports. Signature verification checks every file still in the bundle against `CodeResources`, so thinning doesn't break it, and the cached link output is verified by its own hash.
+**Independent updates on Linux:** the OS and the runner are a rolling release, and the app ABI is what stays put.
+- **What an installed `libapp.so` depends on** is what it leaves undefined, and nothing else: `rt.h`'s functions, which are add-only (§7.5); the fixed libc set; and GLES 2.0. A runner update needs no relink and no reinstall.
+- **It holds none of Swift's ABI.** The Embedded Swift runtime is sealed inside it, so the runner can be built with any Swift.
+- **The runner's process supplies every symbol:**
+  - `rt.h` from its own executable, built to export those functions, or from a `librt.so` it loads.
+  - What its libc lacks of the libc set, which it defines itself: `arc4random_buf` on musl. Its executable is searched first, so its definition is the one used, and not one in some other library the process happens to have loaded.
+  - GLES, which it loads before an app whose contracts include `Surface`.
+- **A wasm slice** depends only on the engine's imports.
+- **Signature verification** checks every file still in the bundle against `CodeResources`, so thinning doesn't break it.
 
-**SDK compatibility:** before linking or loading, the host reads the slice's `rt.abi` and `rt.contracts` metadata. It refuses an app that needs a newer ABI or contract version than it provides, and resolves methods added later as absent (`rt_method == 0`).
+**SDK compatibility:** before linking or loading, the host reads the slice's `rt.abi` and `rt.contracts` metadata. It refuses an app that needs a newer ABI or contract version than it provides, and resolves methods added later as absent (`rt_method == 0`). A Linux runner checks at each launch as well as at install, since it may have changed since.
 
 ### 7.7 Slice selection on Linux
 
@@ -632,7 +652,7 @@ Generalized from AppRuntime's `ArchSelector`, using the same host probing (`unam
 | x86_64 | `linux-x86_64` → `linux-i386` (needs multilib) → `wasm32` | `linux-x86_64` → `linux-i386` |
 | other | `wasm32` | native only |
 
-A native slice is linked at install (§7.6). A `wasm32` slice runs through the system host: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. rt apps never use translators, because an x86 guest would need an x86 `librt.so`.
+A native slice's `libapp.so` is loaded as it is (§7.6). A `wasm32` slice runs through the system host, if it has an engine: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. wasm2c needs a C compiler, so on Linux it isn't a step for the device: a developer's machine or a store would run it, to make a `libapp.so` for an architecture a bundle lacks (`Scripts/wasm2c-shim.py` makes a `libapp.a` only, so far). rt apps never use translators, because an x86 guest would need an x86 runner.
 
 ### 7.8 Linux launcher and sandbox
 
@@ -642,7 +662,7 @@ Carried over from AppRuntime's `bundle-runtime` and its sandbox design, which is
 - **Sequence:** cgroup v2 limits before fork → container → unshare (mount, UTS, IPC, PID, cgroup; network unless the `network` capability is declared) → fork, with the supervisor dropping to the app uid → build root → devices → service sockets → `pivot_root` → `no_new_privs`, uid/gid drop, empty bounding set, **verified** by asserting `setuid(0)` fails → seccomp last (with an architecture check that kills on mismatch) → `clearenv` → `chdir /app` → exec.
 - **Per-app uids** from a persistent id→uid map, not a hash (a hash of 10,000 slots has a ~50 % collision chance at ~118 apps). Unprivileged user-namespace mode is for development.
 - **What changes for rt apps:**
-  - The launcher execs the **system host** (`rt-host`) inside the sandbox. A native slice's install-time `libapp.so` is `dlopen`ed against `librt.so`; a wasm slice runs in the engine. WASI preopens map to `/data` and `/app/resources` (§3.3). The bundle contributes no host code.
+  - The launcher execs the **system host** (`rt-host`) inside the sandbox. `rt-host` `dlopen`s the slice's `libapp.so` and calls its `rt_main`; a wasm slice runs in the engine. WASI preopens map to `/data` and `/app/resources` (§3.3). The bundle contributes no host code.
   - **Capabilities come from the manifest's contract capabilities** (§7.3), enforced twice: `rt_class` gating in the host, and the sandbox's device/socket exposure.
   - **Bluetooth becomes enforceable** (it's "reserved, unenforced" in AppRuntime): apps never get HCI device nodes. The Bluetooth contract's Linux backend talks to BlueZ over D-Bus, and the system bus socket is bound into the sandbox only with the `bluetooth` capability, under a D-Bus policy limited to `org.bluez`.
   - **Additions:** bundle signature verification between resolve and launch, which AppRuntime lacks; Landlock as an extra file-access layer; and a move from the seccomp denylist toward an allowlist for rt apps, whose syscall surface is small and known.
