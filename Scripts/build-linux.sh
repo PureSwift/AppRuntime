@@ -1,7 +1,7 @@
 #!/bin/sh
 # Compiles a package's guest library product for Linux armv7, arm64, x86_64.
-# Slices go to <package>/.build/guest/<product>/<target>/: libapp.a, and
-# libapp.so, which a runner loads as it is.
+# Each slice is <package>/.build/guest/<product>/<target>/libapp.so, which a
+# runner loads as it is.
 #
 # Usage: Scripts/build-linux.sh <product> [package-path]
 set -eu
