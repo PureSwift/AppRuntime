@@ -7,6 +7,7 @@
 #   │                               with --manifest, RTPlatforms, RTCapabilityUsage, …
 #   ├── wasm32/App.wasm             always included
 #   ├── lib/<target>/libapp.a       sealed native slices
+#   ├── lib/linux-<arch>/libapp.so  the Linux slices, as a runner loads them
 #   ├── resources/                  --resources, or the manifest's resources/
 #   ├── icon.png                    --icon
 #   └── _CodeSignature/CodeResources  per-file SHA-256 hashes (unsigned)
