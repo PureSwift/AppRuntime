@@ -298,6 +298,25 @@ cd Packages/LinkedSlice
 swift test
 ```
 
+### Loading a slice on Linux
+
+A Linux slice is also built as `libapp.so`, so a device installs an app by
+copying files: it needs a runner, and no compiler or linker. The runner
+loads the library and finds the three guest exports:
+
+```c
+void *app = dlopen("lib/linux-arm64/libapp.so", RTLD_LAZY | RTLD_LOCAL);
+rt_status (*app_main)(void) = dlsym(app, "rt_main");
+```
+
+The library names no other library. The runner's process supplies what it
+leaves undefined: the `rt_*` functions, which the runner exports
+(`-rdynamic`), a few libc calls, and GLES 2.0 for an app that draws. So the
+same file loads under glibc and musl, and a new runner needs no relink. It
+binds every symbol as it loads, so a runner that lacks one refuses the app,
+by name. `Scripts/test-gl-mesa.sh` loads `ExampleGL` this way; the rules
+are in [DynamicRuntime.md](Documentation/DynamicRuntime.md) §7.5 and §7.6.
+
 ### wasm2c: App.wasm as a slice
 
 A host with no slice for its platform translates `App.wasm` to C with
