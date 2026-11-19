@@ -1,8 +1,9 @@
 /*
  * gl-mesa-host.c: a minimal C host that draws examples/ExampleGL on a real
  * GL and looks at the pixels. Scripts/test-gl-mesa.sh builds and runs it in
- * Docker, with Mesa's software renderer, against the example's Linux slice
- * and against its App.wasm translated by wasm2c.
+ * Docker, with Mesa's software renderer, against the example's Linux slice,
+ * which it loads, and against its App.wasm translated by wasm2c, which is
+ * compiled in.
  *
  * It has just enough of rt.h for the app to start: classes and methods get
  * numbers, constructors return handles, and it remembers the delegate the
@@ -16,10 +17,11 @@
  * HOST_GENERATION: defines rt_gl_context_generation, which a wasm2c slice
  * that draws asks of its host (gl_shim.h).
  *
- * HOST_LOADS: the app isn't linked in. The host loads its libapp.so, the
- * first argument, as a runner does (DynamicRuntime.md §7.6): the library
- * names no other, and binds rt.h and GL to what this process has. Build it
- * with -rdynamic, so the process exports the rt.h it defines.
+ * HOST_LOADS: the app isn't linked in. The host loads a Linux slice, the
+ * libapp.so given as its first argument, as a runner does (DynamicRuntime.md
+ * §7.6): the library names no other, and binds rt.h and GL to what this
+ * process has. Build it with -rdynamic, so the process exports the rt.h it
+ * defines.
  *
  * Usage: gl-mesa-host [libapp.so] [frame1.ppm [frame2.ppm]]
  */
