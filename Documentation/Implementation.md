@@ -196,6 +196,37 @@ which are each host's. TCP and UDP are not part of the spec.
   the result into a `libapp.a` with the same three exports, the same `rt_*`
   imports and the module's `rt.abi`, `rt.contracts` and `rt.manifest`
   sections, so a host links it like a slice.
+  - **`slice` makes a Linux slice, `libapp.so`,** for a bundle with no
+    native slice for an architecture: a Linux device has no compiler, so
+    this runs where a bundle is built or distributed. `slice --bundle`
+    adds it to the bundle: the library, the target in `RTTargets`, and
+    `CodeResources` for the files as they now are.
+  - The library passes the checks `guest.py` makes of a native one
+    (`check_shared`), so a runner loads either. That rules out compiling
+    against a libc: built with Ubuntu's headers, the same sources leave
+    `__sigsetjmp`, `stderr`, `mmap`, `pthread_mutex_lock` and 12 more
+    undefined, hold a `jmp_buf` and a mutex of glibc's sizes, and have
+    thread-local storage.
+  - So the module, wasm-rt and the shim are compiled freestanding, with
+    the package's Swift toolchain, for the triple and flags of the
+    target's native slice, and the same support files are sealed in
+    (`armv7-eabi.c` for 64-bit division and conversions). Each libc header
+    they include is a one-line file including
+    `Scripts/support/wasm2c-freestanding.h`, which declares the libc set
+    and defines the rest:
+    - `calloc` and `realloc` on `malloc`, each block carrying its size;
+    - wasm-rt's memory from `malloc` (`WASM_RT_USE_MMAP=0`);
+    - no locks and no thread-local storage (`-D_Thread_local=`): the guest
+      has one thread;
+    - `setjmp` as the compiler's `__builtin_setjmp`, with a trap's reason
+      carried beside it, since that resumes with 1. The toolchain's clang
+      has none for arm64 ("not supported for the current target"), so
+      there the two are a few lines of assembly;
+    - rounding as builtins, which are instructions on arm64 and x86_64.
+      VFPv3 has none, so on armv7 `floor`, `ceil`, `trunc` and `rint` are
+      written out, and agree with libm bit for bit on 4 million inputs;
+    - `clock_getres` as one nanosecond, and nothing printed: wasm-rt's
+      report of a failed allocation is lost.
   - The generator reads each `RT_IMPORT` and relies on one rule of `rt.h`:
     every pointer parameter is followed by its count. Pointers become
     bounds-checked copies (output arrays are copied in, then back), so a
@@ -649,6 +680,18 @@ Each of these needs a decision, or is verified only as far as noted:
   and a fake C host for string copies both ways, slots, an out-of-bounds
   offset, a trap after a re-entrant call, and use after traps; rejecting
   unsupported imports. Needs WABT.
+  - Linux slices: the module builds as `libapp.so` for the three Linux
+    targets and passes `guest.py`'s checks, with none of a libc's own
+    names undefined; a module that draws asks for the host's GL; one
+    without `rt.abi`, and a target that isn't Linux, are refused; a bundle
+    gains a slice, its target and its hashes, and a slice it has isn't
+    replaced.
+  - The freestanding rounding functions against the machine's libm.
+  - With `APPRUNTIME_DOCKER_TESTS=1`, the fake host is built to load a
+    library (`-DHOST_LOADS -rdynamic`) and runs each slice in Docker on
+    its own architecture, arm64, x86_64 and armv7, the last two emulated:
+    the same checks pass, the two traps included. That's the only run of
+    `setjmp` in its three forms.
 - `RuntimeWasmTests` (`Packages/RuntimeWasm`): the import shim with
   hand-written WAT guests, and the same example app as `App.wasm` (built by
   `Scripts/build-wasm.sh ExampleApp`; skipped without it), including
@@ -775,21 +818,29 @@ Each of these needs a decision, or is verified only as far as noted:
   ExampleGL`; skipped without it) against a recording GL: the first frame's
   shaders, buffer and draw, later frames, a touch, a key, and a lost
   context.
-- `Scripts/test-gl-mesa.sh`: `ExampleGL` on a real GL, Mesa's llvmpipe in
-  Docker with an EGL pbuffer. A C host (`Scripts/hosts/gl-mesa-host.c`)
-  with just enough of `rt.h` starts the app and calls its surface
-  delegate. The Linux slice and the wasm2c build each draw the
-  triangle upright, upside down after π seconds, and again in a context
-  made after the first was destroyed; their frames are byte-identical. It
-  isn't part of `swift test`: it needs Docker and WABT.
-  - The slice is `libapp.so`, loaded as a runner loads it: the host is
-    built without the app (`-DHOST_LOADS -rdynamic`). The wasm2c build is
-    compiled in. Ubuntu 24.04 (glibc) is what the script runs. The same
-    file, with the same host built there, drew the same bytes under musl
-    in Alpine 3.22 too (finding 6), and the same bytes as the slice linked
-    into the host as a `libapp.a`, when the slice still had one.
+- `Scripts/test-gl-mesa.sh`: `ExampleGL` on a real GL, Mesa's software
+  renderer in Docker with an EGL pbuffer. A C host
+  (`Scripts/hosts/gl-mesa-host.c`) with just enough of `rt.h` starts the
+  app and calls its surface delegate. Each run draws the triangle upright,
+  upside down after π seconds, and again in a context made after the first
+  was destroyed, and the frames of all three are byte-identical. It isn't
+  part of `swift test`: it needs Docker and WABT.
+  - The three runs: the Linux slice, `libapp.so`, loaded as a runner loads
+    it, by a host built without the app (`-DHOST_LOADS -rdynamic`);
+    `App.wasm` as a Linux slice (`wasm2c-shim.py slice`), loaded the same
+    way; and `App.wasm` translated and compiled into the host against the
+    image's libc.
   - The same host built without `-rdynamic` exports no `rt.h`, and the
     library must fail to load in it: `undefined symbol: rt_class`.
+  - It passes on Ubuntu 24.04 for arm64, and under Docker's emulation
+    for x86_64 and armv7 (`GL_MESA_PLATFORM`), which is the only run the
+    x86_64 and armv7 native slices have had. On emulated armv7 Mesa's
+    llvmpipe crashes while drawing, with no library loaded too, so that
+    platform uses softpipe.
+  - The native slice for arm64, with the same host built there, drew the
+    same bytes under musl in Alpine 3.22 (finding 6), and the same bytes
+    as the slice linked into the host as a `libapp.a`, when the slice
+    still had one. The wasm2c slices haven't run under musl.
 - `Scripts/test_guest_shared.py`: what `libapp.so`'s checks refuse, from
   `llvm-objdump` output written in the test, and from libraries linked
   from C for the three Linux architectures: a clean guest passes, and a
@@ -821,9 +872,6 @@ Each of these needs a decision, or is verified only as far as noted:
      that loads `libapp.so` is next there: it exports `rt.h`, checks the
      app at launch, and installs by copying the thinned bundle. Until
      then it can't take a bundle built from here.
-   - `Scripts/wasm2c-shim.py build` makes a `libapp.a`; for a Linux
-     architecture a bundle lacks, it should make a `libapp.so` the same
-     way.
 5. `Surface` in the other hosts (`Documentation/Contracts/Graphics.md`):
    the GL context, the frame loop and input. The Darwin host has them
    (DarwinAppRuntime's `DarwinGraphics`).
