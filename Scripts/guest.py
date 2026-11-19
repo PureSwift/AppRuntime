@@ -5,7 +5,8 @@ target, seals the native slices, links App.wasm, and assembles the universal
 bundle that is handed to a host (Documentation/DynamicRuntime.md §5.1, §7.5).
 
 No host code is built. The host picks a slice, links or loads it, and checks
-SDK compatibility.
+SDK compatibility. A Linux slice is also linked into libapp.so, which a
+runner loads as it is: installing it takes no compiler or linker (§7.6).
 
     guest.py targets
     guest.py slice  --product ExampleApp --target linux-arm64 [--manifest App.swift] [--package PATH]
@@ -152,12 +153,13 @@ TARGETS = {
         dict(triple=APPLE_ARM64, arch="arm64", platform="watchos", minimum="6.0")]),
     "visionos-arm64": dict(kind="macho", about="visionOS 1", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="xros", minimum="1.0")]),
+    # shared: the slice is also linked into libapp.so, for a runner to load.
     "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
-                        support=["math.c"], about="Linux arm64, libc-agnostic"),
-    "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD,
+                        support=["math.c"], shared=True, about="Linux arm64, libc-agnostic"),
+    "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD, shared=True,
                         support=["armv7-eabi.c", "math.c"], about="Linux armv7 hard-float, libc-agnostic"),
     "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
-                         support=["x86_64-half.c", "math.c"],
+                         support=["x86_64-half.c", "math.c"], shared=True,
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
     "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
                               support=["math.c"], about="Android arm64-v8a"),
@@ -707,21 +709,57 @@ def seal_macho(toolchain, objects, libraries, output, slice_config):
     return sealed
 
 
-def symbols(toolchain, obj, undefined):
+SHARED_LIBRARY = "libapp.so"
+
+# Dynamic entries that make a loader run the library's code as it loads.
+RUNS_ON_LOAD = ("INIT", "INIT_ARRAY", "PREINIT_ARRAY")
+DF_TEXTREL, DF_BIND_NOW = 0x4, 0x8
+
+
+def link_shared(toolchain, sealed, output):
+    """Links a sealed ELF object into libapp.so, for a runner to load (§7.6).
+
+    The library names no other library. What it leaves undefined is the
+    allowed set, which the runner's process supplies when it loads it: so
+    it holds no libc's name and no symbol versions, and the same file loads
+    under any runner whose ABI has what it uses.
+
+    - `-z now`: every symbol binds as the library loads, so one the runner
+      lacks fails the launch by name, not a call made later.
+    - `-Bsymbolic`: the guest's own exports bind inside it, whatever else
+      the process defines by those names.
+    - `-z text`: refuses relocations in code, which would stop it being
+      shared between processes.
+    - `--hash-style=both`: for loaders with only one kind of lookup.
+    - `--strip-all`: it's what a device installs. app.o keeps the symbols
+      and the debug info.
+
+    Sections aren't collected: `.rt_abi` is referenced by nothing.
+    """
+    shared = output / SHARED_LIBRARY
+    run([toolchain.tool("ld.lld"), "-shared", "-o", shared, sealed,
+         "-Bsymbolic", "-z", "now", "-z", "text", "--hash-style=both", "--strip-all"])
+    return shared
+
+
+def shared_library(archive_path):
+    """The libapp.so built next to a slice's libapp.a, if its target has one."""
+    shared = archive_path.with_name(SHARED_LIBRARY)
+    return shared if shared.exists() else None
+
+
+def symbols(toolchain, obj, undefined, dynamic=False):
     flags = ["--undefined-only"] if undefined else ["--defined-only", "--extern-only"]
+    if dynamic:
+        flags.append("--dynamic")
     names = run([toolchain.tool("llvm-nm"), *flags, "--format=just-symbols", obj], quiet=True).split()
     return sorted(set(names))
 
 
-def check_sealed(toolchain, obj, macho, manifest=None):
-    """Returns a list of problems with a sealed object."""
+def undefined_problems(names, macho):
+    """What's wrong with the symbols a slice leaves undefined (§7.5)."""
     problems = []
-    if manifest is not None:
-        section = "__DATA,__rt_manifest" if macho else ".rt_manifest"
-        if dump_section(toolchain, obj, section) != manifest:
-            problems.append(f"the {section} section doesn't hold the manifest")
-    strip = (lambda s: s[1:] if s.startswith("_") else s) if macho else (lambda s: s)
-    for symbol in map(strip, symbols(toolchain, obj, undefined=True)):
+    for symbol in names:
         if symbol in GUEST_EXPORTS:
             problems.append(f"guest export {symbol} is undefined")
         elif GLIBC_ONLY.search(symbol):
@@ -732,6 +770,56 @@ def check_sealed(toolchain, obj, macho, manifest=None):
                   or (macho and ALLOWED_APPLE.match(symbol))
                   or (not macho and ALLOWED_ARM_EABI.match(symbol))):
             problems.append(f"undefined symbol outside the allowed set: {symbol}")
+    return problems
+
+
+def dynamic_problems(headers):
+    """What's wrong with a shared library's `llvm-objdump -p` output."""
+    problems = []
+    program, _, dynamic = headers.partition("Dynamic Section:")
+    entries = [line.split(None, 1) for line in dynamic.splitlines() if line.strip()]
+    flags = 0
+    for tag, value in ((e[0], e[1].strip() if len(e) > 1 else "") for e in entries):
+        if tag == "NEEDED":
+            problems.append(f"it needs {value}: a runner supplies everything it uses")
+        elif tag == "TEXTREL":
+            flags |= DF_TEXTREL
+        elif tag == "FLAGS":
+            flags |= int(value, 16)
+        elif tag in RUNS_ON_LOAD:
+            problems.append(f"it runs code as it loads ({tag}), before rt_main")
+    if flags & DF_TEXTREL:
+        problems.append("it has relocations in code")
+    if not flags & DF_BIND_NOW:
+        problems.append("it doesn't bind its symbols as it loads (-z now)")
+    if re.search(r"^\s*TLS\s", program, re.MULTILINE):
+        problems.append("it has thread-local storage")
+    return problems
+
+
+def check_shared(toolchain, shared, manifest=None):
+    """Returns a list of problems with a libapp.so."""
+    problems = dynamic_problems(run([toolchain.tool("llvm-objdump"), "-p", shared], quiet=True))
+    problems += undefined_problems(symbols(toolchain, shared, undefined=True, dynamic=True), macho=False)
+    exported = symbols(toolchain, shared, undefined=False, dynamic=True)
+    if exported != sorted(GUEST_EXPORTS):
+        problems.append(f"exported symbols are {exported}, expected {list(GUEST_EXPORTS)}")
+    if ".rt_abi" not in run([toolchain.tool("llvm-objdump"), "-h", shared], quiet=True):
+        problems.append("missing .rt_abi section")
+    if manifest is not None and dump_section(toolchain, shared, ".rt_manifest") != manifest:
+        problems.append("the .rt_manifest section doesn't hold the manifest")
+    return problems
+
+
+def check_sealed(toolchain, obj, macho, manifest=None):
+    """Returns a list of problems with a sealed object."""
+    problems = []
+    if manifest is not None:
+        section = "__DATA,__rt_manifest" if macho else ".rt_manifest"
+        if dump_section(toolchain, obj, section) != manifest:
+            problems.append(f"the {section} section doesn't hold the manifest")
+    strip = (lambda s: s[1:] if s.startswith("_") else s) if macho else (lambda s: s)
+    problems += undefined_problems(map(strip, symbols(toolchain, obj, undefined=True)), macho)
     exported = [strip(s) for s in symbols(toolchain, obj, undefined=False)]
     if sorted(exported) != sorted(GUEST_EXPORTS):
         problems.append(f"exported symbols are {exported}, expected {list(GUEST_EXPORTS)}")
@@ -969,6 +1057,11 @@ class Builder:
         problems = check_sealed(self.toolchain, sealed, macho=False, manifest=self.manifest)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
+        if config.get("shared"):
+            shared = link_shared(self.toolchain, sealed, output)
+            problems = check_shared(self.toolchain, shared, manifest=self.manifest)
+            if problems:
+                raise BuildError(f"{output.name}, {shared.name}:\n  " + "\n  ".join(problems))
         return archive(self.toolchain, sealed, output / "libapp.a")
 
     def macho_slice(self, config, output):
@@ -1098,7 +1191,10 @@ def build_slices(arguments):
     if arguments.loaded_manifest:
         prepare_manifest(arguments, builder, targets, manifest_resources(arguments))
     for target_id in targets:
-        print(f"ok: {builder.slice(target_id)}")
+        built = builder.slice(target_id)
+        print(f"ok: {built}")
+        if shared_library(built):
+            print(f"ok: {shared_library(built)}")
 
 
 def build_bundle(arguments):
@@ -1145,6 +1241,8 @@ def build_bundle(arguments):
         destination = bundle / ("wasm32/App.wasm" if target_id == "wasm32" else f"lib/{target_id}/libapp.a")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(built, destination)
+        if shared_library(built):
+            shutil.copy(shared_library(built), destination.with_name(SHARED_LIBRARY))
 
     if resources:
         shutil.copytree(resources, bundle / "resources")
