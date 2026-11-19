@@ -16,7 +16,7 @@ builds and the first provider contracts:
 |---|---|
 | `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
-| Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers. A Linux slice is also built as `libapp.so`, which a runner loads as it is (§7.6) |
+| Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers. A Linux slice is `libapp.so`, which a runner loads as it is (§7.6) |
 | Provider contracts: Bluetooth, Location, URL/HTTP | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`; the platform hosts implement them |
 | Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
@@ -457,17 +457,20 @@ and `Scripts/build-bundle.sh`.
 | `android-armeabi-v7a` | `armv7-none-none-eabi`, `-mfloat-abi=softfp` | |
 | `linux-x86_64`, `android-x86_64` | `x86_64-unknown-none-elf`, CPU `nehalem` (x86-64-v2) | |
 
-Every native slice is one `ld -r` object in `libapp.a`. Only `rt_main`,
+Every native slice is one `ld -r` object: in `libapp.a`, or for Linux
+linked into `libapp.so` (below). Only `rt_main`,
 `rt_dispatch` and `rt_finalize` stay global, and the build fails if:
 - any undefined symbol falls outside the §7.5 set;
 - the slice has glibc-only references;
 - an export or the `rt.abi` section is missing.
 
-A Linux slice is also linked into `libapp.so` (`ld.lld -shared -Bsymbolic
--z now -z text --hash-style=both --strip-all`, from the sealed object), so
-a device installs an app without a compiler or a linker (§7.6). It's built
-next to `libapp.a` and goes into the bundle beside it. The build fails if
-the library:
+A Linux slice is `libapp.so`, linked from the sealed object (`ld.lld
+-shared -Bsymbolic -z now -z text --hash-style=both --strip-all`), so a
+device installs an app without a compiler or a linker (§7.6). It has no
+`libapp.a`: the Linux host is the only one that takes these slices, and it
+loads them. The sealed object, with its symbols and the guest's debug
+info, stays in the build directory as `app.o`. The build fails if the
+library:
 - names another library (`DT_NEEDED`);
 - leaves a symbol undefined outside the §7.5 set, or exports anything but
   the three guest exports;
@@ -476,8 +479,8 @@ the library:
   storage;
 - lacks the `rt.abi` section, or holds another manifest.
 
-It's stripped: 435 KB for `ExampleApp` on arm64, where `libapp.a`, with its
-symbols and the guest's debug info, is 991 KB. Its sections aren't
+It's stripped: 435 KB for `ExampleApp` on arm64, where a `libapp.a` of the
+same object, with its symbols and the guest's debug info, is 991 KB. Its sections aren't
 collected (`--gc-sections` saves about 4%), because nothing refers to `rt.abi`.
 The Android slices have no `libapp.so`: that host links the slice into a
 library of its own.
@@ -775,15 +778,16 @@ Each of these needs a decision, or is verified only as far as noted:
 - `Scripts/test-gl-mesa.sh`: `ExampleGL` on a real GL, Mesa's llvmpipe in
   Docker with an EGL pbuffer. A C host (`Scripts/hosts/gl-mesa-host.c`)
   with just enough of `rt.h` starts the app and calls its surface
-  delegate. The sealed Linux slice and the wasm2c build each draw the
+  delegate. The Linux slice and the wasm2c build each draw the
   triangle upright, upside down after π seconds, and again in a context
   made after the first was destroyed; their frames are byte-identical. It
   isn't part of `swift test`: it needs Docker and WABT.
-  - The slice runs a third time as `libapp.so`: the host is built without
-    the app (`-DHOST_LOADS -rdynamic`), loads the library and draws the
-    same bytes. Ubuntu 24.04 (glibc) is what the script runs. The same
-    file, with the same host built there, drew them under musl in Alpine
-    3.22 too (finding 6).
+  - The slice is `libapp.so`, loaded as a runner loads it: the host is
+    built without the app (`-DHOST_LOADS -rdynamic`). The wasm2c build is
+    compiled in. Ubuntu 24.04 (glibc) is what the script runs. The same
+    file, with the same host built there, drew the same bytes under musl
+    in Alpine 3.22 too (finding 6), and the same bytes as the slice linked
+    into the host as a `libapp.a`, when the slice still had one.
   - The same host built without `-rdynamic` exports no `rt.h`, and the
     library must fail to load in it: `undefined symbol: rt_class`.
 - `Scripts/test_guest_shared.py`: what `libapp.so`'s checks refuse, from
@@ -812,11 +816,11 @@ Each of these needs a decision, or is verified only as far as noted:
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
-   - The Linux host (LinuxAppRuntime) builds an executable per app from
-     `libapp.a` today. One runner that loads `libapp.so` is next there:
-     it exports `rt.h`, checks the app at launch, and installs by copying
-     the thinned bundle. `libapp.a` can leave the Linux slices once
-     nothing links it.
+   - The Linux host (LinuxAppRuntime) built an executable per app from
+     the slice's `libapp.a`, which the slice no longer has. One runner
+     that loads `libapp.so` is next there: it exports `rt.h`, checks the
+     app at launch, and installs by copying the thinned bundle. Until
+     then it can't take a bundle built from here.
    - `Scripts/wasm2c-shim.py build` makes a `libapp.a`; for a Linux
      architecture a bundle lacks, it should make a `libapp.so` the same
      way.
