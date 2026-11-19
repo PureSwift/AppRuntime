@@ -16,7 +16,7 @@ builds and the first provider contracts:
 |---|---|
 | `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
-| Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers |
+| Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers. A Linux slice is also built as `libapp.so`, which a runner loads as it is (§7.6) |
 | Provider contracts: Bluetooth, Location, URL/HTTP | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`; the platform hosts implement them |
 | Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
@@ -463,6 +463,25 @@ Every native slice is one `ld -r` object in `libapp.a`. Only `rt_main`,
 - the slice has glibc-only references;
 - an export or the `rt.abi` section is missing.
 
+A Linux slice is also linked into `libapp.so` (`ld.lld -shared -Bsymbolic
+-z now -z text --hash-style=both --strip-all`, from the sealed object), so
+a device installs an app without a compiler or a linker (§7.6). It's built
+next to `libapp.a` and goes into the bundle beside it. The build fails if
+the library:
+- names another library (`DT_NEEDED`);
+- leaves a symbol undefined outside the §7.5 set, or exports anything but
+  the three guest exports;
+- doesn't bind as it loads, or has relocations in code;
+- runs code as it loads (`DT_INIT`, `DT_INIT_ARRAY`), or has thread-local
+  storage;
+- lacks the `rt.abi` section, or holds another manifest.
+
+It's stripped: 435 KB for `ExampleApp` on arm64, where `libapp.a`, with its
+symbols and the guest's debug info, is 991 KB. Its sections aren't
+collected (`--gc-sections` saves about 4%), because nothing refers to `rt.abi`.
+The Android slices have no `libapp.so`: that host links the slice into a
+library of its own.
+
 `App.wasm` is checked for the reactor exports, and for imports outside
 `rt`, WASI preview 1 and the GL functions of `gles2.py`. A native slice's
 `gl*` references are checked against the same list.
@@ -531,9 +550,12 @@ Each of these needs a decision, or is verified only as far as noted:
 5. **x86_64** uses the x86-64-v2 baseline (SSE4.2, POPCNT; Android x86_64
    requires it), so `ceil` compiles to an instruction instead of a libm call.
 6. **`arc4random_buf`.** The Embedded stdlib calls it to seed hashing.
-   It is in the allowed set as "random", but **musl doesn't provide it**.
-   On a musl distro, `librt.so` (or a shim at install-time link) has to
-   supply it.
+   It is in the allowed set as "random", but **musl doesn't provide it**
+   (1.2.5). On a musl distro the runner has to define it, and export it
+   for the `libapp.so` it loads. `ExampleGL`'s `libapp.so` did load under
+   musl in Alpine 3.22 with a host that doesn't, but only because Mesa had
+   brought `libbsd` into the process, which has one. A runner's own
+   definition is found first, so it shouldn't leave this to chance.
 7. **Concurrency.** Every slice links the Embedded concurrency runtime, and
    `GuestExecutor` supplies its executor hooks (§5.4). Native slices also seal
    in `Scripts/support/concurrency.c`: the runtime calls a little libc outside
@@ -757,6 +779,19 @@ Each of these needs a decision, or is verified only as far as noted:
   triangle upright, upside down after π seconds, and again in a context
   made after the first was destroyed; their frames are byte-identical. It
   isn't part of `swift test`: it needs Docker and WABT.
+  - The slice runs a third time as `libapp.so`: the host is built without
+    the app (`-DHOST_LOADS -rdynamic`), loads the library and draws the
+    same bytes. Ubuntu 24.04 (glibc) is what the script runs. The same
+    file, with the same host built there, drew them under musl in Alpine
+    3.22 too (finding 6).
+  - The same host built without `-rdynamic` exports no `rt.h`, and the
+    library must fail to load in it: `undefined symbol: rt_class`.
+- `Scripts/test_guest_shared.py`: what `libapp.so`'s checks refuse, from
+  `llvm-objdump` output written in the test, and from libraries linked
+  from C for the three Linux architectures: a clean guest passes, and a
+  constructor, thread-local storage, another export, another import and
+  another manifest are each refused. The linked half is skipped without
+  the toolchain.
 - `LinkedSliceTests` runs `ExampleGL` too (`APPRUNTIME_LINKED_PRODUCT=
   ExampleGL`), as its sealed macOS slice and through wasm2c. The host's GL
   is `CFakeGL`, generated by `gles2.py`: every `gl*` function, writing
@@ -777,6 +812,14 @@ Each of these needs a decision, or is verified only as far as noted:
 3. Manifest packager: `App.swift` → Info.plist / AndroidManifest, signing.
 4. Hosts and backends (ObjC, JNI, Linux `rt-host`), in their own
    repositories or later here (Linux only).
+   - The Linux host (LinuxAppRuntime) builds an executable per app from
+     `libapp.a` today. One runner that loads `libapp.so` is next there:
+     it exports `rt.h`, checks the app at launch, and installs by copying
+     the thinned bundle. `libapp.a` can leave the Linux slices once
+     nothing links it.
+   - `Scripts/wasm2c-shim.py build` makes a `libapp.a`; for a Linux
+     architecture a bundle lacks, it should make a `libapp.so` the same
+     way.
 5. `Surface` in the other hosts (`Documentation/Contracts/Graphics.md`):
    the GL context, the frame loop and input. The Darwin host has them
    (DarwinAppRuntime's `DarwinGraphics`).
