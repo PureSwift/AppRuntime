@@ -3,9 +3,16 @@
 The end-to-end tests (ExampleApp and ExampleUI through wasm2c against the real
 runtime) are in Packages/LinkedSlice. These check the generator, and the
 shim's conversions and traps against a hand-written module and a fake host.
+
+A Linux slice (`slice`) is built for every Linux target and checked here.
+With APPRUNTIME_DOCKER_TESTS=1, each is also loaded and run in Docker, on
+its own architecture, by the same fake host: that needs Docker with
+emulation for the architectures that aren't the machine's own.
 """
 
 import importlib.util
+import os
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -19,6 +26,30 @@ shim = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(shim)
 
 HAS_WABT = bool(shutil.which("wasm2c") and shutil.which("wat2wasm"))
+SUPPORT = SCRIPTS / "support"
+# Linux target IDs, with the Docker platform each runs on and the Ubuntu
+# package and command of a C compiler for it.
+LINUX = {
+    "linux-arm64": ("linux/arm64", "gcc-aarch64-linux-gnu", "aarch64-linux-gnu-gcc"),
+    "linux-armv7": ("linux/arm/v7", "gcc-arm-linux-gnueabihf", "arm-linux-gnueabihf-gcc"),
+    "linux-x86_64": ("linux/amd64", "gcc-x86-64-linux-gnu", "x86_64-linux-gnu-gcc"),
+}
+
+
+def custom_section(name, payload):
+    """A wasm custom section, to append to a module."""
+    body = bytes([len(name)]) + name.encode() + payload
+    assert len(body) < 128
+    return b"\x00" + bytes([len(body)]) + body
+
+
+def write_module(text, path):
+    """Assembles `text` at `path`, with the rt.abi section an app has."""
+    path.with_suffix(".wat").write_text(text)
+    subprocess.run(["wat2wasm", path.with_suffix(".wat"), "-o", path], check=True)
+    with open(path, "ab") as file:
+        file.write(custom_section("rt.abi", (1).to_bytes(4, "little")))
+    return path
 
 MODULE = r"""
 (module
@@ -73,6 +104,20 @@ HOST = r"""
 #include <string.h>
 #include "rt.h"
 
+/* HOST_LOADS: the guest isn't linked in. The host loads the libapp.so
+ * given as its argument, as a Linux runner does, and exports the rt.h it
+ * defines (-rdynamic). */
+#ifdef HOST_LOADS
+#include <dlfcn.h>
+static rt_status (*app_main)(void);
+static rt_status (*app_dispatch)(uint32_t context, uint32_t index, rt_obj self,
+                                 const rt_slot *args, uint32_t nargs, rt_slot *ret, uint32_t nret);
+static void (*app_finalize)(uint32_t context);
+#define rt_main app_main
+#define rt_dispatch app_dispatch
+#define rt_finalize app_finalize
+#endif
+
 static char seen[64];
 static int nested;
 
@@ -103,8 +148,16 @@ size_t rt_error_message(char *buf, size_t cap) { return 0; }
 
 #define CHECK(condition) if (!(condition)) { printf("FAIL %s\n", #condition); failures++; }
 
-int main(void) {
+int main(int argc, char **argv) {
     int failures = 0;
+#ifdef HOST_LOADS
+    void *app = argc > 1 ? dlopen(argv[1], RTLD_LAZY | RTLD_LOCAL) : NULL;
+    if (!app) { printf("FAIL %s\n", argc > 1 ? dlerror() : "no libapp.so given"); return 1; }
+    app_main = dlsym(app, "rt_main");
+    app_dispatch = dlsym(app, "rt_dispatch");
+    app_finalize = dlsym(app, "rt_finalize");
+    if (!app_main || !app_dispatch || !app_finalize) { printf("FAIL %s\n", dlerror()); return 1; }
+#endif
     rt_slot argument = 1, result = 0;
     CHECK(rt_dispatch(1, 0, 0, &argument, 1, &result, 1) == RT_ERR_NOT_FOUND); /* before rt_main */
     CHECK(rt_main() == RT_OK);
@@ -456,6 +509,203 @@ class ShimTests(unittest.TestCase):
             subprocess.run(["wat2wasm", work / "test.wat", "-o", work / "test.wasm"], check=True)
             self.assertEqual(shim.check_imports(work / "test.wasm", shim.read_imports(shim.RT_H)),
                              ["env.other", "wasi_snapshot_preview1.path_open"])
+
+
+# Compares wasm2c-freestanding.c's rounding with the machine's libm, bit for
+# bit: the cases rounding turns on, random bit patterns, and values a
+# quarter apart around the integers.
+ROUNDING = r"""
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+double rt_w2c_rint(double), rt_w2c_trunc(double), rt_w2c_floor(double), rt_w2c_ceil(double);
+float rt_w2c_rintf(float), rt_w2c_truncf(float), rt_w2c_floorf(float), rt_w2c_ceilf(float);
+
+static uint64_t state = 0x9E3779B97F4A7C15ull;
+static uint64_t next(void) { state ^= state << 13; state ^= state >> 7; state ^= state << 17; return state; }
+static int same(double a, double b) { return (isnan(a) && isnan(b)) || memcmp(&a, &b, 8) == 0; }
+static int samef(float a, float b) { return (isnan(a) && isnan(b)) || memcmp(&a, &b, 4) == 0; }
+
+static long check(double x, float f) {
+    long failures = 0;
+    if (!same(rt_w2c_rint(x), rint(x)) || !same(rt_w2c_trunc(x), trunc(x)) ||
+        !same(rt_w2c_floor(x), floor(x)) || !same(rt_w2c_ceil(x), ceil(x))) {
+        printf("FAIL double %a\n", x);
+        failures++;
+    }
+    if (!samef(rt_w2c_rintf(f), rintf(f)) || !samef(rt_w2c_truncf(f), truncf(f)) ||
+        !samef(rt_w2c_floorf(f), floorf(f)) || !samef(rt_w2c_ceilf(f), ceilf(f))) {
+        printf("FAIL float %a\n", (double)f);
+        failures++;
+    }
+    return failures;
+}
+
+int main(void) {
+    static const double edges[] = {0.0, -0.0, 0.3, -0.3, 0.5, -0.5, 0.7, -0.7, 1.0, -1.0, 1.5, -1.5, 2.5, -2.5,
+        4503599627370495.5, -4503599627370495.5, 4503599627370496.0, 9007199254740993.0, 1e300, -1e300,
+        4.9e-324, -4.9e-324, 2.2250738585072014e-308, 8388607.5, -8388607.5, 8388608.0, 16777217.0,
+        INFINITY, -INFINITY, NAN};
+    long failures = 0;
+    for (unsigned i = 0; i < sizeof edges / sizeof *edges; i++) {
+        failures += check(edges[i], (float)edges[i]);
+    }
+    for (long i = 0; i < 1000000 && failures < 10; i++) {
+        uint64_t bits = next();
+        uint32_t fbits = (uint32_t)next();
+        double x; float f;
+        memcpy(&x, &bits, 8);
+        memcpy(&f, &fbits, 4);
+        failures += check(x, f);
+        x = (double)((int64_t)(next() % 2000001) - 1000000) / 4.0 * (i % 2 ? 1 : 1e-3);
+        failures += check(x, (float)x);
+    }
+    if (!failures) printf("ok\n");
+    return failures != 0;
+}
+"""
+
+
+class FreestandingTests(unittest.TestCase):
+
+    def test_rounding_matches_libm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work / "rounding.c").write_text(ROUNDING)
+            subprocess.run([*shim.compiler(), "-O2", "-I", SUPPORT, work / "rounding.c",
+                            SUPPORT / "wasm2c-freestanding.c", "-lm", "-o", work / "rounding"], check=True)
+            result = subprocess.run([work / "rounding"], capture_output=True, text=True)
+        self.assertEqual(result.stdout.strip(), "ok", result.stdout)
+
+
+@unittest.skipUnless(HAS_WABT, "needs WABT (brew install wabt)")
+class LinuxSliceTests(unittest.TestCase):
+    """App.wasm as libapp.so, the Linux slice a runner loads."""
+
+    @classmethod
+    def setUpClass(cls):
+        import guest
+        cls.guest = guest
+        try:
+            cls.toolchain = guest.Toolchain(SCRIPTS.parent)
+            for tool in ("clang", "ld.lld", "llvm-objcopy", "llvm-nm"):
+                cls.toolchain.tool(tool)
+        except (guest.BuildError, OSError) as error:
+            raise unittest.SkipTest(f"no toolchain: {error}")
+
+    def setUp(self):
+        self.work = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+
+    def undefined(self, shared):
+        return set(self.guest.symbols(self.toolchain, shared, undefined=True, dynamic=True))
+
+    def test_a_module_builds_for_every_linux_target(self):
+        wasm = write_module(MODULE, self.work / "test.wasm")
+        for target in LINUX:
+            with self.subTest(target):
+                shared = shim.build_slice(wasm, self.work, target)
+                self.assertEqual(shared, self.work / target / "libapp.so")
+                # build_slice ran guest.py's checks; they pass again here.
+                self.assertEqual(self.guest.check_shared(self.toolchain, shared), [])
+                undefined = self.undefined(shared)
+                # What MODULE imports, and the libc set: no libc's own names.
+                self.assertTrue({"rt_string_new", "rt_string_utf8", "rt_call", "malloc", "getentropy"} <= undefined)
+                self.assertFalse(undefined & {"calloc", "realloc", "strlen", "setjmp", "_setjmp", "__sigsetjmp",
+                                              "longjmp", "siglongjmp", "mmap", "stderr", "fprintf",
+                                              "pthread_mutex_lock", "clock_getres", "floor", "__assert_fail"})
+
+    def test_a_module_that_draws_asks_for_the_hosts_gl(self):
+        wasm = write_module(GL_MODULE, self.work / "test.wasm")
+        undefined = self.undefined(shim.build_slice(wasm, self.work, "linux-armv7"))
+        self.assertTrue({"glClearColor", "glBufferData", "rt_gl_context_generation"} <= undefined)
+        self.assertFalse({name for name in undefined if name.startswith("rt_gl_gl")}, "the shim is inside the slice")
+
+    def test_a_module_without_its_abi_section_is_refused(self):
+        (self.work / "test.wat").write_text(MODULE)
+        subprocess.run(["wat2wasm", self.work / "test.wat", "-o", self.work / "test.wasm"], check=True)
+        with self.assertRaisesRegex(shim.ShimError, "missing .rt_abi section"):
+            shim.build_slice(self.work / "test.wasm", self.work, "linux-x86_64")
+
+    def test_only_linux_targets_are_slices(self):
+        wasm = write_module(MODULE, self.work / "test.wasm")
+        for target in ("android-arm64-v8a", "macos", "linux-riscv64"):
+            with self.assertRaisesRegex(shim.ShimError, "isn't a Linux target"):
+                shim.build_slice(wasm, self.work, target)
+
+    def bundle(self):
+        bundle = self.work / "org.example.app"
+        (bundle / "wasm32").mkdir(parents=True)
+        (bundle / "lib" / "macos").mkdir(parents=True)
+        (bundle / "lib" / "macos" / "libapp.a").write_bytes(b"archive")
+        write_module(MODULE, bundle / "wasm32" / "App.wasm")
+        (bundle / "wasm32" / "App.wat").unlink()
+        with open(bundle / "Info.plist", "wb") as file:
+            plistlib.dump({"CFBundleIdentifier": "org.example.app", "RTTargets": ["wasm32", "macos"]}, file)
+        (bundle / "_CodeSignature").mkdir()
+        with open(bundle / "_CodeSignature" / "CodeResources", "wb") as file:
+            plistlib.dump(self.guest.code_resources(bundle), file)
+        return bundle
+
+    def test_a_bundle_gains_a_slice(self):
+        bundle = self.bundle()
+        with open(bundle / "_CodeSignature" / "CodeResources", "rb") as file:
+            before = plistlib.load(file)["files"]
+        built = shim.add_slices(bundle, ["linux-x86_64"])
+        self.assertEqual(built, [bundle / "lib" / "linux-x86_64" / "libapp.so"])
+        self.assertEqual(self.guest.check_shared(self.toolchain, built[0]), [])
+        with open(bundle / "Info.plist", "rb") as file:
+            self.assertEqual(plistlib.load(file)["RTTargets"], ["wasm32", "macos", "linux-x86_64"])
+        with open(bundle / "_CodeSignature" / "CodeResources", "rb") as file:
+            after = plistlib.load(file)["files"]
+        # Every file is listed with its hash, as guest.py lists them.
+        self.assertEqual(after, self.guest.code_resources(bundle)["files"])
+        self.assertEqual(set(after) - set(before), {"lib/linux-x86_64/libapp.so"})
+        self.assertEqual(after["wasm32/App.wasm"], before["wasm32/App.wasm"])
+        self.assertNotEqual(after["Info.plist"], before["Info.plist"])
+
+    def test_a_slice_the_bundle_has_isnt_replaced(self):
+        bundle = self.bundle()
+        with self.assertRaisesRegex(shim.ShimError, "already has a macos slice"):
+            shim.add_slices(bundle, ["macos"])
+        shim.add_slices(bundle, ["linux-x86_64"])
+        with self.assertRaisesRegex(shim.ShimError, "already has a linux-x86_64 slice"):
+            shim.add_slices(bundle, ["linux-x86_64"])
+        with self.assertRaisesRegex(shim.ShimError, "isn't a bundle"):
+            shim.add_slices(self.work, ["linux-x86_64"])
+
+    @unittest.skipUnless(os.environ.get("APPRUNTIME_DOCKER_TESTS"), "set APPRUNTIME_DOCKER_TESTS=1 to run in Docker")
+    def test_each_slice_loads_and_traps_on_its_architecture(self):
+        wasm = write_module(MODULE, self.work / "test.wasm")
+        for target in LINUX:
+            shim.build_slice(wasm, self.work, target)
+        (self.work / "host.c").write_text(HOST)
+        shutil.copy(shim.RT_H, self.work / "rt.h")
+        docker = ["docker", "run", "--rm", "-v", f"{self.work}:/work", "-w", "/work"]
+        # The hosts are compiled once, on the machine's own architecture: by
+        # its own compiler for its own target, and a cross compiler for the
+        # others. Every run names its platform: a tag pulled for another
+        # platform is otherwise what Docker runs.
+        machine = subprocess.run(["docker", "info", "--format", "{{.Architecture}}"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        native = {"aarch64": "linux-arm64", "arm64": "linux-arm64", "x86_64": "linux-x86_64", "amd64": "linux-x86_64"}[machine]
+        cross = {target: (package, command) for target, (_, package, command) in LINUX.items() if target != native}
+        compile_hosts = "\n".join(
+            f"{cross[target][1] if target in cross else 'gcc'} -O1 -w -I. -DHOST_LOADS -rdynamic host.c -ldl -o host-{target}"
+            for target in LINUX)
+        packages = " ".join(["gcc", "libc6-dev", *[package for package, _ in cross.values()]])
+        subprocess.run([*docker, "--platform", LINUX[native][0], "ubuntu:24.04", "sh", "-euc", f"""
+            apt-get update -qq >/dev/null
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq {packages} >/dev/null 2>&1
+            {compile_hosts}
+            """], check=True)
+        for target, (platform, _, _) in LINUX.items():
+            with self.subTest(target):
+                result = subprocess.run([*docker, "--platform", platform, "ubuntu:24.04",
+                                         f"./host-{target}", f"./{target}/libapp.so"], capture_output=True, text=True)
+                self.assertEqual(result.stdout.strip(), "ok", result.stdout + result.stderr)
+                self.assertEqual(result.stderr.count("guest trapped"), 2, result.stderr)
 
 
 if __name__ == "__main__":
