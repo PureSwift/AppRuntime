@@ -340,6 +340,16 @@ file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 engine, and `ExampleGL` the one that draws, against a GL that writes down
 what it's asked.
 
+For Linux, `slice` makes `libapp.so`, the slice a runner loads, for a
+bundle with no native slice for an architecture, and adds it to the bundle:
+
+```sh
+Scripts/wasm2c-shim.py slice --bundle org.example.app --target linux-arm64
+```
+
+It's compiled freestanding with the Swift toolchain, like a native slice,
+so it names no library and loads under any libc.
+
 `Scripts/wasm2c-shim.py sources` stops before compiling and gathers the C
 files, for a build with another toolchain. A module that draws gets the GL
 shim too, and its host then defines `rt_gl_context_generation`
