@@ -5,8 +5,9 @@ target, seals the native slices, links App.wasm, and assembles the universal
 bundle that is handed to a host (Documentation/DynamicRuntime.md §5.1, §7.5).
 
 No host code is built. The host picks a slice, links or loads it, and checks
-SDK compatibility. A Linux slice is also linked into libapp.so, which a
-runner loads as it is: installing it takes no compiler or linker (§7.6).
+SDK compatibility. A Linux slice is libapp.so, which a runner loads as it
+is: installing it takes no compiler or linker (§7.6). Every other native
+slice is libapp.a, which its host links.
 
     guest.py targets
     guest.py slice  --product ExampleApp --target linux-arm64 [--manifest App.swift] [--package PATH]
@@ -153,7 +154,7 @@ TARGETS = {
         dict(triple=APPLE_ARM64, arch="arm64", platform="watchos", minimum="6.0")]),
     "visionos-arm64": dict(kind="macho", about="visionOS 1", slices=[
         dict(triple=APPLE_ARM64, arch="arm64", platform="xros", minimum="1.0")]),
-    # shared: the slice is also linked into libapp.so, for a runner to load.
+    # shared: the slice is libapp.so, for a runner to load, and not libapp.a.
     "linux-arm64": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
                         support=["math.c"], shared=True, about="Linux arm64, libc-agnostic"),
     "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD, shared=True,
@@ -742,12 +743,6 @@ def link_shared(toolchain, sealed, output):
     return shared
 
 
-def shared_library(archive_path):
-    """The libapp.so built next to a slice's libapp.a, if its target has one."""
-    shared = archive_path.with_name(SHARED_LIBRARY)
-    return shared if shared.exists() else None
-
-
 def symbols(toolchain, obj, undefined, dynamic=False):
     flags = ["--undefined-only"] if undefined else ["--defined-only", "--extern-only"]
     if dynamic:
@@ -1009,7 +1004,7 @@ class Builder:
         self.manifest = None
 
     def slice(self, target_id, output=None):
-        """Builds one slice; returns the path of libapp.a or App.wasm."""
+        """Builds one slice; returns the path of libapp.a, libapp.so or App.wasm."""
         config = TARGETS[target_id]
         output = Path(output) if output else self.root / target_id
         if output.exists():
@@ -1057,12 +1052,13 @@ class Builder:
         problems = check_sealed(self.toolchain, sealed, macho=False, manifest=self.manifest)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
-        if config.get("shared"):
-            shared = link_shared(self.toolchain, sealed, output)
-            problems = check_shared(self.toolchain, shared, manifest=self.manifest)
-            if problems:
-                raise BuildError(f"{output.name}, {shared.name}:\n  " + "\n  ".join(problems))
-        return archive(self.toolchain, sealed, output / "libapp.a")
+        if not config.get("shared"):
+            return archive(self.toolchain, sealed, output / "libapp.a")
+        shared = link_shared(self.toolchain, sealed, output)
+        problems = check_shared(self.toolchain, shared, manifest=self.manifest)
+        if problems:
+            raise BuildError(f"{output.name}, {shared.name}:\n  " + "\n  ".join(problems))
+        return shared
 
     def macho_slice(self, config, output):
         archives = []
@@ -1191,10 +1187,7 @@ def build_slices(arguments):
     if arguments.loaded_manifest:
         prepare_manifest(arguments, builder, targets, manifest_resources(arguments))
     for target_id in targets:
-        built = builder.slice(target_id)
-        print(f"ok: {built}")
-        if shared_library(built):
-            print(f"ok: {shared_library(built)}")
+        print(f"ok: {builder.slice(target_id)}")
 
 
 def build_bundle(arguments):
@@ -1238,11 +1231,9 @@ def build_bundle(arguments):
 
     for target_id in targets:
         built = builder.slice(target_id)
-        destination = bundle / ("wasm32/App.wasm" if target_id == "wasm32" else f"lib/{target_id}/libapp.a")
+        destination = bundle / ("wasm32/App.wasm" if target_id == "wasm32" else f"lib/{target_id}/{built.name}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(built, destination)
-        if shared_library(built):
-            shutil.copy(shared_library(built), destination.with_name(SHARED_LIBRARY))
 
     if resources:
         shutil.copytree(resources, bundle / "resources")
