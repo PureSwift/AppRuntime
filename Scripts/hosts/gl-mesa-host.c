@@ -16,7 +16,12 @@
  * HOST_GENERATION: defines rt_gl_context_generation, which a wasm2c slice
  * that draws asks of its host (gl_shim.h).
  *
- * Usage: gl-mesa-host [frame1.ppm [frame2.ppm]]
+ * HOST_LOADS: the app isn't linked in. The host loads its libapp.so, the
+ * first argument, as a runner does (DynamicRuntime.md §7.6): the library
+ * names no other, and binds rt.h and GL to what this process has. Build it
+ * with -rdynamic, so the process exports the rt.h it defines.
+ *
+ * Usage: gl-mesa-host [libapp.so] [frame1.ppm [frame2.ppm]]
  */
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -25,6 +30,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include "rt.h"
+
+#ifdef HOST_LOADS
+#include <dlfcn.h>
+static rt_status (*app_main)(void);
+static rt_status (*app_dispatch)(uint32_t context, uint32_t index, rt_obj self,
+                                 const rt_slot *args, uint32_t nargs, rt_slot *ret, uint32_t nret);
+#define rt_main app_main
+#define rt_dispatch app_dispatch
+#endif
 
 #define SIZE 256
 #define MAX 256
@@ -131,6 +145,17 @@ static void save(const char *path) {
 
 int main(int argc, char **argv) {
     int failures = 0;
+#ifdef HOST_LOADS
+    if (argc < 2) { printf("FAIL no libapp.so given\n"); return 1; }
+    /* RTLD_LAZY: the library itself asks to bind everything now (-z now). */
+    void *app = dlopen(argv[1], RTLD_LAZY | RTLD_LOCAL);
+    if (!app) { printf("FAIL %s\n", dlerror()); return 1; }
+    app_main = dlsym(app, "rt_main");
+    app_dispatch = dlsym(app, "rt_dispatch");
+    if (!app_main || !app_dispatch || !dlsym(app, "rt_finalize")) { printf("FAIL %s\n", dlerror()); return 1; }
+    printf("host: loaded %s\n", argv[1]);
+    argv++, argc--;
+#endif
     EGLDisplay display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, NULL);
     EGLint major, minor;
     if (display == EGL_NO_DISPLAY || !eglInitialize(display, &major, &minor)) { printf("FAIL no EGL display (0x%x)\n", eglGetError()); return 1; }
