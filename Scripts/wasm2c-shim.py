@@ -6,6 +6,8 @@ into a library with the same exports and imports as a native slice
 
     wasm2c-shim.py shim  [--name app] [--rt-h rt.h] [--wasm App.wasm] -o rt_wasm2c.c
     wasm2c-shim.py build --wasm App.wasm --output DIR [--target TRIPLE ...] [--sdk macosx]
+    wasm2c-shim.py slice --wasm App.wasm --output DIR --target linux-arm64 [--target ...]
+    wasm2c-shim.py slice --bundle App.app --target linux-arm64 [--target ...]
     wasm2c-shim.py sources --wasm App.wasm --output DIR
 
 `shim` generates the C shim from rt.h:
@@ -28,6 +30,23 @@ DIR/libapp.a (one per --target, joined with lipo on Apple platforms), only
 rt_main, rt_dispatch and rt_finalize global, and the module's rt.abi,
 rt.contracts and rt.manifest sections copied in.
 
+`slice` builds a Linux slice, DIR/<target>/libapp.so, for guest.py's Linux
+target IDs: the library a runner loads as it is (§7.6), for a bundle that
+has no native slice for an architecture. A Linux device has no compiler,
+so this runs where the bundle is built or distributed.
+- It passes the checks guest.py makes of a native libapp.so: it names no
+  library, and leaves undefined only rt.h, GLES 2.0 and the libc set, so
+  the same file loads under any libc.
+- So nothing is compiled against a libc's headers. The module, wasm-rt and
+  the shim are compiled freestanding with the package's Swift toolchain,
+  for the triple guest.py compiles that target's native slice for, against
+  Scripts/support/wasm2c-freestanding.h. The same support files are
+  sealed in.
+- With --bundle, the slice is made from the bundle's wasm32/App.wasm and
+  added to it: lib/<target>/libapp.so, the target in RTTargets, and
+  CodeResources rewritten for the new files. A bundle that was signed
+  needs signing again.
+
 `sources` stops before compiling: DIR gets the translated module, the shim,
 the wasm-rt runtime, rt.h and, for a module that draws, the GL shim and its
 headers, for a build with another toolchain (a cross compiler, a container).
@@ -38,15 +57,18 @@ wasm-rt is built with explicit bounds checks and stack depth counting, so
 it installs no signal handlers in the host.
 
 Requirements: WABT (wasm2c and its wasm2c/ runtime sources; `brew install
-wabt`), clang, and on Apple platforms Xcode's ld and lipo.
+wabt`), clang, and on Apple platforms Xcode's ld and lipo. `slice` uses the
+package's Swift toolchain instead of clang, as guest.py does.
 """
 
 import argparse
+import plistlib
 import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -58,6 +80,17 @@ GL_SHIM = ROOT / "Sources" / "CRuntimeGL" / "gl_shim.c"
 GL_INCLUDES = [GL_SHIM.parent / "include", gles2.GUEST_HEADER.parent]
 EXPORTS = ("rt_main", "rt_dispatch", "rt_finalize")
 SECTIONS = ("rt.abi", "rt.contracts", "rt.manifest")
+SUPPORT = Path(__file__).resolve().parent / "support"
+FREESTANDING = "wasm2c-freestanding"
+# The libc headers wasm-rt, the translated module and the shim include. For
+# a Linux slice each is a file that includes wasm2c-freestanding.h.
+LIBC_HEADERS = ("alloca.h", "assert.h", "math.h", "pthread.h", "setjmp.h", "signal.h", "stdio.h",
+                "stdlib.h", "string.h", "time.h", "unistd.h", "sys/mman.h")
+# How a Linux slice is compiled, beyond WASM_RT_DEFINES:
+# - wasm-rt takes its memory from malloc, not mmap, which isn't in the set;
+# - no assertions, which would call the libc's own failure function;
+# - no thread-local storage: the guest has one thread (the header says more).
+FREESTANDING_DEFINES = ["-DWASM_RT_USE_MMAP=0", "-DNDEBUG", "-D_Thread_local="]
 
 # wasm-rt without signal handlers: explicit bounds checks, mmap-backed
 # memory (it never moves on 64-bit hosts), and stack depth counting.
@@ -887,6 +920,101 @@ def build(wasm, output, targets, sdk, name="app", defines=()):
     return result
 
 
+def build_slice(wasm, output, target_id, name="app", defines=()):
+    """Builds `wasm` as a Linux slice: `output`/<target_id>/libapp.so."""
+    import guest
+    config = guest.TARGETS.get(target_id)
+    if not config or not config.get("shared"):
+        linux = ", ".join(t for t, c in guest.TARGETS.items() if c.get("shared"))
+        raise ShimError(f"{target_id} isn't a Linux target ({linux})")
+    wasm = Path(wasm).resolve()
+    output = Path(output).resolve()
+    directory = output / target_id
+    if directory.exists():
+        shutil.rmtree(directory)
+    directory.mkdir(parents=True)
+    wasm2c, runtime, include = wabt_runtime()
+    imports = read_imports(RT_H)
+    missing = check_imports(wasm, imports)
+    if missing:
+        raise ShimError(f"{wasm.name} imports what the shim doesn't provide: {', '.join(missing)}")
+    gl = uses_gl(wasm)
+    run([wasm2c, wasm, "-n", name, "-o", directory / f"{name}.c"])
+    (directory / "rt_wasm2c.c").write_text(generate(imports, name, f"{name}.h", gl=gl))
+
+    headers = directory / "libc"
+    for header in LIBC_HEADERS:
+        path = headers / header
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f'#include "{FREESTANDING}.h"\n')
+    try:
+        toolchain = guest.Toolchain(ROOT)
+        flags = ["-target", config["triple"], "-O2", "-fPIC", "-fvisibility=hidden", "-fno-stack-protector",
+                 "-ffreestanding", "-w", *config.get("cflags", ()), *WASM_RT_DEFINES, *FREESTANDING_DEFINES,
+                 *[f"-D{define}" for define in defines],
+                 "-I", headers, "-I", SUPPORT, "-I", directory, "-I", runtime, "-I", include, "-I", RT_H.parent]
+        if config.get("cpu"):
+            flags.append(f"-march={config['cpu']}")
+        sources = [directory / f"{name}.c", directory / "rt_wasm2c.c",
+                   runtime / "wasm-rt-impl.c", runtime / "wasm-rt-mem-impl.c",
+                   SUPPORT / f"{FREESTANDING}.c", *[SUPPORT / file for file in config.get("support", ())]]
+        if gl:
+            flags += ["-DRT_GL_DIRECT", *[f"-I{path}" for path in GL_INCLUDES]]
+            sources.append(GL_SHIM)
+        objects = []
+        for source in sources:
+            obj = directory / f"{source.stem}.o"
+            guest.run([toolchain.tool("clang"), *flags, "-c", source, "-o", obj], quiet=True)
+            objects.append(obj)
+        sealed = directory / "app.o"
+        guest.run([toolchain.tool("ld.lld"), "-r", "-o", sealed, *objects], quiet=True)
+        added = []
+        _, custom = wasm_module(wasm.read_bytes())
+        for section in SECTIONS:
+            if section in custom:
+                path = directory / f"{section}.bin"
+                path.write_bytes(custom[section])
+                added.append(f"--add-section=.{section.replace('.', '_')}={path}")
+        guest.run([toolchain.tool("llvm-objcopy"), *[f"--keep-global-symbol={s}" for s in EXPORTS], *added, sealed],
+                  quiet=True)
+        shared = guest.link_shared(toolchain, sealed, directory)
+        problems = guest.check_shared(toolchain, shared, manifest=custom.get("rt.manifest"))
+    except guest.BuildError as error:
+        raise ShimError(str(error))
+    if problems:
+        raise ShimError(f"{target_id}, {shared.name}:\n  " + "\n  ".join(problems))
+    return shared
+
+
+def add_slices(bundle, target_ids, defines=()):
+    """Builds Linux slices from a bundle's App.wasm and adds them to it."""
+    import guest
+    bundle = Path(bundle).resolve()
+    wasm = bundle / "wasm32" / "App.wasm"
+    plist = bundle / "Info.plist"
+    if not wasm.is_file() or not plist.is_file():
+        raise ShimError(f"{bundle} isn't a bundle with wasm32/App.wasm and Info.plist")
+    for target_id in target_ids:
+        if (bundle / "lib" / target_id).exists():
+            raise ShimError(f"{bundle.name} already has a {target_id} slice")
+    with tempfile.TemporaryDirectory() as work:
+        built = {target_id: build_slice(wasm, work, target_id, defines=defines) for target_id in target_ids}
+        for target_id, shared in built.items():
+            destination = bundle / "lib" / target_id / shared.name
+            destination.parent.mkdir(parents=True)
+            shutil.copy(shared, destination)
+    with open(plist, "rb") as file:
+        info = plistlib.load(file)
+    info["RTTargets"] = [*info.get("RTTargets", []), *target_ids]
+    with open(plist, "wb") as file:
+        plistlib.dump(info, file, sort_keys=True)
+    signature = bundle / "_CodeSignature"
+    signature.mkdir(exist_ok=True)
+    with open(signature / "CodeResources", "wb") as file:
+        plistlib.dump(guest.code_resources(bundle), file)
+    return [bundle / "lib" / target_id / "libapp.so" for target_id in target_ids]
+
+
 # ---------------------------------------------------------------------------
 
 def main():
@@ -908,6 +1036,13 @@ def main():
     builder.add_argument("--define", action="append", default=[], metavar="NAME[=VALUE]",
                          help="C macro for compiling (repeatable), such as "
                               "RT_WASM2C_WRITE_FUNCTION=name to send the guest's stdout and stderr to a host function")
+    slicer = commands.add_parser("slice", help="build App.wasm as a Linux slice, libapp.so, a runner loads")
+    slicer.add_argument("--wasm", help="App.wasm; with --output")
+    slicer.add_argument("--output", help="directory for <target>/libapp.so")
+    slicer.add_argument("--bundle", help="a bundle to make the slice from, and add it to")
+    slicer.add_argument("--target", action="append", required=True, help="Linux target ID (repeatable)")
+    slicer.add_argument("--define", action="append", default=[], metavar="NAME[=VALUE]",
+                        help="C macro for compiling (repeatable), as for build")
     exporter = commands.add_parser("sources", help="translate App.wasm and gather the C sources to compile elsewhere")
     exporter.add_argument("--wasm", required=True)
     exporter.add_argument("--output", required=True)
@@ -915,6 +1050,16 @@ def main():
     try:
         if arguments.command == "sources":
             print(f"ok: {export_sources(arguments.wasm, arguments.output)}")
+        elif arguments.command == "slice":
+            if arguments.bundle and not (arguments.wasm or arguments.output):
+                built = add_slices(arguments.bundle, arguments.target, defines=arguments.define)
+            elif arguments.wasm and arguments.output and not arguments.bundle:
+                built = [build_slice(arguments.wasm, arguments.output, target, defines=arguments.define)
+                         for target in arguments.target]
+            else:
+                raise ShimError("slice takes --bundle, or --wasm with --output")
+            for path in built:
+                print(f"ok: {path}")
         elif arguments.command == "shim":
             imports = read_imports(arguments.rt_h)
             if arguments.wasm:
