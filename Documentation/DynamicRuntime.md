@@ -650,7 +650,7 @@ Generalized from AppRuntime's `ArchSelector`, using the same host probing (`unam
 | x86_64 | `linux-x86_64` → `linux-i386` (needs multilib) → `wasm32` | `linux-x86_64` → `linux-i386` |
 | other | `wasm32` | native only |
 
-A native slice's `libapp.so` is loaded as it is (§7.6). A `wasm32` slice runs through the system host, if it has an engine: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. wasm2c needs a C compiler, so on Linux it isn't a step for the device: a developer's machine or a store would run it, to make a `libapp.so` for an architecture a bundle lacks (`Scripts/wasm2c-shim.py` makes a `libapp.a` only, so far, which no Linux host takes). rt apps never use translators, because an x86 guest would need an x86 runner.
+A native slice's `libapp.so` is loaded as it is (§7.6). A `wasm32` slice runs through the system host, if it has an engine: from the install-time AOT cache if the distro ships an AOT engine, otherwise interpreted by WasmKit. wasm2c needs a C compiler, so on Linux it isn't a step for the device: a developer's machine or a store runs it, to make a `libapp.so` for an architecture a bundle lacks (`Scripts/wasm2c-shim.py slice`). That library keeps every rule of a native one (§7.5), so it's compiled freestanding and not against a libc's headers, and the runner can't tell the two apart. Adding it changes the bundle's `Info.plist` and `CodeResources`, so the bundle is signed again. rt apps never use translators, because an x86 guest would need an x86 runner.
 
 ### 7.8 Linux launcher and sandbox
 
