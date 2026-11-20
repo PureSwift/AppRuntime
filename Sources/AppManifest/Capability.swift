@@ -62,6 +62,17 @@ public extension Capability {
         return Capability("notifications", options: options)
     }
 
+    /// Playing sound: media players. It prompts for nothing.
+    static var audio: Capability {
+        Capability("audio")
+    }
+
+    /// Playing sound, and with `background`, playing on when the app
+    /// leaves the front: for a music or podcast app.
+    static func audio(background: Bool) -> Capability {
+        Capability("audio", options: background ? ["background": "true"] : [:])
+    }
+
     /// Running in the background: the tasks `backgroundTasks` names, which
     /// the system starts from time to time, and time to finish something.
     /// It prompts for nothing.
