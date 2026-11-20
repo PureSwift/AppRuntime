@@ -191,10 +191,17 @@ public struct NotificationActionOptions: OptionSet, Sendable {
 
     /// Needs the device unlocked first.
     public static let authenticationRequired = NotificationActionOptions(rawValue: 1 << 1)
+
+    /// Doesn't open the app: the host starts it with no window if it has
+    /// to, and delivers the response. The app has the time its handler
+    /// takes; to go on after that it begins a background activity
+    /// (`DynamicBackgroundTasks`) before the handler returns.
+    public static let background = NotificationActionOptions(rawValue: 1 << 2)
 }
 
-/// A button on a notification. Choosing one opens the app, and the choice
-/// arrives as a `NotificationResponse`.
+/// A button on a notification. Choosing one opens the app, unless its
+/// options say `background`, and the choice arrives as a
+/// `NotificationResponse`.
 public struct NotificationAction: Equatable, Sendable {
 
     /// The action of a tap on the notification itself.
