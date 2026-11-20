@@ -94,6 +94,7 @@ extension AndroidSettings {
     var json: JSONValue {
         var object: [String: JSONValue] = [:]
         object["extraManifest"] = extraManifest.map(JSONValue.string)
+        object["googleServices"] = googleServices.map(JSONValue.string)
         return .object(object)
     }
 }
