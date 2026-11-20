@@ -1,7 +1,9 @@
 # Background tasks
 
-**Status:** a design for review. Nothing here is implemented, and the
-names are proposals.
+**Status:** implemented in this repository: the guest side, and the part of
+the host side every host written in Swift shares. No platform host runs
+anything in the background yet; each needs a scheduler ([For a
+host](#for-a-host)), and a renderer that can be made with no window.
 
 Module `DynamicBackgroundTasks`: running the app's code while the app
 isn't in front. Work the system starts from time to time, such as fetching
@@ -25,6 +27,9 @@ the `BG`:
 - `BackgroundError`.
 
 It changes no ABI. A guest still has three exports.
+
+Host-side Swift, in `RuntimeBackgroundTasks`: `HostBackgroundTasks`, the
+contract over a host's `BackgroundScheduler`.
 
 ## What shapes it
 
@@ -86,7 +91,7 @@ try await scheduler.submit(BackgroundTaskRequest(
 - **The handler is `async`.** It returns when the work is done, and
   throws when it failed. When time runs out its task is cancelled:
   `Task.isCancelled` turns true, and awaited calls throw. It should then
-  return quickly.
+  return quickly. A run that was cut short counts as failed.
 - **A request replaces the one before** with the same identifier.
 - **One refresh task is all iOS keeps pending,** and ten processing
   tasks. An app has one of each, as a rule.
@@ -169,7 +174,9 @@ then, and the delegate hears `.active`.
   frames, as whenever the app isn't active (§8).
 
 This asks one thing of every host: a `Renderer` that can be made before
-there's a window. Whether each host's can today wasn't checked.
+there's a window. Whether each host's can today wasn't checked. Nothing in
+the guest or its frontend changed for it, and the tests' renderer, which
+has no window at all, is how the example runs.
 
 ## What it adds to notifications
 
@@ -182,6 +189,11 @@ it, both work by the rule above:
 - **A push with data only reaches a closed app.** It arrives in
   `received`. The manifest says so:
   `.notifications(remote: true, wakesApp: true)`.
+
+What's built of these is the guest's side and the manifest's: the option
+on an action, which reaches the host as bit 4 of its options, and
+`wakesApp`, which the packager checks and puts in the bundle. Starting the
+app for them is each platform host's work.
 
 In both, the app has the time its handler takes to return, and no more.
 To go on after that, such as to fetch what the push announced, it begins
@@ -259,7 +271,8 @@ an object the guest made.
 - **The app runs while a run or an activity is open.** The host doesn't
   stop it before each is completed, ended or expired.
 - **A run is completed once.** After `didExpire` the host waits a moment
-  for `complete`, then counts the run as failed.
+  for `complete` (two seconds, in the shared host), then counts the run as
+  failed.
 - **A run with no delegate fails.** If the app has set none by the time
   `rt_main` returns, the host completes the run as failed.
 - **Never sooner.** A task doesn't run before `earliest`, or more often
@@ -268,7 +281,8 @@ an object the guest made.
   whether it succeeded or not.
 - **Requests survive.** They're kept across launches and restarts of the
   device, until cancelled.
-- **An identifier the manifest doesn't name** fails with `notDeclared`.
+- **An identifier the manifest doesn't name** fails with `notDeclared`,
+  and so does one it names as the other kind.
 - **A host keeps at least one refresh and ten processing requests.** Past
   its limit, `limitReached`.
 - **Run and activity numbers aren't reused** while the app runs.
@@ -318,6 +332,52 @@ The packager writes the tasks into the bundle's `Info.plist` as
 tasks and no `.backgroundTasks` is a build error, and so is an identifier
 named twice.
 
+## For a host
+
+A host written in Swift implements `BackgroundScheduler`, and
+`HostBackgroundTasks` does the rest:
+
+```swift
+final class MyScheduler: BackgroundScheduler {
+    var status: PermissionStatus { … }
+    func submit(_ request: HostBackgroundRequest, completion: @escaping (BackgroundError?) -> Void) { … }
+    func cancel(_ identifier: String?) { … }                 // nil: all
+    func pending(_ completion: @escaping ([String]) -> Void) { … }
+    // With defaults: repeatsRequests, beginActivity, endActivity, timeRemaining.
+}
+
+HostBackgroundTasks.scheduler = MyScheduler()
+HostBackgroundTasks.declared = ["org.example.mail.sync": .refresh]     // RTBackgroundTasks
+HostBackgroundTasks.requestsFile = hostData + "/background-requests"
+HostBackgroundTasksModule.register(in: runtime)
+
+// After rt_main has returned, when the system runs a task:
+let run = HostBackgroundTasks.start("org.example.mail.sync") { success in
+    systemTask.setTaskCompleted(success: success)
+}
+// When its time is up:
+HostBackgroundTasks.expire(run)
+// When an activity the guest began is out of time:
+HostBackgroundTasks.expireActivity(number)
+```
+
+- **It checks each request** against `declared` and the 900-second floor
+  before the scheduler sees it.
+- **It numbers runs and activities,** and tells the system how each run
+  went, once: failed at once if the guest registered nothing, and failed
+  when the guest doesn't complete within `gracePeriod` of being told its
+  time is up.
+- **It asks again for a repeating request** as each run starts, for a
+  scheduler whose platform runs a request once. It remembers them in
+  `requestsFile`, since the app was started afresh for the run.
+- **`isIdle` and `onIdle`** say when no run or activity is open: nothing
+  holds the app, and the platform may stop it.
+- **A scheduler that can't hold the app** leaves `beginActivity` at its
+  default, and the guest gets an activity that has already expired.
+
+Android and the browser aren't written in Swift, and implement the
+contract themselves.
+
 ## Per host
 
 | | Notes |
@@ -352,6 +412,24 @@ user's control, and `status` reads it.
 Every callback and delegate method runs on the main thread (§6.4). The
 guest has one thread in the background too.
 
+## Example and tests
+
+`examples/ExampleBackground`: a feed that keeps itself fresh. It registers
+a task whose handler awaits the host, asks for it to be run every quarter
+of an hour, withdraws that, and asks for time to finish a save.
+
+- `DynamicBackgroundTasksTests`: the contract's keys and signatures, and
+  `BackgroundTaskScheduler` against a scripted host.
+- `RuntimeBackgroundTasksTests`: `HostBackgroundTasks` over a scheduler
+  the test keeps in memory, driven from the guest.
+- The example runs against `HostBackgroundTasks` as `App.wasm` under
+  WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
+  wasm2c output (`Packages/LinkedSlice`).
+
+Everything is tested against a scheduler in memory, with the test standing
+for the system. No system has started a guest in the background, and the
+platforms' limits above are from their documentation.
+
 ## Not in this design
 
 - **Work that goes on for a long time with the user's knowledge:** an
@@ -366,19 +444,17 @@ guest has one thread in the background too.
 - **Restoring an app's state** after the system stopped it.
 - **Starting at login or at boot.**
 
-## Questions for review
+## Decided in review
 
-1. **The same `rt_main` for a background start,** with the host's
-   renderer waiting for a window. The alternative is a second entry
-   point, which changes the three exports every slice is checked to have.
-2. **One rule for the background:** the app runs while it holds a run or
-   an activity. The alternative gives each trigger (a task, a button, a
-   push) its own completion call.
-3. **Repeating requests** that the host asks again, where Apple's API is
-   once only and the app asks again itself.
-4. **Names:** `DynamicBackgroundTasks`, `BackgroundTaskScheduler`, the
-   capability `.backgroundTasks`, and `wakesApp` on notifications.
-5. **Tasks in the manifest,** as iOS requires, and so on every platform.
-6. **The two additions to notifications** in this design, or as a change
-   of their own afterwards.
-7. **No browser support,** since the guest can't run in a service worker.
+The design was approved as drafted, so these stand:
+
+- **The same `rt_main` for a background start,** with the host's renderer
+  waiting for a window.
+- **One rule for the background:** the app runs while it holds a run or an
+  activity.
+- **Repeating requests** that the host asks again.
+- **Names:** `DynamicBackgroundTasks`, `BackgroundTaskScheduler`, the
+  capability `.backgroundTasks`, and `wakesApp` on notifications.
+- **Tasks in the manifest,** on every platform.
+- **The two additions to notifications** in this design.
+- **No browser support.**
