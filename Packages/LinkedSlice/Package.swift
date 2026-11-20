@@ -12,6 +12,7 @@ import PackageDescription
 ///   `ExampleWeb`, whose browser engine the test stands in for,
 ///   `ExampleFiles`, which keeps real files in a temporary directory,
 ///   `ExampleDocuments`, whose pickers the test answers, over real files,
+///   `ExampleNotifications`, whose notification centre the test keeps,
 ///   `ExampleDefaults`, whose settings are kept in a real file,
 ///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
@@ -59,6 +60,8 @@ let package = Package(
                 .product(name: "DynamicFiles", package: "AppRuntime"),
                 .product(name: "DynamicDocuments", package: "AppRuntime"),
                 .product(name: "RuntimeDocuments", package: "AppRuntime"),
+                .product(name: "DynamicNotifications", package: "AppRuntime"),
+                .product(name: "RuntimeNotifications", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
