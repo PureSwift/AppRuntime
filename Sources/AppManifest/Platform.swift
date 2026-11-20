@@ -111,8 +111,14 @@ public struct AndroidSettings: Sendable, Equatable {
     /// XML merged into the generated `AndroidManifest.xml`'s `<manifest>`.
     public var extraManifest: String?
 
-    public init(extraManifest: String? = nil) {
+    /// The app's Firebase configuration, `google-services.json`, relative
+    /// to `App.swift`: what push needs on Android. The packager copies it
+    /// into the bundle.
+    public var googleServices: String?
+
+    public init(extraManifest: String? = nil, googleServices: String? = nil) {
         self.extraManifest = extraManifest
+        self.googleServices = googleServices
     }
 }
 
