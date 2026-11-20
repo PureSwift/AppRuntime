@@ -35,6 +35,11 @@ let package = Package(
         // Shared: the user's files, through the platform's pickers, and the
         // SwiftUI modifiers that show them.
         .library(name: "DynamicDocuments", targets: ["DynamicDocuments"]),
+        // Shared: media players: a song, a podcast or a video the host
+        // decodes and shows, with what's playing and background playback.
+        .library(name: "DynamicMedia", targets: ["DynamicMedia"]),
+        // Host only: the media contract over a host's own players.
+        .library(name: "RuntimeMedia", targets: ["RuntimeMedia"]),
         // Shared: running while the app isn't in front: tasks the system
         // starts, and time to finish.
         .library(name: "DynamicBackgroundTasks", targets: ["DynamicBackgroundTasks"]),
@@ -90,6 +95,8 @@ let package = Package(
         .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
         // Example files guest app: a notebook kept as text files.
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
+        // Example media guest app: a music player that says what's playing.
+        .library(name: "ExampleMedia", type: .static, targets: ["ExampleMedia"]),
         // Example background guest app: a feed the system refreshes.
         .library(name: "ExampleBackground", type: .static, targets: ["ExampleBackground"]),
         // Example notifications guest app: timers that notify when they end.
@@ -318,6 +325,23 @@ let package = Package(
             dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicMedia",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"],
+            path: "Contracts/DynamicMedia"
+        ),
+        .target(
+            name: "RuntimeMedia",
+            dependencies: ["DynamicMedia", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicMediaTests",
+            dependencies: ["DynamicMedia", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeMediaTests",
+            dependencies: ["RuntimeMedia", "DynamicMedia", "DynamicFiles", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicBackgroundTasks",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicBackgroundTasks"
@@ -450,6 +474,11 @@ let package = Package(
             name: "ExampleFiles",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles"],
             path: "examples/ExampleFiles"
+        ),
+        .target(
+            name: "ExampleMedia",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicMedia"],
+            path: "examples/ExampleMedia"
         ),
         .target(
             name: "ExampleBackground",
