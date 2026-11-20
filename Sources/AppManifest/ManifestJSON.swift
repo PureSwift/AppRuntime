@@ -20,6 +20,9 @@ public extension App {
             "capabilities": .array(capabilities.map(\.json)),
             "platforms": .array(platforms.map(\.json)),
         ]
+        if !documentTypes.isEmpty {
+            object["documentTypes"] = .array(documentTypes.map(\.json))
+        }
         object["product"] = product.map(JSONValue.string)
         object["icon"] = icon.map(JSONValue.string)
         object["apple"] = apple.map(\.json)
@@ -49,6 +52,17 @@ extension Capability {
         ]
         object["usage"] = usage?.json
         return .object(object)
+    }
+}
+
+extension DocumentType {
+
+    var json: JSONValue {
+        .object([
+            "name": name.json,
+            "types": .array(types.map(JSONValue.string)),
+            "role": .string(role.rawValue),
+        ])
     }
 }
 
