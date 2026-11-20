@@ -28,6 +28,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
+| Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. No platform host has an engine, so nothing has been decoded or heard |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -329,6 +330,31 @@ which are each host's. TCP and UDP are not part of the spec.
   - **Listings sort by UTF-8 bytes**, so every host gives the same order.
   - **`FileManager` collides with Foundation's** where both are imported:
     host-side Swift writes `DynamicFiles.FileManager`.
+- **Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`).**
+  - **The player design's proposals were taken as they stood,** and its
+    seventh question answered by the second design: background playback
+    is in.
+  - **The guest works out the time.** The host reports a position, a
+    timestamp on the guest's clock and a rate; `currentTime` is exact
+    when read, and changes for views only at each report.
+    `times(every:)` needs nothing more from the host: it's a timer on the
+    guest's clock.
+  - **The shared host finds every source first,** through
+    `HostFiles.path(of:path:)`, which is what the documents design put
+    there for this: a picked document plays with no method of its own.
+  - **The host answers the system's buttons it can,** on the engine, and
+    marks the pause it caused as the user's. Only next and previous cross
+    to the guest.
+  - **The app never reports elapsed time.** What the system shows as
+    playing is what the app said plus what the host knows of the player,
+    sent at each change of state.
+  - **One now-playing player, the one last described.** Its identifier is
+    kept beside the weak reference, so releasing it still clears what was
+    shown.
+  - **`AudioPlayer`'s closures don't own it:** they hold it unretained,
+    since it owns the media player they're set on.
+  - **A pause is said once per reason.** An engine that reports the same
+    state twice isn't passed on.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -837,6 +863,27 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
+- `DynamicMediaTests`: the media contract's keys and signatures, and the
+  guest's `MediaPlayer` against a scripted host: each kind of source, what
+  a host says it plays, state following the host's reports, the time
+  worked out from the clock, observation, settings kept in range and sent
+  once, a seek answered once, the end and a failure, a released player,
+  what's playing and its buttons, the `VideoPlayer` node and a view that
+  keeps its own player, `AudioPlayer`'s loops and delegate, and the
+  streams: events to every listener in order, an awaited seek, and ticks
+  while it plays.
+- `RuntimeMediaTests`: `HostMediaPlayback` over players the test keeps in
+  memory and real files, from the guest through `NativeRuntime`: a file
+  found before the engine sees it, a picked document and one no longer
+  held, a URL's scheme and the network, a host with no players, a `play()`
+  that came early, time on the guest's clock, seeks replaced and dropped,
+  the end as a pause, the background, a player that plays on and holds
+  the app, interruptions and unplugged headphones, what's shown as playing
+  and when, the player last described, the buttons the host answers and
+  the two it passes on, and a node finding its engine.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleMedia`
+  against `HostMediaPlayback`, as `App.wasm`, a sealed macOS slice and
+  wasm2c output.
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1098,3 +1145,11 @@ Each of these needs a decision, or is verified only as far as noted:
    for a push when the manifest says `wakesApp`. `AppInfo` doesn't read
    `RTBackgroundTasks`, `RTCapabilityOptions` or `RTDocumentTypes` yet, so
    each host reads them itself.
+12. Media in the hosts (`Documentation/Contracts/MediaPlayer.md`,
+   `NowPlaying.md`): a `MediaPlatform` and engine over `AVPlayer` in the
+   Darwin host, with `MPNowPlayingInfoCenter` and the remote commands; a
+   GStreamer engine and MPRIS in the Linux host, where the H.264 decoder
+   is the distro's to ship; Android's and the browser's own host side.
+   Each host's renderer shows a `VideoPlayer` node's engine. Nothing has
+   been decoded yet, so the formats and the timing are untested. Then a
+   queue for gapless albums, which both designs leave out.
