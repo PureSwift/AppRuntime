@@ -86,6 +86,13 @@ import AppManifest
         #expect(Capability.notifications(wakesApp: true).options == ["wakesApp": "true"])
     }
 
+    @Test func audioDeclaresBackgroundPlayback() {
+        #expect(Capability.audio == Capability("audio"))
+        #expect(Capability.audio(background: true).options == ["background": "true"])
+        #expect(Capability.audio(background: false) == .audio)
+        #expect(Capability.audio.usage == nil, "nothing asks before an app plays sound")
+    }
+
     @Test func optionalFieldsAreLeftOut() {
         let app = App(id: "org.example.Minimal", name: "Minimal", version: "1", build: 1, platforms: [.linux])
         #expect(app.manifestJSON() == #"{"build":1,"capabilities":[],"format":1,"id":"org.example.Minimal","languages":["en"],"name":{"value":"Minimal"},"platforms":[{"name":"linux"}],"version":"1"}"#)
