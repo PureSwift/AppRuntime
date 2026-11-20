@@ -35,6 +35,12 @@ let package = Package(
         // Shared: the user's files, through the platform's pickers, and the
         // SwiftUI modifiers that show them.
         .library(name: "DynamicDocuments", targets: ["DynamicDocuments"]),
+        // Shared: notifications the system shows for the app, and pushes
+        // from the app's server.
+        .library(name: "DynamicNotifications", targets: ["DynamicNotifications"]),
+        // Host only: the notification contracts over a host's own
+        // notification centre.
+        .library(name: "RuntimeNotifications", targets: ["RuntimeNotifications"]),
         // Host only: the documents contracts over whatever shows a host's
         // pickers, with grants made in `HostFiles`.
         .library(name: "RuntimeDocuments", targets: ["RuntimeDocuments"]),
@@ -79,6 +85,8 @@ let package = Package(
         .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
         // Example files guest app: a notebook kept as text files.
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
+        // Example notifications guest app: timers that notify when they end.
+        .library(name: "ExampleNotifications", type: .static, targets: ["ExampleNotifications"]),
         // Example documents guest app: a text file the user picks, edited
         // in place and saved as a copy.
         .library(name: "ExampleDocuments", type: .static, targets: ["ExampleDocuments"]),
@@ -302,6 +310,23 @@ let package = Package(
             name: "RuntimeDocuments",
             dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
         ),
+        .target(
+            name: "DynamicNotifications",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicNotifications"
+        ),
+        .target(
+            name: "RuntimeNotifications",
+            dependencies: ["DynamicNotifications", "DynamicRuntime", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicNotificationsTests",
+            dependencies: ["DynamicNotifications", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeNotificationsTests",
+            dependencies: ["RuntimeNotifications", "DynamicNotifications", "RuntimeHost", "RuntimeNative"]
+        ),
         .testTarget(
             name: "DynamicDocumentsTests",
             dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
@@ -401,6 +426,11 @@ let package = Package(
             name: "ExampleFiles",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles"],
             path: "examples/ExampleFiles"
+        ),
+        .target(
+            name: "ExampleNotifications",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicNotifications"],
+            path: "examples/ExampleNotifications"
         ),
         .target(
             name: "ExampleDocuments",
