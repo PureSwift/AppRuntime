@@ -48,6 +48,8 @@ let package = Package(
                 .product(name: "RuntimeNotifications", package: "AppRuntime"),
                 .product(name: "DynamicBackgroundTasks", package: "AppRuntime"),
                 .product(name: "RuntimeBackgroundTasks", package: "AppRuntime"),
+                .product(name: "DynamicMedia", package: "AppRuntime"),
+                .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
