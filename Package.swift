@@ -35,6 +35,11 @@ let package = Package(
         // Shared: the user's files, through the platform's pickers, and the
         // SwiftUI modifiers that show them.
         .library(name: "DynamicDocuments", targets: ["DynamicDocuments"]),
+        // Shared: running while the app isn't in front: tasks the system
+        // starts, and time to finish.
+        .library(name: "DynamicBackgroundTasks", targets: ["DynamicBackgroundTasks"]),
+        // Host only: the background contract over a host's own scheduler.
+        .library(name: "RuntimeBackgroundTasks", targets: ["RuntimeBackgroundTasks"]),
         // Shared: notifications the system shows for the app, and pushes
         // from the app's server.
         .library(name: "DynamicNotifications", targets: ["DynamicNotifications"]),
@@ -85,6 +90,8 @@ let package = Package(
         .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
         // Example files guest app: a notebook kept as text files.
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
+        // Example background guest app: a feed the system refreshes.
+        .library(name: "ExampleBackground", type: .static, targets: ["ExampleBackground"]),
         // Example notifications guest app: timers that notify when they end.
         .library(name: "ExampleNotifications", type: .static, targets: ["ExampleNotifications"]),
         // Example documents guest app: a text file the user picks, edited
@@ -311,6 +318,23 @@ let package = Package(
             dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicBackgroundTasks",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicBackgroundTasks"
+        ),
+        .target(
+            name: "RuntimeBackgroundTasks",
+            dependencies: ["DynamicBackgroundTasks", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicBackgroundTasksTests",
+            dependencies: ["DynamicBackgroundTasks", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeBackgroundTasksTests",
+            dependencies: ["RuntimeBackgroundTasks", "DynamicBackgroundTasks", "RuntimeHost", "RuntimeNative"]
+        ),
+        .target(
             name: "DynamicNotifications",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicNotifications"
@@ -426,6 +450,11 @@ let package = Package(
             name: "ExampleFiles",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles"],
             path: "examples/ExampleFiles"
+        ),
+        .target(
+            name: "ExampleBackground",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicBackgroundTasks"],
+            path: "examples/ExampleBackground"
         ),
         .target(
             name: "ExampleNotifications",
