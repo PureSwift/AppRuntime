@@ -1,7 +1,8 @@
 # Notifications
 
-**Status:** a design for review. Nothing here is implemented, and the
-names are proposals.
+**Status:** implemented in this repository: the guest side, and the part of
+the host side every host written in Swift shares. No platform host shows a
+notification yet; each needs a presenter ([For a host](#for-a-host)).
 
 Module `DynamicNotifications`: telling the user something while the app
 isn't in front. A notification shown now, one scheduled for later, the
@@ -12,7 +13,6 @@ server. Permission for all of it is in one place.
 |---|---|---|---|---|---|
 | `Notifications` | contract, `requires: .notifications` | `UNUserNotificationCenter` | `NotificationManager`, `AlarmManager` | the shell's notification service | `showNotification` in a service worker |
 | `NotificationRecord` | contract: one notification, as asked for or as delivered | `UNNotificationRequest` | `Notification` | the service's record | `Notification` |
-| `NotificationCategoryRecord` | contract: a kind of notification | `UNNotificationCategory` | `NotificationChannel`, and its actions | the service's record | kept by the host |
 | `NotificationCallback` | callback: one operation's result | | | | |
 | `NotificationsDelegate` | callback: delivered, and answered | `UNUserNotificationCenterDelegate` | the host's receivers | the service's signals | `notificationclick` |
 | `PushNotifications` | contract, `requires: .notifications` | APNs | Firebase Cloud Messaging | the OS's push service | the Push API |
@@ -33,6 +33,9 @@ the `UN`:
 - `NotificationSettings`, `AuthorizationOptions`, `NotificationError`.
 
 The render IR doesn't change.
+
+Host-side Swift, in `RuntimeNotifications`: `HostNotifications`, both
+contracts over a host's `NotificationPresenter`.
 
 ## What shapes it
 
@@ -329,7 +332,15 @@ protocol Notifications {
     func requestAuthorization(_ options: Int32, callback: NotificationCallback)      // didGetSettings
     func requestExactTiming(_ callback: NotificationCallback)                        // didGetSettings
 
-    func setCategories(_ categories: [NotificationCategoryRecord])
+    // Categories, set together: begin, each one and its buttons, end.
+    func beginCategories()
+    /// `interruption`: 0 passive, 1 active, 2 time-sensitive.
+    /// `sound`: 0 default, 1 none, 2 the bundle's file `soundName`.
+    func addCategory(_ identifier: String, name: String, interruption: Int32, sound: Int32, soundName: String?)
+    /// `options`: bits, 1 destructive, 2 needs the device unlocked.
+    func addAction(_ category: String, identifier: String, title: String, options: Int32)
+    func addTextAction(_ category: String, identifier: String, title: String, options: Int32, buttonTitle: String, placeholder: String)
+    func endCategories()
 
     func add(_ notification: NotificationRecord, callback: NotificationCallback)     // didComplete
     func pending(_ callback: NotificationCallback)                                   // didList
@@ -368,22 +379,19 @@ protocol NotificationRecord {
     /// −1 for a part that isn't given.
     func setCalendar(_ year: Int32, month: Int32, day: Int32, hour: Int32, minute: Int32, second: Int32, weekday: Int32, repeats: Bool)
 
+    // The trigger, for the host to read.
+    /// 0 none, 1 an interval, 2 a date, 3 calendar parts.
+    func triggerKind() -> Int32
+    func triggerRepeats() -> Bool
+    func triggerInterval() -> Double
+    func triggerDate() -> Int64
+    /// 0 the year, then month, day, hour, minute, second, and 6 the weekday.
+    func triggerPart(_ index: Int32) -> Int32
+
     // Of a delivered one.
     func isRemote() -> Bool
     /// Milliseconds since 1970 UTC; 0 before it's delivered.
     func delivered() -> Int64
-}
-
-@DynamicRuntime("org.pureswift.notifications.Category")
-protocol NotificationCategoryRecord {
-    static func make(_ identifier: String, name: String) -> Self
-    /// 0 passive, 1 active, 2 time-sensitive.
-    func setInterruption(_ level: Int32)
-    /// `kind`: 0 default, 1 none, 2 the bundle's file `name`.
-    func setSound(_ kind: Int32, name: String?)
-    /// `options`: bits, 1 destructive, 2 needs the device unlocked.
-    func addAction(_ identifier: String, title: String, options: Int32)
-    func addTextAction(_ identifier: String, title: String, options: Int32, buttonTitle: String, placeholder: String)
 }
 
 @DynamicCallback("org.pureswift.notifications.Callback")
@@ -429,6 +437,11 @@ protocol PushDelegate {
 
 Two contracts, so the packager knows from an app's contract list whether
 it uses push.
+
+A host reads a record the guest made through the record's own methods:
+what the guest hands back is its proxy, not the host's object. That's why
+a record can say its trigger, and why categories are calls on
+`Notifications` and not objects.
 
 ### Rules every host follows
 
@@ -486,6 +499,67 @@ There's no usage text: no platform shows one in its prompt.
 
 The Firebase configuration is Android's alone, so it goes in
 `AndroidSettings`: `android: .init(googleServices: "google-services.json")`.
+The packager copies the file into the bundle under that name.
+
+The options reach a host in the bundle's `Info.plist`, as
+`RTCapabilityOptions.notifications`: `remote` and `exactTiming`, each
+`"true"` when set. The packager refuses an app that uses
+`PushNotifications` without `remote`, and warns about `remote` on Android
+with no `googleServices`.
+
+## For a host
+
+A host written in Swift implements `NotificationPresenter`, and
+`HostNotifications` does the rest:
+
+```swift
+final class MyCentre: NotificationPresenter {
+    func settings(_ completion: @escaping (NotificationSettings) -> Void) { … }
+    func requestAuthorization(_ options: AuthorizationOptions, completion: …) { … }
+    func setCategories(_ categories: [NotificationCategory]) { … }
+    func add(_ notification: HostNotification, completion: @escaping (NotificationError?) -> Void) { … }
+    func pending(_ completion: @escaping ([String]) -> Void) { … }
+    func delivered(_ completion: @escaping ([String]) -> Void) { … }
+    func removePending(_ identifiers: [String]?) { … }       // nil: all
+    func removeDelivered(_ identifiers: [String]?) { … }
+    func setBadgeCount(_ count: Int) { … }
+    func setForegroundPresentation(_ options: NotificationPresentationOptions) { … }
+    // With defaults: requestExactTiming, registerForPush, unregisterForPush.
+}
+
+HostNotifications.presenter = MyCentre()
+HostNotifications.declaresRemote = remoteIsInTheManifest
+HostNotificationsModule.register(in: runtime)
+
+// The user tapped a notification, or one of its buttons:
+HostNotifications.responded(to: notification, action: "repeat")
+// One arrived while the app runs:
+HostNotifications.received(notification)
+// The push address changed:
+HostNotifications.pushSubscriptionChanged(subscription)
+```
+
+- **It checks each request before the presenter sees it:** an identifier,
+  a moment that hasn't passed, a repeating interval of a minute or more,
+  calendar parts a calendar can show. And it refuses one the user hasn't
+  allowed, with `notAuthorized`.
+- **It keeps what the user did** until the guest listens, so the response
+  that started the app isn't lost.
+- **It refuses push** with `notDeclared` unless the host says the manifest
+  declares it.
+- **It keeps the last status** the presenter reported, for the built-in
+  `Permissions.status`, which can't wait. `HostNotifications.refreshStatus()`
+  asks again: at launch, and when the app comes forward.
+- **`HostNotificationTrigger.nextDate(after:calendar:)`** says when a
+  trigger next fires, for a presenter that keeps time itself. A time the
+  clocks skip when they go forward is the next one they show that day; 29
+  February waits for a leap year.
+- **Answers are delivered later,** on the main dispatch queue, or through
+  `HostNotifications.deliver` for a host with a loop of its own.
+
+The presenter still does the platform's part: showing, scheduling with
+the app closed, the buttons, and the push service. Android and the browser
+aren't written in Swift, and implement the contracts themselves.
 
 ## Per host
 
@@ -527,6 +601,27 @@ asks ([Permission](#permission)), never by itself.
 
 Every callback and delegate method runs on the main thread (§6.4).
 
+## Example and tests
+
+`examples/ExampleNotifications`: kitchen timers. It asks the user's leave
+from a button, schedules a notification for when each timer ends, lists
+and cancels them, answers the notification's Repeat and Stop buttons, and
+registers for pushes.
+
+- `DynamicNotificationsTests`: the contracts' keys and signatures, and
+  `UserNotificationCenter` against a scripted host.
+- `RuntimeNotificationsTests`: `HostNotifications` over a notification
+  centre the test keeps in memory, driven from the guest; and the
+  triggers' arithmetic.
+- The example runs against `HostNotifications` as `App.wasm` under
+  WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
+  wasm2c output (`Packages/LinkedSlice`).
+
+Everything is tested against a centre in memory. No notification has been
+shown by a system, no push sent, and nothing here has been checked on a
+device: the platform behaviour above is from each platform's
+documentation.
+
 ## Not in this design
 
 - **Running the app in the background:** a button that works without
@@ -547,27 +642,24 @@ Every callback and delegate method runs on the main thread (§6.4).
 - **Live activities, widgets and progress bars** in a notification.
 - **Topics and groups** in a push service: the app's server does those.
 
-## Questions for review
+## Decided in review
 
-1. **Names:** `DynamicNotifications`, `UserNotificationCenter`, and
-   Apple's type names without `UN`. Aliases with `UN` are possible if
-   source that says `UNUserNotificationCenter` should compile.
-2. **A category is also Android's channel,** so it carries a name,
-   importance and sound. The alternative is channels as a separate thing
-   that only Android uses.
-3. **Sound and interruption on the category,** not on each notification
-   as Apple has them, because Android can't vary them per notification.
-4. **Push in the same module,** as a second contract. The alternative is
-   a module of its own.
-5. **The `rt.` keys** for a push on Android and the web, so a host can
-   build the notification. The alternative leaves Android pushes without
-   buttons.
-6. **Linux push as Web Push,** which decides what the OS's push service
-   is.
-7. **Alarms left out.** The plan's Clocks app needs the separate alarm
-   contract to ring properly; with this design alone it can notify, and
-   not ring on.
-8. **Every action opens the app** until the background contract exists.
-   A host-run "snooze" action, which schedules the same notification
-   again without the guest, would cover a clock's commonest button
-   sooner.
+The design was approved as drafted, so these stand:
+
+- **Names:** `DynamicNotifications`, `UserNotificationCenter`, and Apple's
+  type names without `UN`. No aliases with `UN`.
+- **A category is also Android's channel,** and carries the name, the
+  importance and the sound.
+- **Push is in the same module,** as a second contract.
+- **The `rt.` keys** for a push on Android and the web.
+- **Every action opens the app** until the background contract exists.
+
+## Questions left
+
+1. **Linux push as Web Push.** Nothing is built for it; it decides what
+   the OS's push service is.
+2. **Alarms.** The plan's Clocks app needs the separate alarm contract to
+   ring properly. With this alone it can notify, and not ring on.
+3. **A host-run "snooze" action,** which schedules the same notification
+   again without the guest, would cover a clock's commonest button before
+   the background contract exists.
