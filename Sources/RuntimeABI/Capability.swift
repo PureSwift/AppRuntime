@@ -33,6 +33,10 @@ public extension Capability {
 
     static var nfc: Capability { Capability("nfc") }
 
+    /// Running in the background: tasks the system starts, and time to
+    /// finish. It prompts for nothing.
+    static var backgroundTasks: Capability { Capability("backgroundTasks") }
+
     /// The platform's file pickers. It prompts for nothing.
     static var userFiles: Capability { Capability("userFiles") }
 }
