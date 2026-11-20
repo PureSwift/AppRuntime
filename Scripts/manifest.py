@@ -30,7 +30,13 @@ PLATFORM_GROUPS = {
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
-                      "motion", "nfc", "localNetwork"}
+                      "motion", "nfc", "localNetwork", "userFiles"}
+# What a document type names, as a picker takes them (Contracts/Documents.md):
+# a MIME type, a MIME group, or an extension.
+MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$")
+FILE_EXTENSION = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9_+-]*$")
+DOCUMENT_ROLES = {"viewer", "editor"}
+DOCUMENTS_CAPABILITY = "userFiles"
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
@@ -274,6 +280,9 @@ def localized_keys(manifest):
         usage = capability.get("usage") or {}
         if "key" in usage:
             keys.append((usage["key"], f"{capability['name']} usage"))
+    for index, document_type in enumerate(manifest.get("documentTypes", [])):
+        if "key" in document_type["name"]:
+            keys.append((document_type["name"]["key"], f"document type {index + 1}'s name"))
     return keys
 
 
@@ -320,6 +329,24 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
         warnings.append(f"capability {name!r} is declared but no contract requires it")
     for name in sorted(set(declared) - KNOWN_CAPABILITIES):
         warnings.append(f"capability {name!r} isn't one hosts know")
+
+    document_types = manifest.get("documentTypes", [])
+    if document_types and DOCUMENTS_CAPABILITY not in declared:
+        errors.append(f"documentTypes needs the {DOCUMENTS_CAPABILITY!r} capability: "
+                      "the files arrive through the documents contract")
+    for index, document_type in enumerate(document_types):
+        where = f"document type {index + 1}"
+        if not document_type.get("types"):
+            errors.append(f"{where} names no types")
+        for form in document_type.get("types", []):
+            if not MIME_TYPE.match(form) and not FILE_EXTENSION.match(form):
+                errors.append(f"{where}: {form!r} isn't a MIME type (image/png, image/*) or an extension (.gpx)")
+        if document_type.get("role") not in DOCUMENT_ROLES:
+            errors.append(f"{where}: unknown role {document_type.get('role')!r}")
+        forms = document_type.get("types", [])
+        on_android = any(p["name"] == "android" for p in manifest.get("platforms", []))
+        if on_android and forms and all(FILE_EXTENSION.match(form) for form in forms):
+            warnings.append(f"{where} has no MIME type: Android matches files by MIME type only")
 
     names = [p["name"] for p in manifest.get("platforms", [])]
     if not names:
@@ -414,6 +441,15 @@ def info_plist(manifest, resources, icon_name):
     options = {c["name"]: c["options"] for c in manifest.get("capabilities", []) if c.get("options")}
     if options:
         info["RTCapabilityOptions"] = options
+    document_types = []
+    for document_type in manifest.get("documentTypes", []):
+        entry = {"Name": resolve(document_type["name"], development), "Types": document_type["types"],
+                 "Role": document_type["role"]}
+        if "key" in document_type["name"]:
+            entry["NameKey"] = document_type["name"]["key"]
+        document_types.append(entry)
+    if document_types:
+        info["RTDocumentTypes"] = document_types
     if icon_name:
         info["RTIcon"] = icon_name
     extras = {key: manifest[key] for key in ("apple", "android") if manifest.get(key)}
