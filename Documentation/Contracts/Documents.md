@@ -1,7 +1,8 @@
 # Documents
 
-**Status:** a design for review. Nothing here is implemented, and the
-names are proposals.
+**Status:** implemented in this repository: the guest side, and the part of
+the host side every host with file paths shares. No platform host shows a
+picker yet; each needs a presenter ([For a host](#for-a-host)).
 
 Module `DynamicDocuments`: the user's files. Choosing one to open, saving
 one where the user says, keeping access to it for next time, and being
@@ -27,6 +28,9 @@ Guest-side Swift:
 
 The render IR doesn't change: the host shows its own picker over the app's
 window.
+
+Host-side Swift, in `RuntimeDocuments`: `HostDocuments`, the contract over
+a host's `DocumentPresenter`, which makes each pick a grant in `HostFiles`.
 
 ## What shapes it
 
@@ -85,7 +89,7 @@ if let library = try await picker.openFolder() {
 | `open(_:allowsMultiple:access:)` | `[Document]`, empty if the user cancelled |
 | `openFolder(access:)` | a folder `Document`, or `nil` |
 | `export(_:suggestedName:)` | see [Saving](#saving) |
-| `opened` | see [Opened with a document](#opened-with-a-document) |
+| `opened`, `onOpen(_:)` | see [Opened with a document](#opened-with-a-document) |
 
 - The calls are `async throws(DocumentError)`. Each has a
   completion-handler form, as `FileManager`'s do.
@@ -126,7 +130,8 @@ What `Files` does with a document's directory:
   own directories.
 - **Copies cross over.** `copyItem(at: document.path, to: .caches / name)`
   brings a copy into the container.
-- **A write to a read-only document** fails with `readOnly`.
+- **A write to a read-only document** fails with `readOnly`, and so does
+  removing something from a read-only folder.
 - **A file a provider can't supply now**, such as a cloud file while
   offline, fails with `unavailable`. A read of one may take as long as a
   download.
@@ -171,7 +176,7 @@ let bookmark = try await document.bookmark()
 defaults.set(bookmark.rawValue, forKey: "lastDocument")
 
 // At the next launch:
-let document = try await Document(resolving: DocumentBookmark(rawValue: saved))
+let document = try await Document.resolving(DocumentBookmark(rawValue: saved))
 
 // When the app drops it from its recents:
 bookmark.forget()
@@ -201,6 +206,9 @@ for await documents in DocumentPicker.opened {
 
 - `opened` is an `EventStream<[Document], Never>`. Documents the app was
   launched with wait until the app first reads it.
+- `DocumentPicker.onOpen { documents in … }` is the same with a closure,
+  for code that isn't `async`. One listener at a time: a new stream or a
+  new closure replaces the one before, and `onOpen(nil)` stops listening.
 - They are often read-only, and on Android they often can't be bookmarked.
 - **`ApplicationDelegate.open(_:url:)` no longer receives files.** It
   stays for links and custom schemes. A file's URL was no use to a guest:
@@ -238,9 +246,10 @@ The frontend adds `typealias UTType = ContentType`.
 }
 ```
 
-- They differ from SwiftUI's in two places: a `Document` where SwiftUI
-  gives a `URL`, and a `FilePath` to export where SwiftUI takes a
-  `FileDocument`.
+- They differ from SwiftUI's in three places: a `Document` where SwiftUI
+  gives a `URL`; a `FilePath` to export where SwiftUI takes a
+  `FileDocument`; and `fileImporter` takes `access:` for files the app
+  means to change.
 - Cancelling sets `isPresented` to `false` and calls nothing, as SwiftUI
   does.
 - They live in `DynamicDocuments`, which depends on `DynamicSwiftUI` as
@@ -353,16 +362,19 @@ when it doesn't.
 | 10 | `notPermitted`: the grant ended, or the provider refused |
 | 11 | `unavailable`: the provider can't supply the file now |
 
-## Changes to what exists
+## What it changed
 
 | Where | Change |
 |---|---|
-| `DynamicFiles` | `FileDirectory` becomes a struct with a raw value. The five directories are its static members, so `.documents / "a.txt"` reads as before and `allCases` is still the five; a switch over it needs a `default`. |
-| `DynamicFiles` | `FileError` gains `notPermitted` and `unavailable`. |
-| `RuntimeHost` | `HostFiles` gains grant directories: a host registers one for a path (Apple) or for a provider of descriptors (Linux), and removes it. |
-| `Application` | Files stop arriving through `open(_:url:)`. |
+| `DynamicFiles` | `FileDirectory` is a struct with a raw value. The five directories are its static members, so `.documents / "a.txt"` reads as before and `allCases` is still the five; a switch over it needs a `default`. `isGrant` says whether one is a document. |
+| `DynamicFiles` | `FileError` gained `notPermitted` and `unavailable`. |
+| `RuntimeHost` | `HostFiles` has grant directories: `grant(_:)` for a file or folder at a path, `revoke(_:)`, and `path(of:path:)` for another contract to find a file by. A permission error from the system is `notPermitted`, where it was `unknown`. |
+| `Application` | Files don't arrive through `open(_:url:)`. |
 | `AppManifest` | The `.userFiles` capability, and `documentTypes`. |
-| Media, Drawing | Nothing for `MediaPlayer`. `DrawingImage` gains a load from a directory and a path, which it needs for the app's own files too. |
+
+Still to come, in designs that aren't built: `MediaPlayer` needs nothing,
+since it takes a directory and a path. `DrawingImage` gains a load from a
+directory and a path, which it needs for the app's own files too.
 
 ## The manifest
 
@@ -398,7 +410,56 @@ three forms. `role` is `.viewer` or `.editor`.
 | Linux | `MimeType=` in the `.desktop` file the packager writes, read by launch services |
 | Browser | `file_handlers` in the web app manifest, for an installed app in a Chromium browser |
 
-A manifest with `documentTypes` and no `.userFiles` is a build error.
+A manifest with `documentTypes` and no `.userFiles` is a build error, and so
+is a type that isn't one of the three forms.
+
+The packager writes them into the bundle's `Info.plist` as
+`RTDocumentTypes`: for each, `Name` (in the development language),
+`NameKey` when the name is localized, `Types` and `Role`. Each host turns
+that into the entries above, as it does `RTCapabilities`.
+
+## For a host
+
+A host with file paths implements `DocumentPresenter`, and
+`HostDocuments` does the rest:
+
+```swift
+final class MyPickers: DocumentPresenter {
+    func pick(types: [String], multiple: Bool, access: DocumentAccess,
+              completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) { … }
+    func pickFolder(access:completion:) { … }
+    func export(file source: String, name: String, completion:) { … }
+    func bookmark(_ document: HostDocument, completion:) { … }
+    func resolve(_ bookmark: String, completion:) { … }
+    func forget(_ bookmark: String) { … }
+}
+
+HostDocuments.presenter = MyPickers()
+HostDocumentsModule.register(in: runtime)
+
+// When the platform opens the app with a file:
+HostDocuments.open([HostDocument(path: path, isWritable: true)])
+```
+
+- A `HostDocument` is a path, a kind, whether it's writable, and
+  optionally the provider's name and MIME type and a `release` closure.
+- **`HostDocuments` makes each one a grant** in `HostFiles` when it hands
+  it to the guest, and revokes the grant when the guest lets go. `release`
+  runs then: where a host stops a security scope or closes a descriptor.
+- **It shows one picker at a time,** answering `busy` to a second, and
+  `unsupported` to everything while there's no presenter.
+- **It keeps the documents the app is opened with** until the guest
+  listens, without granting them while they wait.
+- **An export's source is resolved for the presenter:** an absolute path,
+  checked to be a file. `HostFiles.copy(file:to:)` copies it where the
+  platform's picker doesn't.
+- **Answers are delivered later,** on the main dispatch queue, or through
+  `HostDocuments.deliver` for a host with a loop of its own.
+- **Another contract finds a document's file** with
+  `HostFiles.path(of:path:)`, as it finds one of the app's own.
+
+Android and the browser have no paths, and implement the four contracts
+themselves.
 
 ## Per host
 
@@ -461,6 +522,27 @@ oddity: a file document is a "directory" whose empty path is a file.
 
 Every callback runs on the main thread (§6.4). Pickers are shown from it.
 
+## Example and tests
+
+`examples/ExampleDocuments`: a small text editor for the user's own files.
+It opens a file with `fileImporter`, or the one it's launched with; saves
+back to that file; saves a copy and goes on editing the copy; and lists a
+folder and reads a file under it.
+
+- `DynamicDocumentsTests`: the contracts' keys and signatures, content
+  types, and `DocumentPicker`, `Document` and the two modifiers against a
+  scripted host.
+- `RuntimeDocumentsTests`: `HostDocuments` over a test's presenter and
+  real files, driven from the guest's `DocumentPicker` and `FileManager`.
+- `RuntimeHostTests/HostFilesTests`: grants in `HostFiles`.
+- The example runs against `HostDocuments` and real files as `App.wasm`
+  under WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
+  wasm2c output (`Packages/LinkedSlice`).
+
+Everything is tested against paths. The platform pickers, security scopes,
+content URIs and the Linux service are each host's own work, and none is
+written.
+
 ## Not in this design
 
 - **Sharing** a file through the platform's share sheet, and **opening
@@ -479,19 +561,25 @@ Every callback runs on the main thread (§6.4). Pickers are shown from it.
 - **Taking a photo or scanning a page** from the picker, which iOS and
   Android offer.
 
-## Questions for review
+## Decided in review
 
-1. **A document as a `FileDirectory` value**, with the change that makes
-   to `DynamicFiles`, or a file object of its own.
-2. **Names:** `DynamicDocuments`, `DocumentPicker`, `Document`,
+- **A document is a `FileDirectory` value**, with the change that made to
+  `DynamicFiles`, and not a file object of its own.
+
+## Questions left
+
+The implementation follows the design on each of these, and none was
+discussed.
+
+1. **Names:** `DynamicDocuments`, `DocumentPicker`, `Document`,
    `ContentType`, and the capability `.userFiles`.
-3. **A capability at all.** It prompts for nothing; it is there for the
+2. **A capability at all.** It prompts for nothing; it is there for the
    macOS entitlements and the Linux socket. The alternative is to grant
    both to every app.
-4. **Saving as export only.** A new file is written to the container
+3. **Saving as export only.** A new file is written to the container
    first. The alternative, a picker that returns an empty file to write,
    can't be built on iOS.
-5. **Files leaving `ApplicationDelegate.open(_:url:)`**, which changes an
-   implemented contract.
-6. **Sharing and open-in-another-app:** in this module, or the separate
+4. **Files leaving `ApplicationDelegate.open(_:url:)`**, which changed an
+   implemented contract's meaning.
+5. **Sharing and open-in-another-app:** in this module, or the separate
    one this design assumes.
