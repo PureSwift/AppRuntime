@@ -68,6 +68,13 @@ public extension Capability {
         Capability("network")
     }
 
+    /// The platform's file pickers, and the files the app is opened with
+    /// (`documentTypes`). It prompts for nothing: the user's choice of a
+    /// file is the permission.
+    static var userFiles: Capability {
+        Capability("userFiles")
+    }
+
     /// Hardware graphics, such as OpenGL ES 2.
     static func graphics(_ api: GraphicsAPI = .gles2) -> Capability {
         Capability("graphics", options: ["api": api.rawValue])
