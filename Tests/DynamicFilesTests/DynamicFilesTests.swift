@@ -128,6 +128,20 @@ final class ScriptedFiles: Files {
         #expect(FileDirectory.allCases.map(\.rawValue) == [0, 1, 2, 3, 4])
     }
 
+    @Test func aPickedDocumentIsADirectoryToo() {
+        // The host picks its value, 256 or more; the app's own five stay.
+        let document = FileDirectory(rawValue: 300)
+        #expect(document.isGrant && !FileDirectory.caches.isGrant)
+        #expect(!FileDirectory(rawValue: 255).isGrant && FileDirectory(rawValue: 256).isGrant)
+        #expect(!FileDirectory.allCases.contains(document))
+        #expect(FileDirectory(rawValue: 2) == .caches)
+        let song = FilePath(document) / "Albums/one.mp3"
+        #expect(song.directory == document && song.path == "Albums/one.mp3")
+        files.contents(at: FilePath(document)) { _ in }
+        #expect(host.calls.last == "read 300  0 -1", "a picked file is its directory's empty path")
+        #expect(FileError(rawValue: 10) == .notPermitted && FileError(rawValue: 11) == .unavailable)
+    }
+
     @Test func invalidPathsAreKnownBeforehand() {
         #expect((.data / "a/b.txt").isValid)
         #expect(FilePath(.data).isValid, "the directory itself")
