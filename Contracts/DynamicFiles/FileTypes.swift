@@ -3,23 +3,45 @@
 /// A place the platform keeps an app's files. No absolute path means the
 /// same thing on every platform, so a file is one of these and a path
 /// inside it.
-public enum FileDirectory: Int32, Sendable, CaseIterable {
+///
+/// The app's own five are the static members. A file or folder the user
+/// picked (`DynamicDocuments`) is another, with a raw value the host chose:
+/// 256 or more, and good only while the app holds the document.
+public struct FileDirectory: RawRepresentable, Equatable, Hashable, Sendable, CaseIterable {
+
+    public let rawValue: Int32
+
+    public init(rawValue: Int32) {
+        self.rawValue = rawValue
+    }
 
     /// What the user made. Backed up where the platform backs up.
-    case documents = 0
+    public static let documents = FileDirectory(rawValue: 0)
 
     /// What the app needs and the user never sees. Backed up.
-    case data = 1
+    public static let data = FileDirectory(rawValue: 1)
 
     /// What can be made again. The system may delete it when space is
     /// short.
-    case caches = 2
+    public static let caches = FileDirectory(rawValue: 2)
 
     /// For this run only: emptied when the app next starts.
-    case temporary = 3
+    public static let temporary = FileDirectory(rawValue: 3)
 
     /// The app's resources. Read-only.
-    case bundle = 4
+    public static let bundle = FileDirectory(rawValue: 4)
+
+    /// The app's own directories. A picked document's isn't among them.
+    public static let allCases: [FileDirectory] = [.documents, .data, .caches, .temporary, .bundle]
+
+    /// The first raw value a host gives a picked document's directory.
+    public static let firstGrant: Int32 = 256
+
+    /// Whether this is a document the user gave the app, and not one of
+    /// the app's own directories.
+    public var isGrant: Bool {
+        rawValue >= Self.firstGrant
+    }
 }
 
 /// A file or directory: a `FileDirectory` and a relative path inside it,
@@ -151,7 +173,7 @@ public enum FileError: Int32, Error, Sendable {
 
     case invalidPath = 6
 
-    /// A change to the bundle.
+    /// A change to the bundle, or to a document the user gave for reading.
     case readOnly = 7
 
     case outOfSpace = 8
@@ -159,4 +181,10 @@ public enum FileError: Int32, Error, Sendable {
     /// More than this host passes in one call: read it in ranges, or write
     /// it with `append`.
     case tooLarge = 9
+
+    /// A document the app no longer holds, or one whose provider refused.
+    case notPermitted = 10
+
+    /// A document its provider can't supply now: a cloud file, offline.
+    case unavailable = 11
 }
