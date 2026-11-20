@@ -32,6 +32,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Shape` | `shape` (`rectangle`, `roundedRectangle`, `circle`, `ellipse`, `capsule`); `cornerRadius`; `fill` (color), or `stroke` (color) and `lineWidth`; neither: filled with the foreground color | — | — |
 | `GLSurface` | `surface` (int: a `Surface`'s `identifier()`) | — | none here: frames and input go to the surface's delegate (§8.2) |
 | `WebView` | `page` (int: a `WebContent`'s `identifier()`) | — | none here: the page reports through its contract (`Contracts/WebKit.md`) |
+| `VideoPlayer` | `player` (int: a `MediaPlayback`'s `identifier()`), `scaling` (`fit`, `fill`, `stretch`), `controls` (`platform`, `none`) | — | none here: the player reports through its contract (`Contracts/MediaPlayer.md`) |
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
