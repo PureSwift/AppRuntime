@@ -427,6 +427,12 @@ final class ScriptedPush: PushNotifications {
                 + #"news "News" interruption=0 sound=0:-"#,
         ])
         #expect(NotificationAction.defaultIdentifier.isEmpty)
+
+        // A button that doesn't open the app.
+        center.setCategories([NotificationCategory(identifier: "mail", name: "Mail", actions: [
+            NotificationAction(identifier: "read", title: "Mark as Read", options: .background),
+        ])])
+        #expect(host.calls.last == #"setCategories mail "Mail" interruption=1 sound=0:-; mail[read Mark as Read 4]"#)
     }
 
     @Test func pendingAndDeliveredAreListedAndRemoved() {
