@@ -60,6 +60,8 @@ let package = Package(
         .library(name: "RuntimeCoreModel", targets: ["RuntimeCoreModel"]),
         // Host only: the formatting contracts over Swift Foundation.
         .library(name: "RuntimeFormatting", targets: ["RuntimeFormatting"]),
+        // Host only: the networking contracts over Swift Foundation's URLSession.
+        .library(name: "RuntimeNetworking", targets: ["RuntimeNetworking"]),
         // Linux: bundle model and sandboxing launcher.
         .library(name: "AppRuntime", targets: ["AppRuntime"]),
         .executable(name: "bundle-runtime", targets: ["BundleRuntime"]),
@@ -336,6 +338,14 @@ let package = Package(
         .testTarget(
             name: "RuntimeFormattingTests",
             dependencies: ["RuntimeFormatting", "DynamicFormatting", "RuntimeNative"]
+        ),
+        .target(
+            name: "RuntimeNetworking",
+            dependencies: ["DynamicNetworking", "DynamicRuntime", "RuntimeHost", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeNetworkingTests",
+            dependencies: ["RuntimeNetworking", "DynamicNetworking", "RuntimeNative"]
         ),
 
         // MARK: - Linux bundle and sandbox
