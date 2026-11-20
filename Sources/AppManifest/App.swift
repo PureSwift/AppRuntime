@@ -51,6 +51,9 @@ public struct App: Sendable {
     /// here.
     public var capabilities: [Capability]
 
+    /// The kinds of file the app opens. With any, declare `.userFiles`.
+    public var documentTypes: [DocumentType]
+
     /// Where the app runs, with its minimum OS for each.
     public var platforms: [Platform]
 
@@ -71,6 +74,7 @@ public struct App: Sendable {
         languages: [String] = ["en"],
         product: String? = nil,
         capabilities: [Capability] = [],
+        documentTypes: [DocumentType] = [],
         platforms: [Platform],
         icon: String? = nil,
         apple: AppleSettings? = nil,
@@ -83,6 +87,7 @@ public struct App: Sendable {
         self.languages = languages
         self.product = product
         self.capabilities = capabilities
+        self.documentTypes = documentTypes
         self.platforms = platforms
         self.icon = icon
         self.apple = apple
