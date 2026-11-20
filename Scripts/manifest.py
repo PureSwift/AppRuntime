@@ -30,7 +30,7 @@ PLATFORM_GROUPS = {
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
-                      "motion", "nfc", "localNetwork", "userFiles"}
+                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks"}
 # What a document type names, as a picker takes them (Contracts/Documents.md):
 # a MIME type, a MIME group, or an extension.
 MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$")
@@ -43,6 +43,11 @@ DOCUMENTS_CAPABILITY = "userFiles"
 PUSH_CONTRACT = "org.pureswift.notifications.Push"
 NOTIFICATIONS_CAPABILITY = "notifications"
 GOOGLE_SERVICES = "google-services.json"
+# Background tasks (Contracts/BackgroundTasks.md): what the system may start
+# the app to run. An identifier is what iOS's Info.plist takes: no spaces.
+BACKGROUND_CAPABILITY = "backgroundTasks"
+BACKGROUND_KINDS = {"refresh", "processing"}
+BACKGROUND_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
@@ -351,6 +356,23 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
             errors.append(f"android googleServices {google_services!r} isn't a .json file beside the manifest")
     elif remote and any(p["name"] == "android" for p in manifest.get("platforms", [])):
         warnings.append("push on Android needs the app's Firebase configuration: android googleServices")
+    if notifications and (notifications.get("options") or {}).get("wakesApp") == "true" and not remote:
+        errors.append("notifications declares wakesApp without remote: only a push wakes the app")
+
+    background_tasks = manifest.get("backgroundTasks", [])
+    if background_tasks and BACKGROUND_CAPABILITY not in declared:
+        errors.append(f"backgroundTasks needs the {BACKGROUND_CAPABILITY!r} capability")
+    identifiers = [task.get("identifier", "") for task in background_tasks]
+    for identifier in sorted({i for i in identifiers if identifiers.count(i) > 1}):
+        errors.append(f"background task {identifier!r} is named twice")
+    for task in background_tasks:
+        identifier = task.get("identifier", "")
+        if not BACKGROUND_IDENTIFIER.match(identifier):
+            errors.append(f"background task {identifier!r} isn't an identifier, such as org.example.App.refresh")
+        if task.get("kind") not in BACKGROUND_KINDS:
+            errors.append(f"background task {identifier!r}: unknown kind {task.get('kind')!r}")
+    if sum(1 for task in background_tasks if task.get("kind") == "refresh") > 1:
+        warnings.append("more than one refresh task: iOS keeps one refresh request pending at a time")
 
     document_types = manifest.get("documentTypes", [])
     if document_types and DOCUMENTS_CAPABILITY not in declared:
@@ -463,6 +485,9 @@ def info_plist(manifest, resources, icon_name):
     options = {c["name"]: c["options"] for c in manifest.get("capabilities", []) if c.get("options")}
     if options:
         info["RTCapabilityOptions"] = options
+    if manifest.get("backgroundTasks"):
+        info["RTBackgroundTasks"] = [{"Identifier": task["identifier"], "Kind": task["kind"]}
+                                     for task in manifest["backgroundTasks"]]
     document_types = []
     for document_type in manifest.get("documentTypes", []):
         entry = {"Name": resolve(document_type["name"], development), "Types": document_type["types"],
