@@ -271,6 +271,160 @@ import RuntimeNative
         return DynamicFiles.FileManager()
     }
 
+    // MARK: Grants
+
+    /// The user's own files, outside the app's directories.
+    func home() throws -> URL {
+        let home = root.appendingPathComponent("Home").resolvingSymlinksInPath()
+        try Foundation.FileManager.default.createDirectory(at: home.appendingPathComponent("Music/Albums"), withIntermediateDirectories: true)
+        try Data("notes".utf8).write(to: home.appendingPathComponent("notes.txt"))
+        try Data("one".utf8).write(to: home.appendingPathComponent("Music/Albums/one.mp3"))
+        return home
+    }
+
+    @Test func aGrantedFileIsItsDirectorysEmptyPath() throws {
+        let home = try home()
+        var system = self.system
+        let file: Int32 = 300
+        system.grants[file] = HostFiles.Grant(path: home.appendingPathComponent("notes.txt").path, kind: .file, isWritable: true)
+
+        #expect(try system.read(file, "", offset: 0, length: -1) == Array("notes".utf8))
+        #expect(try system.read(file, "", offset: 2, length: 2) == Array("te".utf8))
+        #expect(try system.attributes(file, "") == FileAttributes(kind: .file, size: 5, modified: system.attributes(file, "").modified))
+        try system.write(file, "", data: Array("new notes".utf8), mode: 0)
+        try system.write(file, "", data: Array("!".utf8), mode: 1)
+        #expect(onDisk("Home/notes.txt") == Data("new notes!".utf8))
+        #expect(try Foundation.FileManager.default.contentsOfDirectory(atPath: home.path).sorted() == ["Music", "notes.txt"],
+                "no temporary file stays behind")
+
+        // It has nothing under it, and it stays where it is.
+        #expect(failure { _ = try system.read(file, "inside", offset: 0, length: -1) } == .notDirectory)
+        #expect(failure { try system.write(file, "inside", data: [1], mode: 0) } == .notDirectory)
+        #expect(failure { _ = try system.list(file, "") } == .notDirectory)
+        #expect(failure { try system.remove(file, "") } == .invalidPath)
+        #expect(failure { try system.move(file, "", to: Self.documents, "taken.txt") } == .invalidPath)
+        #expect(failure { try system.copy(Self.documents, "x", to: file, "") } == .invalidPath)
+        #expect(failure { _ = try system.read(file, "../notes.txt", offset: 0, length: -1) } == .invalidPath)
+        #expect(onDisk("Home/notes.txt") == Data("new notes!".utf8))
+
+        // A copy comes into the app's own directories.
+        try system.copy(file, "", to: Self.caches, "imported/notes.txt")
+        #expect(onDisk("Caches/imported/notes.txt") == Data("new notes!".utf8))
+    }
+
+    @Test func aGrantForReadingRefusesWrites() throws {
+        let home = try home()
+        var system = self.system
+        system.grants[301] = HostFiles.Grant(path: home.appendingPathComponent("notes.txt").path, kind: .file, isWritable: false)
+        system.grants[302] = HostFiles.Grant(path: home.appendingPathComponent("Music").path, kind: .directory, isWritable: false)
+        #expect(try system.read(301, "", offset: 0, length: -1) == Array("notes".utf8))
+        #expect(failure { try system.write(301, "", data: [1], mode: 0) } == .readOnly)
+        #expect(failure { try system.write(302, "new.mp3", data: [1], mode: 0) } == .readOnly)
+        #expect(failure { try system.makeDirectory(302, "New") } == .readOnly)
+        #expect(failure { try system.remove(302, "Albums") } == .readOnly)
+        #expect(failure { try system.move(302, "Albums/one.mp3", to: Self.caches, "one.mp3") } == .readOnly)
+        try system.copy(302, "Albums", to: Self.caches, "Albums")
+        #expect(onDisk("Caches/Albums/one.mp3") == Data("one".utf8))
+        #expect(onDisk("Home/notes.txt") == Data("notes".utf8))
+    }
+
+    @Test func aGrantedFolderIsADirectory() throws {
+        let home = try home()
+        var system = self.system
+        let folder: Int32 = 303
+        system.grants[folder] = HostFiles.Grant(path: home.appendingPathComponent("Music").path, kind: .directory, isWritable: true)
+
+        #expect(try system.list(folder, "") == ["Albums/"])
+        #expect(try system.read(folder, "Albums/one.mp3", offset: 0, length: -1) == Array("one".utf8))
+        try system.write(folder, "New/two.mp3", data: Array("two".utf8), mode: 0)
+        #expect(onDisk("Home/Music/New/two.mp3") == Data("two".utf8))
+        try system.move(folder, "New/two.mp3", to: folder, "Albums/two.mp3")
+        try system.remove(folder, "New")
+        #expect(try system.list(folder, "") == ["Albums/"])
+        #expect(try system.list(folder, "Albums") == ["one.mp3", "two.mp3"])
+        #expect(try system.attributes(folder, "").isDirectory)
+
+        // The folder itself stays, and nothing outside it is reached.
+        #expect(failure { try system.remove(folder, "") } == .invalidPath)
+        #expect(failure { try system.write(folder, "", data: [1], mode: 0) } == .isDirectory)
+        #expect(failure { _ = try system.read(folder, "../notes.txt", offset: 0, length: -1) } == .invalidPath)
+        try Foundation.FileManager.default.createSymbolicLink(
+            atPath: home.appendingPathComponent("Music/out").path, withDestinationPath: home.path)
+        #expect(failure { _ = try system.read(folder, "out/notes.txt", offset: 0, length: -1) } == .invalidPath)
+
+        // The whole of it can be copied in.
+        try system.copy(folder, "", to: Self.documents, "Music")
+        #expect(onDisk("Documents/Music/Albums/two.mp3") == Data("two".utf8))
+    }
+
+    @Test func aDirectoryNobodyGrantedIsNotPermitted() throws {
+        #expect(failure { _ = try system.read(256, "", offset: 0, length: -1) } == .notPermitted)
+        #expect(failure { try system.write(9999, "a", data: [1], mode: 0) } == .notPermitted)
+        #expect(failure { _ = try system.read(5, "a", offset: 0, length: -1) } == .invalidPath, "not a directory at all")
+        #expect(failure { _ = try system.read(255, "a", offset: 0, length: -1) } == .invalidPath)
+        #expect(failure { _ = try system.read(-1, "a", offset: 0, length: -1) } == .invalidPath)
+    }
+
+    @Test func aFileAloneInAFolderTheAppCantWriteIsWrittenInPlace() throws {
+        let home = try home()
+        let locked = home.appendingPathComponent("Locked")
+        let manager = Foundation.FileManager.default
+        try manager.createDirectory(at: locked, withIntermediateDirectories: true)
+        try Data("old".utf8).write(to: locked.appendingPathComponent("only.txt"))
+        try manager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        var system = self.system
+        system.grants[304] = HostFiles.Grant(path: locked.appendingPathComponent("only.txt").path, kind: .file, isWritable: true)
+        try system.write(304, "", data: Array("new".utf8), mode: 0)
+        #expect(onDisk("Home/Locked/only.txt") == Data("new".utf8))
+    }
+
+    @Test func hostsGrantAndRevokeDirectories() throws {
+        let home = try home()
+        try HostFiles.configure(HostFiles.Configuration(directories: directories, work: { $0() }, deliver: { $0() }))
+        let notes = home.appendingPathComponent("notes.txt").path
+        let first = HostFiles.grant(HostFiles.Grant(path: notes, kind: .file, isWritable: false))
+        let second = HostFiles.grant(HostFiles.Grant(path: home.appendingPathComponent("Music").path, kind: .directory, isWritable: true))
+        #expect(first.isGrant && second.isGrant && first != second)
+        #expect(second.rawValue > first.rawValue, "a value isn't used twice")
+        #expect(HostFiles.grant(for: first)?.path == notes)
+
+        // Where another contract finds a file it's given a directory and a path for.
+        #expect(try HostFiles.path(of: first.rawValue, path: "") == notes)
+        #expect(try HostFiles.path(of: second.rawValue, path: "Albums/one.mp3") == home.appendingPathComponent("Music/Albums/one.mp3").path)
+        #expect(try HostFiles.path(of: Self.documents, path: "a/b") == directories[.documents]! + "/a/b")
+        #expect(failure { _ = try HostFiles.path(of: first.rawValue, path: "", writing: true) } == .readOnly)
+
+        // The grants outlive a change of the app's directories.
+        try HostFiles.configure(HostFiles.Configuration(directories: directories, work: { $0() }, deliver: { $0() }))
+        #expect(HostFiles.grant(for: second) != nil)
+
+        HostFiles.revoke(first)
+        #expect(HostFiles.grant(for: first) == nil)
+        #expect(failure { _ = try HostFiles.path(of: first.rawValue, path: "") } == .notPermitted)
+        let third = HostFiles.grant(HostFiles.Grant(path: notes, kind: .file, isWritable: false))
+        #expect(third.rawValue > second.rawValue)
+        HostFiles.revoke(second)
+        HostFiles.revoke(third)
+    }
+
+    @Test func aHostsOwnFilesAreReadCopiedAndReplaced() throws {
+        let home = try home()
+        let notes = home.appendingPathComponent("notes.txt").path
+        let copy = home.appendingPathComponent("made/copy.txt").path
+        #expect(HostFiles.kind(ofItemAt: notes) == .file)
+        #expect(HostFiles.kind(ofItemAt: home.path) == .directory)
+        #expect(HostFiles.kind(ofItemAt: copy) == nil)
+        try HostFiles.replace(file: copy, with: Array("first".utf8))
+        #expect(try HostFiles.contents(ofFile: copy) == Array("first".utf8))
+        try HostFiles.copy(file: notes, to: copy)
+        #expect(onDisk("Home/made/copy.txt") == Data("notes".utf8), "over what was there")
+        #expect(try Foundation.FileManager.default.contentsOfDirectory(atPath: home.appendingPathComponent("made").path) == ["copy.txt"])
+        #expect(try HostFiles.contents(ofFile: home.appendingPathComponent("none").path) == nil)
+        #expect(failure { try HostFiles.copy(file: home.path, to: copy) } == .isDirectory)
+        #expect(failure { try HostFiles.copy(file: home.appendingPathComponent("none").path, to: copy) } == .notFound)
+    }
+
     @Test func moduleListsItsContracts() {
         #expect(HostFilesModule.contracts.map(\.name) == ["org.pureswift.files.Files", "org.pureswift.files.FileCallback"])
         #expect(HostFilesModule.isUsed(by: ["org.pureswift.files.Files"]))
