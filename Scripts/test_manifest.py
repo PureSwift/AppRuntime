@@ -126,6 +126,45 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([w for w in warnings if "MIME" in w],
                          ["document type 3 has no MIME type: Android matches files by MIME type only"])
 
+    def test_push(self):
+        push = [dict(name="org.pureswift.notifications.Notifications", kind="contract", version=1,
+                     capability="notifications", methods=[]),
+                dict(name="org.pureswift.notifications.Push", kind="contract", version=1,
+                     capability="notifications", methods=[])]
+        local = push[:1]
+        plain = {"name": "notifications", "options": {}}
+        remote = {"name": "notifications", "options": {"remote": "true", "exactTiming": "true"}}
+        android = {"googleServices": "google-services.json"}
+
+        errors, warnings = self.check(sample(capabilities=[remote], android=android), contracts=push)
+        self.assertFalse(errors, errors)
+        self.assertFalse([w for w in warnings if "push" in w or "remote" in w], warnings)
+
+        # An app that registers for pushes has to say so.
+        errors, _ = self.check(sample(capabilities=[plain]), contracts=push)
+        self.assertIn("org.pureswift.notifications.Push registers for pushes, so the manifest must declare them: "
+                      ".notifications(remote: true)", errors)
+        errors, _ = self.check(sample(capabilities=[]), contracts=push)
+        self.assertEqual(len([e for e in errors if "notifications" in e]), 1, "undeclared is said once")
+        errors, warnings = self.check(sample(capabilities=[plain]), contracts=local)
+        self.assertFalse(errors, errors)
+        _, warnings = self.check(sample(capabilities=[remote], android=android), contracts=local)
+        self.assertIn("notifications declares remote, but the app doesn't register for pushes", warnings)
+
+        # Android's push needs the app's Firebase configuration.
+        _, warnings = self.check(sample(capabilities=[remote]), contracts=push)
+        self.assertIn("push on Android needs the app's Firebase configuration: android googleServices", warnings)
+        linux = [{"name": "linux"}]
+        _, warnings = self.check(sample(capabilities=[remote], platforms=linux), contracts=push, targets=())
+        self.assertFalse([w for w in warnings if "Firebase" in w], warnings)
+        for bad in ("../google-services.json", "/etc/google-services.json", "google-services.txt"):
+            errors, _ = self.check(sample(capabilities=[remote], android={"googleServices": bad}), contracts=push)
+            self.assertIn(f"android googleServices {bad!r} isn't a .json file beside the manifest", errors)
+
+        info = manifest.info_plist(sample(capabilities=[remote], android=android), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTCapabilityOptions"], {"notifications": {"remote": "true", "exactTiming": "true"}})
+        self.assertEqual(info["RTPlatformExtras"], {"android": android})
+
     def test_optional_capabilities(self):
         # A web view works without network, so it never requires it; with a
         # web view in the app, declaring network isn't unused.
