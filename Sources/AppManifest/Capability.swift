@@ -46,8 +46,9 @@ public extension Capability {
 
     /// Notifications, with pushes from the app's server when `remote`, and
     /// scheduled ones that arrive on time when `exactTiming`: for an alarm
-    /// clock or a calendar, which is who Android allows it.
-    static func notifications(remote: Bool = false, exactTiming: Bool = false) -> Capability {
+    /// clock or a calendar, which is who Android allows it. With
+    /// `wakesApp`, a push with data only reaches the app when it's closed.
+    static func notifications(remote: Bool = false, exactTiming: Bool = false, wakesApp: Bool = false) -> Capability {
         var options: [String: String] = [:]
         if remote {
             options["remote"] = "true"
@@ -55,7 +56,17 @@ public extension Capability {
         if exactTiming {
             options["exactTiming"] = "true"
         }
+        if wakesApp {
+            options["wakesApp"] = "true"
+        }
         return Capability("notifications", options: options)
+    }
+
+    /// Running in the background: the tasks `backgroundTasks` names, which
+    /// the system starts from time to time, and time to finish something.
+    /// It prompts for nothing.
+    static var backgroundTasks: Capability {
+        Capability("backgroundTasks")
     }
 
     /// Motion sensors: accelerometer, gyroscope, pedometer.
