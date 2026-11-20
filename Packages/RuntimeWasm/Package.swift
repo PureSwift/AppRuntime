@@ -42,6 +42,8 @@ let package = Package(
                 .product(name: "DynamicGraphics", package: "AppRuntime"),
                 .product(name: "DynamicWebKit", package: "AppRuntime"),
                 .product(name: "DynamicFiles", package: "AppRuntime"),
+                .product(name: "DynamicDocuments", package: "AppRuntime"),
+                .product(name: "RuntimeDocuments", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
