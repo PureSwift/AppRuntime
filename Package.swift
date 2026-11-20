@@ -32,6 +32,12 @@ let package = Package(
         .library(name: "DynamicNFC", targets: ["DynamicNFC"]),
         .library(name: "DynamicFormatting", targets: ["DynamicFormatting"]),
         .library(name: "DynamicFiles", targets: ["DynamicFiles"]),
+        // Shared: the user's files, through the platform's pickers, and the
+        // SwiftUI modifiers that show them.
+        .library(name: "DynamicDocuments", targets: ["DynamicDocuments"]),
+        // Host only: the documents contracts over whatever shows a host's
+        // pickers, with grants made in `HostFiles`.
+        .library(name: "RuntimeDocuments", targets: ["RuntimeDocuments"]),
         .library(name: "DynamicDefaults", targets: ["DynamicDefaults"]),
         // Shared: OpenGL ES 2.0 for guests (§8), and the surface it draws to.
         .library(name: "CGLES2", targets: ["CGLES2"]),
@@ -71,6 +77,9 @@ let package = Package(
         .library(name: "ExampleWeb", type: .static, targets: ["ExampleWeb"]),
         // Example files guest app: a notebook kept as text files.
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
+        // Example documents guest app: a text file the user picks, edited
+        // in place and saved as a copy.
+        .library(name: "ExampleDocuments", type: .static, targets: ["ExampleDocuments"]),
         // Example settings guest app: UserDefaults and @AppStorage.
         .library(name: "ExampleDefaults", type: .static, targets: ["ExampleDefaults"]),
         // Example model guest app: to-dos in a model store, with CoreModel.
@@ -282,6 +291,23 @@ let package = Package(
             dependencies: ["DynamicRuntime", "DynamicObservation"],
             path: "Contracts/DynamicDefaults"
         ),
+        .target(
+            name: "DynamicDocuments",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI"],
+            path: "Contracts/DynamicDocuments"
+        ),
+        .target(
+            name: "RuntimeDocuments",
+            dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicDocumentsTests",
+            dependencies: ["DynamicDocuments", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeDocumentsTests",
+            dependencies: ["RuntimeDocuments", "DynamicDocuments", "DynamicFiles", "RuntimeHost", "RuntimeNative"]
+        ),
         .testTarget(
             name: "DynamicDefaultsTests",
             dependencies: ["DynamicDefaults", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
@@ -365,6 +391,11 @@ let package = Package(
             name: "ExampleFiles",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles"],
             path: "examples/ExampleFiles"
+        ),
+        .target(
+            name: "ExampleDocuments",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicDocuments"],
+            path: "examples/ExampleDocuments"
         ),
         .target(
             name: "ExampleModel",
