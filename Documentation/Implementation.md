@@ -17,7 +17,8 @@ builds and the first provider contracts:
 | `rt.h` runtime core with the Swift-registry backend, linked natively and behind a WasmKit import shim; same test app in both modes | done: `RuntimeCore`, `RuntimeNative`, `RuntimeWasm` (`Packages/RuntimeWasm`); the example app passes in both modes |
 | `@DynamicRuntime` / `@DynamicCallback` macros and guest proxy generation | done: `DynamicRuntimeMacros`, `DynamicRuntime` |
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers. A Linux slice is `libapp.so`, which a runner loads as it is (§7.6) |
-| Provider contracts: Bluetooth, Location, URL/HTTP | declared: `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`; the platform hosts implement them |
+| Provider contracts: Bluetooth, Location | declared: `DynamicBluetooth`, `DynamicLocation`; the platform hosts implement them |
+| URL and HTTP | declared: `DynamicNetworking`; `RuntimeNetworking` implements it over Swift Foundation's `URLSession` for any host written in Swift, on Apple platforms and on Linux, where `URLSession` is `FoundationNetworking` over libcurl. The Darwin host has its own `DarwinNetworking`, which it's a port of; the Linux host doesn't register it yet. Callbacks arrive on a queue of each session's own and reach the guest on the main thread through `HostNetworkingModule.deliver`, which a host with a loop of its own points at that loop; what the contracts couldn't do as asked goes to `HostNetworkingModule.log` |
 | Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 | `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
@@ -851,6 +852,31 @@ Each of these needs a decision, or is verified only as far as noted:
   has no `RelativeDateTimeFormatter` (`Date.AnchoredRelativeFormatStyle`
   is used), its `NumberFormatter` loses integers past 2^53
   (`IntegerFormatStyle`), and it groups the POSIX locale's digits.
+- `RuntimeNetworkingTests`: the networking contracts over `URLSession`, on
+  macOS and Linux (Debian 13 in Docker), against a `URLProtocol` that
+  answers without a network: a round trip with headers, a body and the
+  session's headers; chunks as they arrive; upload progress; redirects
+  followed and refused; Basic challenges answered with a host-made
+  credential, and those the guest can't answer; a refused response;
+  cancelling before and after `resume`; an invalid URL; invalidation,
+  which completes what's left and lets every delegate go; failures mapped
+  to `NetworkError`; URL parsing, resolving and query decoding; and every
+  configuration setting. Every guest callback is checked to arrive through
+  `deliver` on the main queue. swift-corelibs-foundation's URLSession
+  differs from Apple's in ways `RuntimeNetworking` hides or a test works
+  around: it has no expensive or constrained networks and never waits for
+  connectivity (those settings do nothing); it disregards a refused
+  response and goes on loading (the task is cancelled and its data
+  dropped); it sets a task's state after calling back (the task keeps the
+  guest's view); it answers only Basic challenges with a credential and
+  stops the process for others (other methods get the default handling);
+  its TLS `NSURLError…` constants are one off Apple's (codes are matched
+  as `URLError.Code`s); and the server trust and client certificate
+  methods are unavailable. It also stops the process when a `URLProtocol`
+  redirects, and retries an answered challenge over its own HTTP
+  protocol, so on Linux the tests ask the session's delegate about
+  redirects, challenges and progress directly; the end-to-end versions run
+  on macOS.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
