@@ -37,6 +37,12 @@ MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!
 FILE_EXTENSION = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9_+-]*$")
 DOCUMENT_ROLES = {"viewer", "editor"}
 DOCUMENTS_CAPABILITY = "userFiles"
+# Push (Contracts/Notifications.md): the contract an app that registers for
+# pushes uses, the capability's option that declares it, and the file
+# Android's host needs for it.
+PUSH_CONTRACT = "org.pureswift.notifications.Push"
+NOTIFICATIONS_CAPABILITY = "notifications"
+GOOGLE_SERVICES = "google-services.json"
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
@@ -329,6 +335,22 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
         warnings.append(f"capability {name!r} is declared but no contract requires it")
     for name in sorted(set(declared) - KNOWN_CAPABILITIES):
         warnings.append(f"capability {name!r} isn't one hosts know")
+
+    notifications = next((c for c in manifest.get("capabilities", []) if c["name"] == NOTIFICATIONS_CAPABILITY), None)
+    remote = bool(notifications) and (notifications.get("options") or {}).get("remote") == "true"
+    uses_push = any(c["name"] == PUSH_CONTRACT for c in contracts)
+    if uses_push and notifications and not remote:
+        errors.append(f"{PUSH_CONTRACT} registers for pushes, so the manifest must declare them: "
+                      ".notifications(remote: true)")
+    if remote and not uses_push:
+        warnings.append("notifications declares remote, but the app doesn't register for pushes")
+    google_services = (manifest.get("android") or {}).get("googleServices")
+    if google_services is not None:
+        parts = Path(google_services).parts
+        if Path(google_services).is_absolute() or ".." in parts or not google_services.endswith(".json"):
+            errors.append(f"android googleServices {google_services!r} isn't a .json file beside the manifest")
+    elif remote and any(p["name"] == "android" for p in manifest.get("platforms", [])):
+        warnings.append("push on Android needs the app's Firebase configuration: android googleServices")
 
     document_types = manifest.get("documentTypes", [])
     if document_types and DOCUMENTS_CAPABILITY not in declared:
