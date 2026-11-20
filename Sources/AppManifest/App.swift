@@ -54,6 +54,10 @@ public struct App: Sendable {
     /// The kinds of file the app opens. With any, declare `.userFiles`.
     public var documentTypes: [DocumentType]
 
+    /// The tasks the system may start the app to run. With any, declare
+    /// `.backgroundTasks`.
+    public var backgroundTasks: [BackgroundTaskDeclaration]
+
     /// Where the app runs, with its minimum OS for each.
     public var platforms: [Platform]
 
@@ -75,6 +79,7 @@ public struct App: Sendable {
         product: String? = nil,
         capabilities: [Capability] = [],
         documentTypes: [DocumentType] = [],
+        backgroundTasks: [BackgroundTaskDeclaration] = [],
         platforms: [Platform],
         icon: String? = nil,
         apple: AppleSettings? = nil,
@@ -88,6 +93,7 @@ public struct App: Sendable {
         self.product = product
         self.capabilities = capabilities
         self.documentTypes = documentTypes
+        self.backgroundTasks = backgroundTasks
         self.platforms = platforms
         self.icon = icon
         self.apple = apple
