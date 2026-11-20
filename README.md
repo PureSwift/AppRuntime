@@ -37,6 +37,8 @@ don't depend on WasmKit.
 | `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
+| `DynamicMedia` | Media players: a song, a podcast or a video the host decodes and shows. The `MediaPlayback` contract, the guest's `MediaPlayer`, `VideoPlayer` and `AudioPlayer`, what's playing for the lock screen, and playing on in the background | yes |
+| `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
 | `DynamicBackgroundTasks` | Running while the app isn't in front: tasks the system starts from time to time, and time to finish something. The `BackgroundTasks` contract and the guest's `BackgroundTaskScheduler` | yes |
 | `RuntimeBackgroundTasks` | `HostBackgroundTasks`: the background contract over a host's own scheduler | host |
 | `DynamicNotifications` | Notifications the system shows for the app, now or scheduled, with buttons, and pushes from the app's server: the `Notifications` and `PushNotifications` contracts and the guest's `UserNotificationCenter` | yes |
@@ -163,6 +165,13 @@ on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
 bundle, and saves, lists, opens and deletes notes with the guest's
 `FileManager` ([Files](Documentation/Contracts/Files.md)). The Darwin host
 runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
+
+`examples/ExampleMedia` is a small music player: it plays the songs in its
+bundle one after another, says what's playing so the system can show it,
+answers next and previous, and plays on in the background
+([Media players](Documentation/Contracts/MediaPlayer.md),
+[Now playing](Documentation/Contracts/NowPlaying.md)). No host has players
+yet, so the tests stand in for them.
 
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
@@ -365,7 +374,8 @@ either way, `ExampleFiles` the notebook, with real files in a temporary
 directory, `ExampleDocuments` the text editor, with the test answering its
 pickers, `ExampleNotifications` the timers, with the test keeping the
 notification centre, `ExampleBackground` the feed, with the test running
-its task, `ExampleDefaults` the settings screen, with a real settings
+its task, `ExampleMedia` the music player, with the test standing in for
+the players, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
