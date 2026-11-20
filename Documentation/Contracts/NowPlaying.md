@@ -1,7 +1,9 @@
 # Now playing, and playing in the background
 
-**Status:** a design for review. Nothing here is implemented, and neither
-is [MediaPlayer](MediaPlayer.md), which it adds to.
+**Status:** implemented in this repository with
+[MediaPlayer](MediaPlayer.md), which it adds to: the guest side, and the
+part of the host side every host written in Swift shares. No platform host
+shows what's playing or plays in the background yet.
 
 Three things a music or podcast app needs that the media player design
 left out, and that every platform ties together:
@@ -159,6 +161,38 @@ player.play()
 - **Nothing is shown for a player with no source.**
 - **Releasing the player ends all of it.**
 
+## The shared host
+
+`HostMediaPlayback`, in `RuntimeMedia`, does what's the same on every
+platform. A host's `MediaPlatform` shows what it's handed, and tells it
+what the user pressed:
+
+```swift
+func showNowPlaying(_ nowPlaying: HostNowPlaying?)      // nil: show nothing
+
+HostMediaPlayback.remote(.togglePlayPause)              // or .play, .pause, .seek(to:),
+                                                        // .skipBackward, .skipForward, .next, .previous
+HostMediaPlayback.applicationDidEnterBackground()
+HostMediaPlayback.interruptionBegan()
+HostMediaPlayback.interruptionEnded(shouldResume: true)
+HostMediaPlayback.outputRouteWasLost()
+```
+
+- **It keeps which player is the app's now-playing one,** and hands the
+  platform a `HostNowPlaying`: what the app said, with the artwork found,
+  the buttons to offer, and the player's position, duration, rate and
+  whether it's playing.
+- **It reports at each change of state,** when what the app said changes,
+  and after a seek. Not at each time report.
+- **It answers play, pause, seek and skip** on the player's engine, and
+  marks a pause it caused as the user's. `remote` says whether anything
+  answered: a button the app didn't offer isn't.
+- **It pauses for the background** every player that doesn't play on, and
+  ignores `playsInBackground` without `allowsBackground`.
+- **`holdsApp`** says whether a player is playing on in the background: a
+  host counts it with `HostBackgroundTasks.isIdle` before stopping the
+  app.
+
 ## The manifest
 
 ```swift
@@ -166,8 +200,9 @@ capabilities: [.audio(background: true)]
 ```
 
 `.audio` is the capability every player requires
-([MediaPlayer](MediaPlayer.md)). `AppManifest` doesn't have it yet; it
-arrives with the player. It has no usage text and prompts for nothing.
+([MediaPlayer](MediaPlayer.md)). It has no usage text and prompts for
+nothing. The option reaches a host in the bundle's `Info.plist`, as
+`RTCapabilityOptions.audio.background`.
 
 | | `.audio` | with `background` |
 |---|---|---|
@@ -200,17 +235,13 @@ arrives with the player. It has no usage text and prompts for nothing.
   player takes the sound, as the player design says.
 - **A browsable library for cars** (CarPlay, Android Auto).
 
-## Questions for review
+## Decided in review
 
-1. **Additions to `MediaPlayer`,** not a contract of their own. The
-   alternative is a `NowPlaying` contract an app fills in itself, as
-   Apple's is, which lets an app show something no player is playing.
-2. **The host answers play, pause and seek itself.** The alternative
-   sends every button to the app, which could refuse one, and makes each
-   wait for the guest.
-3. **No queue.** A music app then has a gap between tracks, and can't go
-   on to the next track once the system has stopped it.
-4. **This answers the player design's seventh question:** background
-   playback is in the first version, since the music app needs it.
-5. **Build order.** None of this can be built before the player. The
-   player design's other six questions are still open.
+The design was approved as drafted, so these stand:
+
+- **Additions to `MediaPlayer`,** not a contract of their own.
+- **The host answers play, pause and seek itself.**
+- **No queue.** A music app has a gap between tracks, and can't go on to
+  the next once the system has stopped it.
+- **Background playback is in the first version.**
+- **Built with the player,** whose proposals were taken as they stood.
