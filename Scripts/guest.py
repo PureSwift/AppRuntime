@@ -1159,6 +1159,13 @@ def prepare_manifest(arguments, builder, targets, resources):
         print(f"warning: {warning}")
     if errors:
         raise BuildError("manifest:\n  " + "\n  ".join(errors))
+    # Android's push configuration goes into the bundle as it is.
+    arguments.google_services = None
+    google_services = (manifest.get("android") or {}).get("googleServices")
+    if google_services:
+        arguments.google_services = manifest_dir / google_services
+        if not arguments.google_services.is_file():
+            raise BuildError(f"manifest:\n  android googleServices {google_services} not found")
     builder.manifest = app_manifest.encode(manifest)
     return icon
 
@@ -1239,6 +1246,8 @@ def build_bundle(arguments):
         shutil.copytree(resources, bundle / "resources")
     if icon:
         shutil.copy(icon, bundle / "icon.png")
+    if getattr(arguments, "google_services", None):
+        shutil.copy(arguments.google_services, bundle / app_manifest.GOOGLE_SERVICES)
 
     if manifest:
         app_manifest.write_strings_files(manifest, resources, bundle / "resources")
