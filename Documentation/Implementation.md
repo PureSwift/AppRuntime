@@ -27,7 +27,7 @@ builds and the first provider contracts:
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
-| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. No platform host has a presenter yet, so no picker shows anywhere |
+| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
@@ -1029,15 +1029,15 @@ Each of these needs a decision, or is verified only as far as noted:
    the other hosts: registering `HostFiles` and `HostDefaults` in the
    Linux host, and Android's and the browser's own. The Darwin host has
    them (DarwinAppRuntime's `DarwinFiles` and `DarwinDefaults`).
-9. Pickers in the hosts (`Documentation/Contracts/Documents.md`): a
-   `DocumentPresenter` over `UIDocumentPickerViewController` and the
-   AppKit panels in the Darwin host, with security scopes and bookmarks;
+9. Pickers in the other hosts (`Documentation/Contracts/Documents.md`):
    the picker service and its descriptors in the Linux host; Android's and
-   the browser's own host side. Each host also turns the bundle's
-   `RTDocumentTypes` into its own entries. Two things in the design are
-   from the platforms' documentation and need a test: which export mode
-   on iOS leaves the app with access, and what Landlock does with a
-   descriptor the picker service opened. Then sharing a file and opening
+   the browser's own host side. Each also turns the bundle's
+   `RTDocumentTypes` into its own entries. The Darwin host has them
+   (DarwinAppRuntime's `DarwinDocuments`), without iOS file coordination
+   yet. Two things in the design are from the platforms' documentation and
+   need a test: which export mode on iOS leaves the app with access, which
+   the iOS Simulator confirmed and a device hasn't yet, and what Landlock
+   does with a descriptor the picker service opened. Then sharing a file and opening
    one in another app, which the design leaves out.
 10. Notifications in the hosts (`Documentation/Contracts/Notifications.md`):
    a `NotificationPresenter` over `UNUserNotificationCenter` in the Darwin
