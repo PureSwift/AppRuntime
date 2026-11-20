@@ -534,6 +534,7 @@ Expanding capabilities into native entries:
 | `.notifications` | runtime request; push needs `aps-environment` | `POST_NOTIFICATIONS` (API 33+) | runtime-defined |
 | `.gameControllers` (draft, §8.7) | `GCSupportsControllerUserInteraction`, `GCSupportedGameControllers` (`ExtendedGamepad`) | `uses-feature android.hardware.gamepad`, `required="false"` unless `.required()` | joystick-class `/dev/input/event*` nodes only |
 | `.audio` (draft, §8.8) | none | none | the sound server's socket, or `/dev/snd` |
+| `.userFiles` (`Contracts/Documents.md`) | none; on macOS the `files.user-selected.read-write` and `files.bookmarks.app-scope` entitlements | none | the picker service's socket |
 
 ### 7.4 Built-in contracts
 
@@ -679,6 +680,7 @@ An app keeps data in its own container, through three contracts. None needs a ca
 | `Defaults` | small settings | synchronous | `UserDefaults` | `SharedPreferences` | a file in `/data` | `localStorage` |
 | `ModelStore` | entities, relationships and queries | asynchronous | Core Data | SQLite | SQLite | IndexedDB |
 
+- **The user's own files are outside the container.** An app reaches one only when the user picks it, through the platform's picker (`Contracts/Documents.md`, capability `.userFiles`). The pick is a directory `Files` then takes, for as long as the app holds it.
 - **The web decides the shape.** A browser's larger storage can't be used synchronously on the main thread, where the guest runs. So `Files` and `ModelStore` complete every operation through a callback, and guest code awaits them. `Defaults` is synchronous because every platform, the browser included, has a small synchronous store.
 - **`Files`** names directories (`documents`, `data`, `caches`, `temporary`, `bundle`) and takes relative paths, because no absolute path means the same on four platforms. The guest API follows Foundation's `FileManager`, made `async`. It replaces WASI's files (§3.3) and is how a guest reads its bundle, which on Android and the web isn't a directory.
 - **`ModelStore`** is the storage behind [CoreModel](https://github.com/PureSwift/CoreModel), which compiles under Embedded Swift: app code uses its `Entity`, `FetchRequest` and `ModelStorage` unchanged, through `RuntimeModelStorage`. Entities are written by hand for now, since CoreModel's macros are off under Embedded Swift.
