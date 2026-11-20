@@ -30,7 +30,7 @@ PLATFORM_GROUPS = {
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
-                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks"}
+                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio"}
 # What a document type names, as a picker takes them (Contracts/Documents.md):
 # a MIME type, a MIME group, or an extension.
 MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$")
