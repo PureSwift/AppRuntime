@@ -26,6 +26,7 @@ builds and the first provider contracts:
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
+| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. No platform host has a presenter yet, so no picker shows anywhere |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
@@ -325,6 +326,41 @@ which are each host's. TCP and UDP are not part of the spec.
   - **Listings sort by UTF-8 bytes**, so every host gives the same order.
   - **`FileManager` collides with Foundation's** where both are imported:
     host-side Swift writes `DynamicFiles.FileManager`.
+- **Documents (`Contracts/Documents.md`).**
+  - **A picked document is a directory.** `FileDirectory` became a struct
+    with a raw value, so a host can hand out values of its own (256 and
+    up) beside the app's five. `Files`, its rules, its errors and every
+    contract that takes a directory and a path then serve the user's
+    files unchanged. The alternative, a file object with its own read and
+    write, would have repeated `Files` and needed a second method in each
+    of those contracts.
+  - **The grant is an object, and its release is the revocation.** The
+    guest's `Document` holds a `DocumentGrant`; when it's released the
+    host ends the access. A `FilePath` is a value and can outlive it, and
+    then fails with `notPermitted`.
+  - **Grants are changed on the main thread and copied per operation.**
+    `HostFiles` already copied its file system into each operation's
+    closure, so the grant table needs no lock, and an operation that's
+    running keeps the grants it started with.
+  - **What was picked stays put.** A document's own empty path can't be
+    removed or moved, where a directory's empties it. Emptying a folder
+    the user picked with one call was too easy to do by accident.
+  - **A file alone can't always be replaced atomically.** The user may
+    give a file and not its folder, where no temporary file can be made
+    beside it. `HostFiles` then writes over it in place.
+  - **Permission errors have a code.** `EACCES` and `EPERM` are
+    `notPermitted`; they were `unknown`.
+  - **The shared host side is its own target,** `RuntimeDocuments`.
+    `DynamicDocuments` carries the SwiftUI modifiers, so it depends on the
+    frontend, and `RuntimeHost` shouldn't.
+  - **The modifiers ask for the picker after the view update,** through
+    `GuestExecutor.whenIdle`. A host that answered at once changed the
+    app's state while its views were being evaluated, and the screen kept
+    the old text. The wasm test found it.
+  - **Bookmarks are strings the host keeps,** not bytes: a browser's file
+    handle can be stored only in the browser's own database.
+  - **Files no longer arrive through `ApplicationDelegate.open(_:url:)`.**
+    A guest could do nothing with a path outside its container.
   - **Typed throws and `Task`.** A closure written `() throws(FileError)`
     and handed to `Task { }` threw a garbage error value in a host test
     (Swift 6.4.2). An ordinary throwing closure around the same call is
@@ -747,6 +783,29 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
+- `DynamicDocumentsTests`: the document contracts' keys and signatures,
+  content types and their forms on the wire, and the guest's
+  `DocumentPicker` and `Document` against a scripted host: one file, many,
+  a folder, cancelling, failures, exports that are saved, copied or
+  cancelled, bookmarks, the documents an app is opened with as a closure
+  and as a stream, awaiting, cancellation, a grant released when its
+  document is, and `fileImporter` and `fileExporter` in a view graph.
+- `RuntimeDocumentsTests`: `HostDocuments` over a test's presenter and real
+  files in a temporary directory, from the guest's `DocumentPicker` and
+  `FileManager` through `NativeRuntime`: reading and writing a picked
+  file, a read-only one, a folder and what's under it, access ending when
+  the document is let go, one picker at a time, a host with no pickers,
+  exports, bookmarks and their limit, and documents that wait for the
+  guest to listen. `HostFilesTests` covers the grants themselves: a file
+  as an empty path, a folder, read-only grants, a link out of a folder,
+  directories nobody granted, and a file written in place where nothing
+  can be made beside it.
+  These suites and `DynamicFilesTests` also pass on Linux (Swift 6.4.2,
+  arm64, in Docker; as root there, so the write-in-place test doesn't meet
+  a folder it can't write to).
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleDocuments`
+  against `HostDocuments` and real files, as `App.wasm`, a sealed macOS
+  slice and wasm2c output.
 - `DynamicDefaultsTests`: the contract's keys and signatures, and the
   guest's `UserDefaults` and `@AppStorage` against a store in memory:
   what missing values read as, round trips of every type (a `Double`'s
@@ -893,3 +952,13 @@ Each of these needs a decision, or is verified only as far as noted:
    the other hosts: registering `HostFiles` and `HostDefaults` in the
    Linux host, and Android's and the browser's own. The Darwin host has
    them (DarwinAppRuntime's `DarwinFiles` and `DarwinDefaults`).
+9. Pickers in the hosts (`Documentation/Contracts/Documents.md`): a
+   `DocumentPresenter` over `UIDocumentPickerViewController` and the
+   AppKit panels in the Darwin host, with security scopes and bookmarks;
+   the picker service and its descriptors in the Linux host; Android's and
+   the browser's own host side. Each host also turns the bundle's
+   `RTDocumentTypes` into its own entries. Two things in the design are
+   from the platforms' documentation and need a test: which export mode
+   on iOS leaves the app with access, and what Landlock does with a
+   descriptor the picker service opened. Then sharing a file and opening
+   one in another app, which the design leaves out.
