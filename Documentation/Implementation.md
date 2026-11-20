@@ -28,6 +28,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
+| Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
@@ -328,6 +329,28 @@ which are each host's. TCP and UDP are not part of the spec.
   - **Listings sort by UTF-8 bytes**, so every host gives the same order.
   - **`FileManager` collides with Foundation's** where both are imported:
     host-side Swift writes `DynamicFiles.FileManager`.
+- **Background tasks (`Contracts/BackgroundTasks.md`).**
+  - **No new entry point.** A background start is `rt_main`, as any start
+    is, and the host's renderer waits for a window. A slice keeps its
+    three exports, which `guest.py` checks it has exactly.
+  - **Runs and activities are numbers,** not objects: what notifications
+    taught about a host reading back the guest's objects.
+  - **Embedded Swift has no `MainActor` and no untyped `throws`.** The
+    `async` handler is generic over its error, and is `nonisolated(nonsending)`
+    so it runs where it's started. In a guest that's the one executor; in
+    a host build, where tests run this code, the task is put on the main
+    actor, since Swift's own executor would run it on another thread.
+  - **And no weak references,** so the scheduler can't hold an activity
+    weakly to end it when it's let go. The activity owns a small state
+    object the scheduler knows of only while the activity is open.
+  - **The guest says who its delegate is with every handler** and every
+    activity. Saying it once left a host that had started over deaf.
+  - **A repeating request is the shared host's to ask again.** Apple's
+    scheduler runs a request once, and the app is started afresh for the
+    run, so the intervals are kept in a file.
+  - **A request names its task's kind,** and one that names the manifest's
+    task as the other kind is `notDeclared`: the platform was told
+    something else about it.
 - **Notifications (`Contracts/Notifications.md`).**
   - **A host can't cast what the guest hands back.** A record the guest
     made reaches a host method as the guest's proxy, so the host reads it
@@ -814,6 +837,25 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
+- `DynamicBackgroundTasksTests`: the background contract's keys and
+  signatures, and the guest's `BackgroundTaskScheduler` against a scripted
+  host: what a request asks, a task with no handler, lists and
+  withdrawals, the system's switch, a run reaching its handler and being
+  completed once, a run told it's out of time, activities ended, let go of
+  and expired, a host that holds no app, and the `async` forms: a handler
+  that returns or throws, one cancelled when time runs out, and a block
+  held by an activity.
+- `RuntimeBackgroundTasksTests`: `HostBackgroundTasks` over a scheduler the
+  test keeps in memory, from the guest through `NativeRuntime`: requests
+  checked against the manifest's tasks, the system told how a run went, a
+  run that overstays its grace, a run before the app listens, repeating
+  requests asked again and remembered in a file across a restart, and
+  activities that hold the app until they end or run out.
+  Neither suite has been run on Linux: Docker stopped answering during
+  the run.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleBackground`
+  against `HostBackgroundTasks`, as `App.wasm`, a sealed macOS slice and
+  wasm2c output, with the test running the task as the system would.
 - `DynamicNotificationsTests`: the notification contracts' keys and
   signatures, and the guest's `UserNotificationCenter` against a scripted
   host: settings and what asking passes, a request written into a record
@@ -1045,6 +1087,14 @@ Each of these needs a decision, or is verified only as far as noted:
    shell, which holds scheduled requests and each app's categories;
    Android's and the browser's own host side, where a push is built from
    the `rt.` keys. None of the platform behaviour in the design has been
-   checked on a device. Then what the design leaves out and the planned
-   apps need: running the guest in the background (buttons that don't open
-   the app, pushes that wake it), and an alarm that rings until answered.
+   checked on a device. Then an alarm that rings until answered, which
+   the design leaves out and the planned Clocks app needs.
+11. Background work in the hosts (`Documentation/Contracts/BackgroundTasks.md`):
+   a `BackgroundScheduler` over `BGTaskScheduler` in the Darwin host, the
+   background service in the Linux host, and Android's own host side over
+   `WorkManager`. Every host needs a renderer that can be made before
+   there's a window, which none was checked for. Then the notification
+   parts that need it: starting the app for a `.background` button, and
+   for a push when the manifest says `wakesApp`. `AppInfo` doesn't read
+   `RTBackgroundTasks`, `RTCapabilityOptions` or `RTDocumentTypes` yet, so
+   each host reads them itself.
