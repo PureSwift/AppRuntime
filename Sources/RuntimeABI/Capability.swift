@@ -33,6 +33,9 @@ public extension Capability {
 
     static var nfc: Capability { Capability("nfc") }
 
+    /// Playing sound: media players, and the game audio draft.
+    static var audio: Capability { Capability("audio") }
+
     /// Running in the background: tasks the system starts, and time to
     /// finish. It prompts for nothing.
     static var backgroundTasks: Capability { Capability("backgroundTasks") }
