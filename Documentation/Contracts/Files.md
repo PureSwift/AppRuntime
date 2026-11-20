@@ -71,6 +71,22 @@ ones without a handle object to leak.
   where the user has it on. A browser backs up nothing, and may evict
   everything (see [Persistence](Persistence.md#where-its-kept)).
 
+### The user's files
+
+A file or folder the user picked is a directory too
+([Documents](Documents.md)). Its value is 256 or more, chosen by the host,
+and good while the app holds the `Document`:
+
+- `FileDirectory` is a struct with a raw value, so it can hold one. The
+  five above are its static members and its `allCases`; `isGrant` says
+  whether a directory is a document.
+- A picked file is its directory's empty path, with nothing under it. A
+  picked folder is a directory like the five.
+- What was picked stays where it is: its own empty path can't be removed
+  or moved, and can be copied from.
+- A directory the app doesn't hold, or holds no longer, answers
+  `notPermitted`.
+
 ## For a guest
 
 ```swift
@@ -184,6 +200,8 @@ protocol FileCallback {
 | 7 | `readOnly` |
 | 8 | `outOfSpace` |
 | 9 | `tooLarge`: more than this host passes in one call |
+| 10 | `notPermitted`: a document the app doesn't hold, or a file the system won't let the host open |
+| 11 | `unavailable`: a document its provider can't supply now, such as a cloud file while offline |
 
 ### Sizes
 
@@ -215,6 +233,15 @@ HostFilesModule.register(in: runtime)
 - A path is confined to its directory: a symbolic link that leads out of
   it is `invalidPath`, for reads and writes alike.
 - `maximumTransfer` is 256 MB unless the host says otherwise.
+- **Grants.** `HostFiles.grant(_:)` takes a path, a kind and whether it's
+  writable, and gives the directory `Files` reaches it by;
+  `HostFiles.revoke(_:)` ends it. Operations already issued finish with
+  the grants they started with. A replacing write to a granted file is
+  atomic when a temporary file can be made beside it, and written over in
+  place when it can't, as when the user gave the file and not its folder.
+- **`HostFiles.path(of:path:)`** is where a file is, checked as `Files`
+  checks it: for a media player, an image decoder, or any other contract
+  that's handed a directory and a path.
 
 ### Per host
 
@@ -227,8 +254,9 @@ HostFilesModule.register(in: runtime)
 
 ## Capability
 
-None. These are the app's own directories and its own bundle; nothing here
-reaches another app's files or the user's.
+None. These are the app's own directories and its own bundle. The user's
+files are reached only through a document the user picked, and the picker
+has the capability ([Documents](Documents.md)).
 
 ## Threading
 
@@ -247,13 +275,12 @@ slice and wasm2c output (`Packages/LinkedSlice`). The Darwin host runs it
 
 ## Not in this design
 
-- **The user's files:** choosing a document to open, saving one where the
-  user says, sharing one with another app. That's a separate contract
-  around the platforms' pickers (`UIDocumentPickerViewController`, the
-  Storage Access Framework, a portal on Linux, `<input type="file">`).
+- **Choosing the user's files** is [Documents](Documents.md), around the
+  platforms' pickers. What's picked is read and written here.
 - **Passing a file to another contract** without copying its bytes through
   the guest: an HTTP download straight to a file, an upload from one, an
   image view of one, a web view of one. Each needs a parameter in that
-  contract, taking a directory and a path.
+  contract, taking a directory and a path, which the host resolves with
+  `HostFiles.path(of:path:)`.
 - Watching a directory for changes.
 - Memory-mapped files, sparse files, permissions, extended attributes.
