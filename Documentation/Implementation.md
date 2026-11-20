@@ -28,6 +28,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. No platform host has a presenter yet, so no picker shows anywhere |
+| Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
@@ -327,6 +328,35 @@ which are each host's. TCP and UDP are not part of the spec.
   - **Listings sort by UTF-8 bytes**, so every host gives the same order.
   - **`FileManager` collides with Foundation's** where both are imported:
     host-side Swift writes `DynamicFiles.FileManager`.
+- **Notifications (`Contracts/Notifications.md`).**
+  - **A host can't cast what the guest hands back.** A record the guest
+    made reaches a host method as the guest's proxy, so the host reads it
+    through the contract. The design had records the host would read by
+    their fields: the record gained methods that say its trigger, and
+    categories became calls on `Notifications` between `beginCategories`
+    and `endCategories`, with no object. The first test run found it.
+  - **Sound, importance and buttons are a category's,** not a
+    notification's as Apple has them: Android fixes them per channel, and
+    a category is the channel there.
+  - **Push is a second contract,** `PushNotifications`, so an app's
+    contract list says whether it uses push. The packager then requires
+    `remote` in the manifest, and the shared host refuses to register
+    without it.
+  - **One permission status type.** Settings carry a `PermissionStatus`,
+    the built-in `Permissions` contract's. That contract's `status` is
+    synchronous and iOS's isn't, so the shared host keeps the last answer.
+  - **Requests are checked in the shared host,** before any presenter:
+    Foundation's calendar says whether calendar parts ever match. A time
+    the clocks skip is the next one they show that day, but 29 February
+    isn't 1 March: the matching is strict about the day and lenient about
+    the time.
+  - **The host's objects live as long as the process.** The guest's
+    centre keeps the ones it first asked for, so a reset empties them and
+    doesn't replace them.
+  - **`RuntimeNotifications` uses Foundation,** for the calendar.
+    `RuntimeHost` still doesn't.
+  - **Nothing runs the guest in the background.** Every button opens the
+    app, and a push with data only doesn't reach a closed app.
 - **Documents (`Contracts/Documents.md`).**
   - **A picked document is a directory.** `FileDirectory` became a struct
     with a raw value, so a host can hand out values of its own (256 and
@@ -784,6 +814,27 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleFiles`
   against `HostFiles` too, as `App.wasm`, a sealed macOS slice and wasm2c
   output, and check the files it leaves.
+- `DynamicNotificationsTests`: the notification contracts' keys and
+  signatures, and the guest's `UserNotificationCenter` against a scripted
+  host: settings and what asking passes, a request written into a record
+  with each kind of trigger, categories and their buttons, lists and
+  removals, how one is shown while the app is in front, responses and
+  deliveries through one delegate, a response that waits for a listener,
+  push registration and a changed address, awaiting, streams and
+  cancellation.
+- `RuntimeNotificationsTests`: `HostNotifications` over a notification
+  centre the test keeps in memory, from the guest through `NativeRuntime`:
+  nothing shown until the user allows it, a refusal that stays, the
+  built-in permission as the same one, requests as the centre receives
+  them, requests that can't fire, the pending limit, categories set
+  together, a notification that fires while the app runs, the response
+  that started the app, push with and without the manifest's leave, and a
+  centre with no push service. And the triggers' arithmetic: the next
+  weekday, a leap day, a year that has gone, a time the clocks skip.
+  Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
+  `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleNotifications` against `HostNotifications`, as
+  `App.wasm`, a sealed macOS slice and wasm2c output.
 - `DynamicDocumentsTests`: the document contracts' keys and signatures,
   content types and their forms on the wire, and the guest's
   `DocumentPicker` and `Document` against a scripted host: one file, many,
@@ -988,3 +1039,12 @@ Each of these needs a decision, or is verified only as far as noted:
    on iOS leaves the app with access, and what Landlock does with a
    descriptor the picker service opened. Then sharing a file and opening
    one in another app, which the design leaves out.
+10. Notifications in the hosts (`Documentation/Contracts/Notifications.md`):
+   a `NotificationPresenter` over `UNUserNotificationCenter` in the Darwin
+   host, with APNs registration; the notification service in the Linux
+   shell, which holds scheduled requests and each app's categories;
+   Android's and the browser's own host side, where a push is built from
+   the `rt.` keys. None of the platform behaviour in the design has been
+   checked on a device. Then what the design leaves out and the planned
+   apps need: running the guest in the background (buttons that don't open
+   the app, pushes that wake it), and an alarm that rings until answered.
