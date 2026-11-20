@@ -31,6 +31,25 @@ import AppManifest
             """#)
     }
 
+    @Test func documentTypesEncode() {
+        let app = App(
+            id: "org.example.Viewer", name: "Viewer", version: "1", build: 1,
+            capabilities: [.userFiles],
+            documentTypes: [
+                .init(name: .localized("type.image"), types: ["image/*"]),
+                .init(name: "Text", types: ["text/plain", ".md"], role: .editor),
+            ],
+            platforms: [.linux]
+        )
+        #expect(app.manifestJSON() == #"""
+            {"build":1,"capabilities":[{"name":"userFiles","options":{}}],\#
+            "documentTypes":[{"name":{"key":"type.image"},"role":"viewer","types":["image/*"]},\#
+            {"name":{"value":"Text"},"role":"editor","types":["text/plain",".md"]}],\#
+            "format":1,"id":"org.example.Viewer","languages":["en"],"name":{"value":"Viewer"},\#
+            "platforms":[{"name":"linux"}],"version":"1"}
+            """#)
+    }
+
     @Test func optionalFieldsAreLeftOut() {
         let app = App(id: "org.example.Minimal", name: "Minimal", version: "1", build: 1, platforms: [.linux])
         #expect(app.manifestJSON() == #"{"build":1,"capabilities":[],"format":1,"id":"org.example.Minimal","languages":["en"],"name":{"value":"Minimal"},"platforms":[{"name":"linux"}],"version":"1"}"#)
