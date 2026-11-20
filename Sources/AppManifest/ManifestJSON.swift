@@ -23,6 +23,9 @@ public extension App {
         if !documentTypes.isEmpty {
             object["documentTypes"] = .array(documentTypes.map(\.json))
         }
+        if !backgroundTasks.isEmpty {
+            object["backgroundTasks"] = .array(backgroundTasks.map(\.json))
+        }
         object["product"] = product.map(JSONValue.string)
         object["icon"] = icon.map(JSONValue.string)
         object["apple"] = apple.map(\.json)
@@ -52,6 +55,13 @@ extension Capability {
         ]
         object["usage"] = usage?.json
         return .object(object)
+    }
+}
+
+extension BackgroundTaskDeclaration {
+
+    var json: JSONValue {
+        .object(["identifier": .string(identifier), "kind": .string(kind.rawValue)])
     }
 }
 
