@@ -50,6 +50,24 @@ import AppManifest
             """#)
     }
 
+    @Test func notificationsDeclarePushAndExactTiming() {
+        #expect(Capability.notifications == Capability("notifications"))
+        #expect(Capability.notifications().options.isEmpty)
+        #expect(Capability.notifications(remote: true).options == ["remote": "true"])
+        #expect(Capability.notifications(exactTiming: true).options == ["exactTiming": "true"])
+        #expect(Capability.notifications(remote: true, exactTiming: true).options == ["remote": "true", "exactTiming": "true"])
+        #expect(Capability.notifications(remote: true).usage == nil, "no platform shows a usage text for it")
+        let app = App(
+            id: "org.example.Mail", name: "Mail", version: "1", build: 1,
+            capabilities: [.notifications(remote: true)],
+            platforms: [.android(minSDK: 26, targetSDK: 35)],
+            android: .init(googleServices: "google-services.json")
+        )
+        let json = app.manifestJSON()
+        #expect(json.contains(#""android":{"googleServices":"google-services.json"}"#))
+        #expect(json.contains(#"{"name":"notifications","options":{"remote":"true"}}"#))
+    }
+
     @Test func optionalFieldsAreLeftOut() {
         let app = App(id: "org.example.Minimal", name: "Minimal", version: "1", build: 1, platforms: [.linux])
         #expect(app.manifestJSON() == #"{"build":1,"capabilities":[],"format":1,"id":"org.example.Minimal","languages":["en"],"name":{"value":"Minimal"},"platforms":[{"name":"linux"}],"version":"1"}"#)
