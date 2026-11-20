@@ -37,6 +37,8 @@ don't depend on WasmKit.
 | `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
+| `DynamicDocuments` | The user's files, through the platform's pickers: the `Documents` contract, the guest's `DocumentPicker`, `Document` and `ContentType`, and SwiftUI's `fileImporter` and `fileExporter`. A picked file is a directory `DynamicFiles` reaches | yes |
+| `RuntimeDocuments` | `HostDocuments`: the documents contracts over a host's own pickers, granting each pick in `HostFiles` | host |
 | `DynamicDefaults` | Small settings kept across launches: the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`. `RuntimeHost` has `HostDefaults`, with a file-backed store | yes |
 | `DynamicCoreModel` | A model store behind [CoreModel](https://github.com/PureSwift/CoreModel): the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` | yes |
 | `RuntimeCoreModel` | `HostModelStore`: the model store's contracts over any CoreModel backend, for hosts written in Swift | host |
@@ -156,6 +158,12 @@ on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
 bundle, and saves, lists, opens and deletes notes with the guest's
 `FileManager` ([Files](Documentation/Contracts/Files.md)). The Darwin host
 runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
+
+`examples/ExampleDocuments` is a small text editor for the user's own
+files: it opens one with `fileImporter`, or the one it's launched with,
+saves back to it, saves a copy where the user says, and lists a folder
+([Documents](Documentation/Contracts/Documents.md)). No host shows a picker
+yet, so it runs in the tests, where the test answers for the user.
 
 `examples/ExampleDefaults` is a settings screen whose values survive a
 relaunch, with `@AppStorage`
@@ -334,7 +342,8 @@ APPRUNTIME_LINKED_ENGINE=wasm2c swift test
 
 `APPRUNTIME_LINKED_PRODUCT=ExampleUI` runs the example UI app instead,
 either way, `ExampleFiles` the notebook, with real files in a temporary
-directory, `ExampleDefaults` the settings screen, with a real settings
+directory, `ExampleDocuments` the text editor, with the test answering its
+pickers, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
