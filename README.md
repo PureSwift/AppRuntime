@@ -172,8 +172,9 @@ memory.
 `examples/ExampleDocuments` is a small text editor for the user's own
 files: it opens one with `fileImporter`, or the one it's launched with,
 saves back to it, saves a copy where the user says, and lists a folder
-([Documents](Documentation/Contracts/Documents.md)). No host shows a picker
-yet, so it runs in the tests, where the test answers for the user.
+([Documents](Documentation/Contracts/Documents.md)). The Darwin host shows
+the system's pickers for it on iOS and macOS (DarwinAppRuntime's
+`DarwinDocuments`); in the tests, the test answers for the user.
 
 `examples/ExampleDefaults` is a settings screen whose values survive a
 relaunch, with `@AppStorage`
