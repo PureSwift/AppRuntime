@@ -55,10 +55,10 @@ contracts over a host's `NotificationPresenter`.
   kind, and the web an address with keys. The contract hands the app what
   the platform gave and says which service it's for; the app's server has
   to speak to each.
-- **Nothing here runs the app in the background.** A notification can be
-  scheduled, shown and tapped with the guest closed. Running guest code
-  without bringing the app forward waits for the background contract
-  ([Not in this design](#not-in-this-design)).
+- **Showing one never runs the app.** A notification can be scheduled,
+  shown and tapped with the guest closed. Running guest code without
+  bringing the app forward is [BackgroundTasks](BackgroundTasks.md), which
+  adds a button that doesn't open the app and a push that wakes it.
 
 ## Permission
 
@@ -214,9 +214,10 @@ center.setCategories([
   registering again updates only its name and buttons.
 - **A notification with no category** is of a default one the host makes,
   named for the app, `.active`, with the default sound.
-- **Every action opens the app.** It comes forward and the response is
-  delivered. A button that works without opening the app is with the
-  background contract.
+- **An action opens the app,** unless its options say `.background`. It
+  comes forward and the response is delivered. A `.background` action
+  starts the app with no window if it has to, and gives it the time its
+  handler takes ([BackgroundTasks](BackgroundTasks.md#what-it-adds-to-notifications)).
 - **A text action** hands back what the user typed. Where a host can't
   take text in a notification (most browsers), the action opens the app
   with no text.
@@ -490,6 +491,10 @@ capabilities: [
 
 There's no usage text: no platform shows one in its prompt.
 
+With `wakesApp` as well as `remote`, a push with data only reaches a
+closed app: on iOS that adds `UIBackgroundModes: remote-notification`. The
+packager refuses `wakesApp` without `remote`.
+
 | | `.notifications` | with `remote` | with `exactTiming` |
 |---|---|---|---|
 | iOS / macOS | nothing | the `aps-environment` entitlement | nothing |
@@ -624,11 +629,11 @@ documentation.
 
 ## Not in this design
 
-- **Running the app in the background:** a button that works without
-  opening the app, time to finish work after a response, and a push with
-  data only that wakes a closed app to sync. These need a guest started
-  with no window, which the runtime can't do yet. They belong to the
-  background contract, and mail and calendar sync wait for it.
+- **Running the app in the background** is
+  [BackgroundTasks](BackgroundTasks.md): time to finish work after a
+  response, and tasks the system runs. That design also added the
+  `.background` action option and `wakesApp` here. No platform host
+  starts a guest without a window yet, so neither has run for real.
 - **An alarm that rings until it's answered.** A notification plays a
   sound once. A clock's alarm, which rings on, shows over the lock screen
   and ignores silent mode, is each platform's separate thing (AlarmKit on
@@ -652,7 +657,8 @@ The design was approved as drafted, so these stand:
   importance and the sound.
 - **Push is in the same module,** as a second contract.
 - **The `rt.` keys** for a push on Android and the web.
-- **Every action opens the app** until the background contract exists.
+- **Every action opens the app.** Since then, `.background` actions don't
+  ([BackgroundTasks](BackgroundTasks.md)).
 
 ## Questions left
 
@@ -661,5 +667,5 @@ The design was approved as drafted, so these stand:
 2. **Alarms.** The plan's Clocks app needs the separate alarm contract to
    ring properly. With this alone it can notify, and not ring on.
 3. **A host-run "snooze" action,** which schedules the same notification
-   again without the guest, would cover a clock's commonest button before
-   the background contract exists.
+   again without the guest. A `.background` action now does this through
+   the guest, where a host can start one with no window.
