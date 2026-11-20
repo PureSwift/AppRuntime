@@ -95,7 +95,8 @@ class CheckTests(unittest.TestCase):
         self.assertIn("capability 'camera' is declared but no contract requires it", warnings)
         self.assertIn("capability 'teleport' isn't one hosts know", warnings)
         _, warnings = self.check(sample(capabilities=[{"name": name, "options": {}, "usage": {"value": "x"}}
-                                                      for name in ("motion", "nfc", "localNetwork")]))
+                                                      for name in ("motion", "nfc", "localNetwork", "audio",
+                                                                   "userFiles", "backgroundTasks")]))
         self.assertFalse([w for w in warnings if "isn't one hosts know" in w], warnings)
 
     def test_document_types(self):
