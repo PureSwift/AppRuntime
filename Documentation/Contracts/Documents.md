@@ -1,8 +1,9 @@
 # Documents
 
 **Status:** implemented in this repository: the guest side, and the part of
-the host side every host with file paths shares. No platform host shows a
-picker yet; each needs a presenter ([For a host](#for-a-host)).
+the host side every host with file paths shares. The Darwin host shows the
+system's pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`).
+Android, Linux and the browser need their own ([For a host](#for-a-host)).
 
 Module `DynamicDocuments`: the user's files. Choosing one to open, saving
 one where the user says, keeping access to it for next time, and being
@@ -465,8 +466,8 @@ themselves.
 
 | | Notes |
 |---|---|
-| iOS | `UIDocumentPickerViewController(forOpeningContentTypes:)`, opening in place. A grant starts the URL's security scope and stops it on release. Reads and writes go through file coordination. A bookmark is the URL's bookmark data, kept in the host's own storage under the string. Export uses `forExporting` in its moving form on a copy the host makes, which is the form whose result the app can reach afterwards. **To be confirmed on a device.** |
-| macOS | `NSOpenPanel` and `NSSavePanel`. Bookmarks are app-scoped security bookmarks. Outside the sandbox a grant is a plain path. |
+| iOS | `UIDocumentPickerViewController(forOpeningContentTypes:)`, opening in place. A grant starts the URL's security scope and stops it on release. Reads and writes go through file coordination. A bookmark is the URL's bookmark data, kept in the host's own storage under the string. Export uses `forExporting` in its moving form on a copy the host makes, which is the form whose result the app can reach afterwards. DarwinAppRuntime's `DarwinDocuments` does this, except file coordination, which it doesn't do yet. On the iOS Simulator the export form left the app able to write to the saved file. **To be confirmed on a device.** |
+| macOS | `NSOpenPanel` and `NSSavePanel`. Bookmarks are app-scoped security bookmarks. Outside the sandbox a grant is a plain path. DarwinAppRuntime's `DarwinDocuments`. |
 | Android | `ACTION_OPEN_DOCUMENT`, `ACTION_OPEN_DOCUMENT_TREE`, `ACTION_CREATE_DOCUMENT`. Reads and writes use `ContentResolver`; a range read needs a seekable descriptor, and a provider without one is read through from the start. A bookmark is `takePersistableUriPermission` and the URI. A folder's paths are walked by display name through `DocumentsContract`. |
 | Linux | Below. |
 | Browser | Chromium: `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`; handles are kept in IndexedDB, and resolving one may ask the user again. Elsewhere: `<input type="file">` gives read-only files with no bookmarks and no folders, and export is a download. |
@@ -539,9 +540,10 @@ folder and reads a file under it.
   under WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
   wasm2c output (`Packages/LinkedSlice`).
 
-Everything is tested against paths. The platform pickers, security scopes,
-content URIs and the Linux service are each host's own work, and none is
-written.
+Everything here is tested against paths. The platform pickers, security
+scopes, content URIs and the Linux service are each host's own work. The
+Darwin host's are written (DarwinAppRuntime's `DarwinDocuments`), and were
+tried with `ExampleDocuments` on the iOS Simulator; the others aren't.
 
 ## Not in this design
 
