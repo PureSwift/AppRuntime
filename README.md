@@ -37,6 +37,8 @@ don't depend on WasmKit.
 | `RuntimeWasm` | WasmKit import shim: runs `App.wasm` against `RuntimeCore`. A separate package in `Packages/RuntimeWasm` | host, macOS 15 / iOS 18 |
 | `DynamicBluetooth`, `DynamicLocation`, `DynamicNetworking`, `DynamicFormatting` | Provider contracts (declarations) | yes |
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
+| `DynamicNotifications` | Notifications the system shows for the app, now or scheduled, with buttons, and pushes from the app's server: the `Notifications` and `PushNotifications` contracts and the guest's `UserNotificationCenter` | yes |
+| `RuntimeNotifications` | `HostNotifications`: the notification contracts over a host's own notification centre | host |
 | `DynamicDocuments` | The user's files, through the platform's pickers: the `Documents` contract, the guest's `DocumentPicker`, `Document` and `ContentType`, and SwiftUI's `fileImporter` and `fileExporter`. A picked file is a directory `DynamicFiles` reaches | yes |
 | `RuntimeDocuments` | `HostDocuments`: the documents contracts over a host's own pickers, granting each pick in `HostFiles` | host |
 | `DynamicDefaults` | Small settings kept across launches: the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`. `RuntimeHost` has `HostDefaults`, with a file-backed store | yes |
@@ -159,6 +161,13 @@ on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`), and
 bundle, and saves, lists, opens and deletes notes with the guest's
 `FileManager` ([Files](Documentation/Contracts/Files.md)). The Darwin host
 runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
+
+`examples/ExampleNotifications` is a set of kitchen timers: it asks the
+user's leave, schedules a notification for when each timer ends, answers
+the notification's buttons, and registers for pushes
+([Notifications](Documentation/Contracts/Notifications.md)). No host shows
+a notification yet, so it runs in the tests, against a centre kept in
+memory.
 
 `examples/ExampleDocuments` is a small text editor for the user's own
 files: it opens one with `fileImporter`, or the one it's launched with,
@@ -344,7 +353,8 @@ APPRUNTIME_LINKED_ENGINE=wasm2c swift test
 `APPRUNTIME_LINKED_PRODUCT=ExampleUI` runs the example UI app instead,
 either way, `ExampleFiles` the notebook, with real files in a temporary
 directory, `ExampleDocuments` the text editor, with the test answering its
-pickers, `ExampleDefaults` the settings screen, with a real settings
+pickers, `ExampleNotifications` the timers, with the test keeping the
+notification centre, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
