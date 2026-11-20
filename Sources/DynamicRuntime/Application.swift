@@ -1,6 +1,10 @@
 /// The built-in `Application` contract: the app's lifecycle and incoming
 /// URLs.
 ///
+/// A file the app is opened with isn't a URL here: a guest can't open a
+/// path outside its container. It arrives as a document, through
+/// `DynamicDocuments`.
+///
 /// Every host provides it. The app makes one, normally in `rt_main`, and the
 /// host reports to its delegate on the main thread until the app releases
 /// it.
@@ -9,7 +13,7 @@
 /// |---|---|
 /// | iOS | `UIApplication` / scene notifications; `scene(_:openURLContexts:)` |
 /// | macOS | `NSApplication` notifications; `application(_:open:)` |
-/// | Android | `ProcessLifecycleOwner`, `onTrimMemory`; `ACTION_VIEW` intents |
+/// | Android | `ProcessLifecycleOwner`, `onTrimMemory`; `ACTION_VIEW` intents for links |
 /// | Linux | window focus and visibility; `.desktop` URL handlers |
 @DynamicRuntime("org.pureswift.runtime.Application")
 public protocol Application: AnyObject {
@@ -31,7 +35,7 @@ public protocol ApplicationDelegate: AnyObject {
     /// Free what can be rebuilt; the host may end the app otherwise.
     func didReceiveMemoryWarning(_ application: Application)
 
-    /// A URL the app was opened with: a deep link, a custom scheme, a file.
+    /// A URL the app was opened with: a deep link or a custom scheme.
     /// Returns whether the app handled it.
     func open(_ application: Application, url: String) -> Bool
 }
