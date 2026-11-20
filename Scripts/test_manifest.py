@@ -98,6 +98,34 @@ class CheckTests(unittest.TestCase):
                                                       for name in ("motion", "nfc", "localNetwork")]))
         self.assertFalse([w for w in warnings if "isn't one hosts know" in w], warnings)
 
+    def test_document_types(self):
+        files = {"name": "userFiles", "options": {}}
+        types = [{"name": {"key": "app.name"}, "types": ["image/*", "image/png", "*/*"], "role": "viewer"},
+                 {"name": {"value": "Text"}, "types": ["text/plain", ".md"], "role": "editor"}]
+        documents = [dict(name="org.pureswift.documents.Documents", kind="contract", version=1,
+                          capability="userFiles", methods=[])]
+        errors, warnings = self.check(sample(capabilities=[files], documentTypes=types), contracts=documents)
+        self.assertFalse(errors, errors)
+        self.assertFalse([w for w in warnings if "document" in w or "userFiles" in w], warnings)
+
+        errors, _ = self.check(sample(capabilities=[], documentTypes=types), contracts=[])
+        self.assertIn("documentTypes needs the 'userFiles' capability: the files arrive through the documents "
+                      "contract", errors)
+        errors, warnings = self.check(sample(capabilities=[files], documentTypes=[
+            {"name": {"key": "type.missing"}, "types": ["image", "png", "Image/PNG", ".gpx"], "role": "owner"},
+            {"name": {"value": "None"}, "types": [], "role": "viewer"},
+            {"name": {"value": "Tracks"}, "types": [".gpx"], "role": "viewer"},
+        ]), contracts=documents)
+        self.assertIn("document type 1: 'image' isn't a MIME type (image/png, image/*) or an extension (.gpx)", errors)
+        self.assertIn("document type 1: 'png' isn't a MIME type (image/png, image/*) or an extension (.gpx)", errors)
+        self.assertIn("document type 1: 'Image/PNG' isn't a MIME type (image/png, image/*) or an extension (.gpx)",
+                      errors)
+        self.assertIn("document type 1: unknown role 'owner'", errors)
+        self.assertIn("document type 2 names no types", errors)
+        self.assertIn("en.lproj/Manifest.strings has no 'type.missing' (document type 1's name)", errors)
+        self.assertEqual([w for w in warnings if "MIME" in w],
+                         ["document type 3 has no MIME type: Android matches files by MIME type only"])
+
     def test_optional_capabilities(self):
         # A web view works without network, so it never requires it; with a
         # web view in the app, declaring network isn't unused.
@@ -158,6 +186,15 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(info["RTPlatforms"]["linux"], {})
         self.assertEqual(info["RTIcon"], "icon.png")
         self.assertEqual(info["RTPlatformExtras"], {"apple": value["apple"]})
+        self.assertNotIn("RTDocumentTypes", info)
+
+        value["documentTypes"] = [{"name": {"key": "app.name"}, "types": ["image/*"], "role": "viewer"},
+                                  {"name": {"value": "Text"}, "types": ["text/plain", ".md"], "role": "editor"}]
+        info = manifest.info_plist(value, EXAMPLE / "resources", None)
+        self.assertEqual(info["RTDocumentTypes"], [
+            {"Name": "Example", "NameKey": "app.name", "Types": ["image/*"], "Role": "viewer"},
+            {"Name": "Text", "Types": ["text/plain", ".md"], "Role": "editor"},
+        ])
 
         with tempfile.TemporaryDirectory() as bundle:
             manifest.write_strings_files(value, EXAMPLE / "resources", bundle)
