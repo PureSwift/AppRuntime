@@ -531,9 +531,10 @@ Expanding capabilities into native entries:
 | `.bluetooth` | `NSBluetoothAlwaysUsageDescription` | `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` (API 31+); `BLUETOOTH`, `BLUETOOTH_ADMIN` and `ACCESS_FINE_LOCATION` with `maxSdkVersion="30"`; `uses-feature bluetooth_le` | HCI / BlueZ D-Bus access |
 | `.camera` | `NSCameraUsageDescription` | `CAMERA` + `uses-feature camera` | `/dev/video*` |
 | `.location(.whenInUse)` | `NSLocationWhenInUseUsageDescription` | `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | runtime-defined |
-| `.notifications` (`Contracts/Notifications.md`) | asked when the app asks; with `remote`, the `aps-environment` entitlement | `POST_NOTIFICATIONS` (API 33+) and `RECEIVE_BOOT_COMPLETED`; with `remote`, Firebase's service and `google-services.json`; with `exactTiming`, `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM` | the notification service's socket; with `remote`, the push service's |
+| `.notifications` (`Contracts/Notifications.md`) | asked when the app asks; with `remote`, the `aps-environment` entitlement; with `wakesApp`, `UIBackgroundModes: remote-notification` | `POST_NOTIFICATIONS` (API 33+) and `RECEIVE_BOOT_COMPLETED`; with `remote`, Firebase's service and `google-services.json`; with `exactTiming`, `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM` | the notification service's socket; with `remote`, the push service's |
 | `.gameControllers` (draft, §8.7) | `GCSupportsControllerUserInteraction`, `GCSupportedGameControllers` (`ExtendedGamepad`) | `uses-feature android.hardware.gamepad`, `required="false"` unless `.required()` | joystick-class `/dev/input/event*` nodes only |
 | `.audio` (draft, §8.8) | none | none | the sound server's socket, or `/dev/snd` |
+| `.backgroundTasks` (`Contracts/BackgroundTasks.md`) | `BGTaskSchedulerPermittedIdentifiers` from the manifest's tasks; `UIBackgroundModes` with `fetch` and `processing` | none | the background service's socket |
 | `.userFiles` (`Contracts/Documents.md`) | none; on macOS the `files.user-selected.read-write` and `files.bookmarks.app-scope` entitlements | none | the picker service's socket |
 
 ### 7.4 Built-in contracts
