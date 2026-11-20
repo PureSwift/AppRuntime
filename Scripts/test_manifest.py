@@ -165,6 +165,39 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(info["RTCapabilityOptions"], {"notifications": {"remote": "true", "exactTiming": "true"}})
         self.assertEqual(info["RTPlatformExtras"], {"android": android})
 
+    def test_background_tasks(self):
+        tasks = [dict(name="org.pureswift.background.Tasks", kind="contract", version=1,
+                      capability="backgroundTasks", methods=[])]
+        background = {"name": "backgroundTasks", "options": {}}
+        declared = [{"identifier": "org.example.App.sync", "kind": "refresh"},
+                    {"identifier": "org.example.App.index", "kind": "processing"}]
+        errors, warnings = self.check(sample(capabilities=[background], backgroundTasks=declared), contracts=tasks)
+        self.assertFalse(errors, errors)
+        self.assertFalse([w for w in warnings if "background" in w or "refresh" in w], warnings)
+
+        errors, _ = self.check(sample(capabilities=[], backgroundTasks=declared), contracts=[])
+        self.assertIn("backgroundTasks needs the 'backgroundTasks' capability", errors)
+        errors, warnings = self.check(sample(capabilities=[background], backgroundTasks=[
+            {"identifier": "sync", "kind": "refresh"}, {"identifier": "sync", "kind": "refresh"},
+            {"identifier": "has space", "kind": "refresh"}, {"identifier": "", "kind": "processing"},
+            {"identifier": "odd", "kind": "forever"},
+        ]), contracts=tasks)
+        self.assertIn("background task 'sync' is named twice", errors)
+        self.assertIn("background task 'has space' isn't an identifier, such as org.example.App.refresh", errors)
+        self.assertIn("background task '' isn't an identifier, such as org.example.App.refresh", errors)
+        self.assertIn("background task 'odd': unknown kind 'forever'", errors)
+        self.assertIn("more than one refresh task: iOS keeps one refresh request pending at a time", warnings)
+
+        info = manifest.info_plist(sample(capabilities=[background], backgroundTasks=declared), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTBackgroundTasks"], [{"Identifier": "org.example.App.sync", "Kind": "refresh"},
+                                                     {"Identifier": "org.example.App.index", "Kind": "processing"}])
+        self.assertNotIn("RTBackgroundTasks", manifest.info_plist(sample(), EXAMPLE / "resources", None))
+
+        # Only a push wakes the app.
+        wakes = {"name": "notifications", "options": {"wakesApp": "true"}}
+        errors, _ = self.check(sample(capabilities=[wakes]), contracts=[])
+        self.assertIn("notifications declares wakesApp without remote: only a push wakes the app", errors)
+
     def test_optional_capabilities(self):
         # A web view works without network, so it never requires it; with a
         # web view in the app, declaring network isn't unused.
