@@ -30,7 +30,33 @@ import Android
 ///
 /// Each operation runs on a serial queue, so they take effect in the order
 /// they were issued, and answers on the main thread.
+///
+/// A file or folder the user picked is a directory too, for as long as the
+/// app holds it: `grant(_:)` makes one and `revoke(_:)` ends it. Another
+/// contract that's given a directory and a path asks `path(of:path:)` where
+/// the file is, so it reaches the app's own files and the user's alike.
 public final class HostFiles: Files {
+
+    /// A file or folder outside the app's own directories, which `Files`
+    /// reaches while the grant lasts.
+    public struct Grant: Equatable, Sendable {
+
+        /// An absolute path.
+        public var path: String
+
+        /// A file is the directory's empty path, with nothing under it. A
+        /// folder is a directory like the app's own.
+        public var kind: FileKind
+
+        /// Whether writes are let through. Otherwise they're `readOnly`.
+        public var isWritable: Bool
+
+        public init(path: String, kind: FileKind, isWritable: Bool) {
+            self.path = path
+            self.kind = kind
+            self.isWritable = isWritable
+        }
+    }
 
     public struct Configuration {
 
@@ -65,7 +91,12 @@ public final class HostFiles: Files {
 
     nonisolated(unsafe) private static var current: HostFiles?
 
-    let system: FileSystem
+    /// The next grant's directory. A value is never used twice in a run.
+    nonisolated(unsafe) private static var nextGrant = FileDirectory.firstGrant
+
+    /// Changed on the main thread only. Each operation takes a copy as it's
+    /// issued, so one that's running keeps the grants it started with.
+    private(set) var system: FileSystem
 
     let configuration: Configuration
 
@@ -79,12 +110,73 @@ public final class HostFiles: Files {
     public static func configure(_ configuration: Configuration) throws(FileError) {
         let files = HostFiles(configuration)
         try files.system.prepare()
+        // What the user gave the app outlives a change of its directories.
+        files.system.grants = current?.system.grants ?? [:]
         current = files
     }
 
     /// The configured files. Before `configure`, every operation fails.
     public static func shared() -> HostFiles {
         current ?? HostFiles(Configuration(directories: [:]))
+    }
+
+    // MARK: Grants
+
+    /// Lets `Files` reach a file or folder the user picked, and says which
+    /// directory it is from now on. Call on the main thread.
+    public static func grant(_ grant: Grant) -> FileDirectory {
+        let files = current ?? HostFiles(Configuration(directories: [:]))
+        current = files
+        let directory = FileDirectory(rawValue: nextGrant)
+        nextGrant += 1
+        files.system.grants[directory.rawValue] = grant
+        return directory
+    }
+
+    /// Ends a grant: its directory answers `notPermitted` from here on.
+    /// Operations already issued finish. Call on the main thread.
+    public static func revoke(_ directory: FileDirectory) {
+        current?.system.grants[directory.rawValue] = nil
+    }
+
+    /// What a directory was granted, while it is.
+    public static func grant(for directory: FileDirectory) -> Grant? {
+        current?.system.grants[directory.rawValue]
+    }
+
+    /// Where a file is: the absolute path of `path` in `directory`, checked
+    /// as `Files` checks it. For another contract that takes a directory and
+    /// a path, such as a media player. Call on the main thread.
+    public static func path(of directory: Int32, path: String, writing: Bool = false) throws(FileError) -> String {
+        try shared().system.resolve(directory, path, writing: writing)
+    }
+
+    // MARK: A host's own files
+
+    // Absolute paths, for what a host keeps beside the app's files and for
+    // the contracts built on grants. Synchronous: not for the main thread
+    // with a large file.
+
+    /// The whole file; `nil` when there's none.
+    public static func contents(ofFile path: String) throws(FileError) -> [UInt8]? {
+        try FileSystem.contents(ofFile: path)
+    }
+
+    /// Replaces the file, atomically, making the directories above it.
+    public static func replace(file path: String, with data: [UInt8]) throws(FileError) {
+        try FileSystem(directories: [:], maximumTransfer: 0).makeDirectories(FileSystem.parent(path))
+        try FileSystem.replace(file: path, with: data)
+    }
+
+    /// Copies a file over whatever is at `destination`, atomically: for a
+    /// save the user confirmed in a picker.
+    public static func copy(file source: String, to destination: String) throws(FileError) {
+        try FileSystem.copy(file: source, replacing: destination)
+    }
+
+    /// What's at a path; `nil` when nothing is.
+    public static func kind(ofItemAt path: String) -> FileKind? {
+        FileSystem.kind(ofItemAt: path)
     }
 
     /// Runs `operation` off the main thread, and answers `callback` on it.
@@ -227,6 +319,9 @@ struct FileSystem: Sendable {
     /// Each directory's path with symbolic links resolved, when it exists.
     let roots: [FileDirectory: String]
 
+    /// What the user gave the app, by directory value.
+    var grants: [Int32: HostFiles.Grant] = [:]
+
     let maximumTransfer: Int
 
     init(directories: [FileDirectory: String], maximumTransfer: Int) {
@@ -251,11 +346,21 @@ struct FileSystem: Sendable {
     /// are plain names, and nothing on the way is a link out of the
     /// directory.
     func resolve(_ directory: Int32, _ path: String, writing: Bool = false) throws(FileError) -> String {
-        guard let directory = FileDirectory(rawValue: directory) else {
-            throw .invalidPath
-        }
-        if writing, directory == .bundle {
-            throw .readOnly
+        let grant = grants[directory]
+        if directory >= FileDirectory.firstGrant {
+            guard let grant else {
+                throw .notPermitted
+            }
+            if writing, !grant.isWritable {
+                throw .readOnly
+            }
+        } else {
+            guard FileDirectory.allCases.contains(FileDirectory(rawValue: directory)) else {
+                throw .invalidPath
+            }
+            if writing, directory == FileDirectory.bundle.rawValue {
+                throw .readOnly
+            }
         }
         var components: [Substring] = []
         if !path.isEmpty {
@@ -266,7 +371,19 @@ struct FileSystem: Sendable {
                 }
             }
         }
-        guard let root = roots[directory] else {
+        let root: String
+        if let grant {
+            if grant.kind == .file {
+                // The file is the directory's empty path.
+                guard components.isEmpty else {
+                    throw .notDirectory
+                }
+                return grant.path
+            }
+            root = grant.path
+        } else if let found = roots[FileDirectory(rawValue: directory)] {
+            root = found
+        } else {
             throw .notFound
         }
         let full = components.isEmpty ? root : root + "/" + components.joined(separator: "/")
@@ -315,6 +432,7 @@ struct FileSystem: Sendable {
         case EISDIR: return .isDirectory
         case ENOSPC, EDQUOT, EFBIG: return .outOfSpace
         case EROFS: return .readOnly
+        case EACCES, EPERM: return .notPermitted
         case ENAMETOOLONG, ELOOP, EINVAL: return .invalidPath
         default: return .unknown
         }
@@ -421,7 +539,9 @@ struct FileSystem: Sendable {
 
     func write(_ directory: Int32, _ path: String, data: [UInt8], mode: Int32) throws(FileError) {
         let full = try resolve(directory, path, writing: true)
-        guard !path.isEmpty else {
+        // A picked file is its directory's empty path.
+        let isDocument = grants[directory]?.kind == .file
+        guard !path.isEmpty || isDocument else {
             throw .isDirectory
         }
         guard let mode = FileWriteMode(rawValue: mode) else {
@@ -433,7 +553,9 @@ struct FileSystem: Sendable {
         if let existing = try status(full), Self.isDirectory(existing) {
             throw .isDirectory
         }
-        try makeDirectoriesAbove(full)
+        if !isDocument {
+            try makeDirectoriesAbove(full)
+        }
         switch mode {
         case .append:
             let descriptor = open(full, O_WRONLY | O_CREAT | O_APPEND, 0o644)
@@ -443,19 +565,33 @@ struct FileSystem: Sendable {
             defer { close(descriptor) }
             try Self.writeAll(descriptor, data)
         case .replace:
-            try Self.replace(file: full, with: data)
+            try Self.replace(file: full, with: data, inPlaceIfNeeded: isDocument)
         }
     }
 
     /// Replaces the file at `path` with `data`, atomically: a temporary file
     /// beside it, then a rename over it, so a reader sees the old file or
     /// the new one. The directory must exist.
-    static func replace(file path: String, with data: [UInt8]) throws(FileError) {
+    ///
+    /// The user may have given a file and not the folder it's in, where
+    /// nothing can be made beside it. With `inPlaceIfNeeded`, such a file
+    /// is written over where it is, which isn't atomic.
+    static func replace(file path: String, with data: [UInt8], inPlaceIfNeeded: Bool = false) throws(FileError) {
         let suffix = UInt32.random(in: .min ... .max)
         let temporary = parent(path) + "/." + name(path) + ".tmp-" + String(suffix, radix: 16)
         let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0o644)
         guard descriptor >= 0 else {
-            throw error(errno)
+            let code = errno
+            guard inPlaceIfNeeded, code == EACCES || code == EPERM || code == EROFS else {
+                throw error(code)
+            }
+            let inPlace = open(path, O_WRONLY | O_TRUNC)
+            guard inPlace >= 0 else {
+                throw error(errno)
+            }
+            defer { close(inPlace) }
+            try writeAll(inPlace, data)
+            return
         }
         do throws(FileError) {
             try writeAll(descriptor, data)
@@ -470,6 +606,62 @@ struct FileSystem: Sendable {
             unlink(temporary)
             throw Self.error(code)
         }
+    }
+
+    /// Copies the file at `source` over whatever is at `destination`: a
+    /// temporary file beside it, then a rename, a block at a time.
+    static func copy(file source: String, replacing destination: String) throws(FileError) {
+        let input = open(source, O_RDONLY)
+        guard input >= 0 else {
+            throw error(errno)
+        }
+        defer { close(input) }
+        var value = stat()
+        guard fstat(input, &value) == 0 else {
+            throw error(errno)
+        }
+        guard !isDirectory(value) else {
+            throw .isDirectory
+        }
+        let suffix = UInt32.random(in: .min ... .max)
+        let temporary = parent(destination) + "/." + name(destination) + ".tmp-" + String(suffix, radix: 16)
+        let output = open(temporary, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+        guard output >= 0 else {
+            throw error(errno)
+        }
+        var buffer = [UInt8](repeating: 0, count: 1 << 16)
+        var position: off_t = 0
+        do throws(FileError) {
+            while true {
+                let count = buffer.withUnsafeMutableBytes { pread(input, $0.baseAddress!, $0.count, position) }
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    throw error(errno)
+                }
+                if count == 0 { break }
+                try writeAll(output, Array(buffer[..<count]))
+                position += off_t(count)
+            }
+        } catch {
+            close(output)
+            unlink(temporary)
+            throw error
+        }
+        close(output)
+        if rename(temporary, destination) != 0 {
+            let code = errno
+            unlink(temporary)
+            throw Self.error(code)
+        }
+    }
+
+    /// What's at `path`, following a link; `nil` when nothing is.
+    static func kind(ofItemAt path: String) -> FileKind? {
+        var value = stat()
+        guard stat(path, &value) == 0 else {
+            return nil
+        }
+        return isDirectory(value) ? .directory : .file
     }
 
     /// The whole file at `path`; `nil` when there's none.
@@ -574,6 +766,10 @@ struct FileSystem: Sendable {
     func remove(_ directory: Int32, _ path: String) throws(FileError) {
         let full = try resolve(directory, path, writing: true)
         if path.isEmpty {
+            guard grants[directory] == nil else {
+                // What the user picked stays where it is, and as it is.
+                throw .invalidPath
+            }
             // The directory itself stays; what's in it goes.
             guard try status(full) != nil else { return }
             for name in try entries(full) {
@@ -608,8 +804,10 @@ struct FileSystem: Sendable {
     private func transfer(_ directory: Int32, _ path: String, to toDirectory: Int32, _ toPath: String, removesSource: Bool) throws(FileError) -> (source: String, destination: String) {
         let source = try resolve(directory, path, writing: removesSource)
         let destination = try resolve(toDirectory, toPath, writing: true)
-        guard !path.isEmpty, !toPath.isEmpty else {
-            // A directory itself can't be moved, copied or replaced.
+        // A directory itself can't be moved, copied or replaced. What the
+        // user picked can be copied from, whole.
+        let copiesDocument = path.isEmpty && !removesSource && grants[directory] != nil
+        guard !path.isEmpty || copiesDocument, !toPath.isEmpty else {
             throw .invalidPath
         }
         guard try status(source) != nil else {
