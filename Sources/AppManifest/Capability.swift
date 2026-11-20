@@ -38,14 +38,24 @@ public extension Capability {
         Capability("location", usage: usage, options: ["access": access.rawValue])
     }
 
-    /// Local notifications.
+    /// Notifications the system shows for the app. The user is asked when
+    /// the app asks, and there's no usage text: no platform shows one.
     static var notifications: Capability {
         Capability("notifications")
     }
 
-    /// Local notifications, and push notifications when `remote`.
-    static func notifications(remote: Bool) -> Capability {
-        Capability("notifications", options: remote ? ["remote": "true"] : [:])
+    /// Notifications, with pushes from the app's server when `remote`, and
+    /// scheduled ones that arrive on time when `exactTiming`: for an alarm
+    /// clock or a calendar, which is who Android allows it.
+    static func notifications(remote: Bool = false, exactTiming: Bool = false) -> Capability {
+        var options: [String: String] = [:]
+        if remote {
+            options["remote"] = "true"
+        }
+        if exactTiming {
+            options["exactTiming"] = "true"
+        }
+        return Capability("notifications", options: options)
     }
 
     /// Motion sensors: accelerometer, gyroscope, pedometer.
