@@ -68,6 +68,24 @@ import AppManifest
         #expect(json.contains(#"{"name":"notifications","options":{"remote":"true"}}"#))
     }
 
+    @Test func backgroundTasksEncode() {
+        let app = App(
+            id: "org.example.Mail", name: "Mail", version: "1", build: 1,
+            capabilities: [.backgroundTasks, .notifications(remote: true, wakesApp: true)],
+            backgroundTasks: [.refresh("org.example.Mail.sync"), .processing("org.example.Mail.index")],
+            platforms: [.linux]
+        )
+        #expect(app.manifestJSON() == #"""
+            {"backgroundTasks":[{"identifier":"org.example.Mail.sync","kind":"refresh"},\#
+            {"identifier":"org.example.Mail.index","kind":"processing"}],\#
+            "build":1,"capabilities":[{"name":"backgroundTasks","options":{}},\#
+            {"name":"notifications","options":{"remote":"true","wakesApp":"true"}}],\#
+            "format":1,"id":"org.example.Mail","languages":["en"],"name":{"value":"Mail"},\#
+            "platforms":[{"name":"linux"}],"version":"1"}
+            """#)
+        #expect(Capability.notifications(wakesApp: true).options == ["wakesApp": "true"])
+    }
+
     @Test func optionalFieldsAreLeftOut() {
         let app = App(id: "org.example.Minimal", name: "Minimal", version: "1", build: 1, platforms: [.linux])
         #expect(app.manifestJSON() == #"{"build":1,"capabilities":[],"format":1,"id":"org.example.Minimal","languages":["en"],"name":{"value":"Minimal"},"platforms":[{"name":"linux"}],"version":"1"}"#)
