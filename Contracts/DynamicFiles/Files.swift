@@ -10,7 +10,10 @@ import DynamicRuntime
 /// storage can't be used synchronously there, and no host should read a
 /// disk there.
 ///
-/// It needs no capability: these are the app's own directories.
+/// It needs no capability: these are the app's own directories. A directory
+/// of 256 or more is a document the user picked (`DynamicDocuments`), which
+/// the picker's capability covers; one the app no longer holds answers
+/// `notPermitted`.
 ///
 /// | Host | Implementation |
 /// |---|---|
