@@ -1,7 +1,10 @@
 # Media players
 
-**Status:** a design for review. Nothing here is implemented, and the
-names are proposals.
+**Status:** implemented in this repository: the guest side, and the part of
+the host side every host written in Swift shares, with
+[NowPlaying](NowPlaying.md)'s additions. No platform host has players yet,
+so nothing has been decoded or heard; each needs an engine ([The shared
+host](#the-shared-host)).
 
 Module `DynamicMedia`: playing a song, a podcast or a video, from the
 bundle, the app's files or the network. The host decodes, keeps time and
@@ -353,9 +356,10 @@ video app does. A muted player, and one whose source has no sound, takes
 nothing from anyone. `DynamicAudio`'s output has its own setting for
 mixing with others; when an app uses both, a playing media player wins.
 
-**Foreground only.** When the app leaves the foreground the host pauses
-every player, with reason `background`, and doesn't resume them. Playing
-on in the background is a separate capability (below).
+**In front, unless it asks.** When the app leaves the foreground the host
+pauses every player, with reason `background`, and doesn't resume them. A
+player with `playsInBackground` plays on, where the manifest allows:
+[NowPlaying](NowPlaying.md).
 
 **Unplugging headphones pauses**, as the platforms expect of media.
 
@@ -407,12 +411,8 @@ audio and display threads touch only the host's player.
 
 ## Not in this design
 
-- **Background playback.** It needs `UIBackgroundModes` on iOS and a
-  foreground service on Android, so it's a manifest capability of its
-  own. With it come what every platform pairs it with: what's playing on
-  the lock screen, and its play, pause and skip buttons
-  (`MPNowPlayingInfoCenter`, `MediaSession`, MPRIS, the Media Session
-  API).
+- **Background playback, and what's playing on the lock screen,** which
+  were left out of this design and are [NowPlaying](NowPlaying.md)'s.
 - **Picture in picture** and playing to another device (AirPlay, Cast),
   beyond what the platform's own controls offer.
 - **Playlists and gapless playback.** One source at a time.
@@ -425,23 +425,92 @@ audio and display threads touch only the host's player.
 - **Recording**, and levels for a meter.
 - **Protected content.**
 
-## Questions for review
+## The shared host
 
-1. **Names.** `MediaPlayer` for the player object (Android's name for
-   the same thing), `VideoPlayer` for the view (AVKit's), `AudioPlayer`
-   for `AVAudioPlayer`'s shape. `Player` alone is the other candidate for
-   the first.
-2. **One contract for both.** `AudioPlayer` is a `MediaPlayer` without a
-   view. A second, smaller contract for audio alone would let a host
-   implement sound without video.
-3. **The module.** `DynamicMedia`, imported by that name. `WebKit` is
-   imported under Apple's name; this could be `AVKit` the same way.
-4. **The platform's controls by default** in `VideoPlayer`, as AVKit's
-   view has. On Linux the host would have to draw its own.
-5. **The formats every host must play:** H.264 and AAC in MP4, MP3 and
-   WAV. It commits the Linux distro to shipping an H.264 decoder.
-6. **`requires: .audio`** for every player, a silent video's included.
-   The capability is the [Audio](Audio.md) draft's: `AppManifest` doesn't
-   have it yet.
-7. **Background playback** is left out. Is it needed in the first
-   version?
+A host written in Swift implements `MediaPlatform` and `MediaEngine`, in
+`RuntimeMedia`, and `HostMediaPlayback` does the rest:
+
+```swift
+final class MyPlayers: MediaPlatform {
+    func makeEngine(for player: HostMediaPlayback) -> any MediaEngine { … }
+    func canPlay(_ mimeType: String) -> MediaSupport { … }
+    func showNowPlaying(_ nowPlaying: HostNowPlaying?) { … }       // optional
+}
+
+final class MyEngine: MediaEngine {
+    func load(_ source: HostMediaSource) { … }      // .url, .file(path:), .data
+    func unload(); func play(); func pause()
+    func seek(to position: Double, completion: @escaping (Bool) -> Void)
+    var currentTime: Double { get }
+    func setRate(_:); func setVolume(_:); func setMuted(_:); func setLooping(_:)
+    func setTimeUpdateInterval(_:)
+}
+
+HostMediaPlayback.platform = MyPlayers()
+HostMediaPlayback.clock = runtime.clock
+HostMediaPlayback.allowsNetwork = declared.contains(.network)
+HostMediaPlayback.allowsBackground = audioOptions["background"] == "true"
+HostMediaModule.register(in: runtime)
+```
+
+An engine reports to the `HostMediaPlayback` it was made for: `loaded`,
+`stateChanged`, `timeChanged`, `bufferChanged`, `ended`, `failed`.
+
+- **It checks and finds each source** before an engine sees it: a URL's
+  scheme and the manifest's `.network`; a file through
+  `HostFiles.path(of:path:)`, so the bundle, the app's files and a picked
+  document are all files, and one that isn't there never reaches the
+  engine.
+- **It remembers a `play()` that came too early,** and plays when the
+  source has loaded.
+- **It answers each seek once,** and `false` to one that another replaced.
+- **It stamps each time report** with the guest's clock.
+- **It says a pause once,** with the reason: the guest's, the user's, the
+  background, an interruption, unplugged headphones.
+- **`HostMediaPlayback.player(for:)`** finds the player a `VideoPlayer`
+  node names, and its `engine` is what the host shows there.
+
+Android and the browser aren't written in Swift, and implement the
+contract themselves.
+
+## Example and tests
+
+`examples/ExampleMedia`: a small music player. It plays the songs in its
+bundle one after another, says what's playing, answers next and previous,
+plays on in the background, and shows a second player's picture.
+
+- `DynamicMediaTests`: the contract's keys and signatures, and
+  `MediaPlayer`, `VideoPlayer` and `AudioPlayer` against a scripted host.
+- `RuntimeMediaTests`: `HostMediaPlayback` over players the test keeps in
+  memory, with real files, driven from the guest.
+- The example runs against `HostMediaPlayback` as `App.wasm` under WasmKit
+  (`Packages/RuntimeWasm`), and as a sealed native slice and wasm2c output
+  (`Packages/LinkedSlice`).
+
+Everything is tested against an engine in memory. No file has been
+decoded and no sound played: the formats, the platforms' behaviour and
+the timing above are from each platform's documentation.
+
+## Decided in review
+
+The design's proposals were taken as they stood:
+
+- **Names:** `MediaPlayer`, `VideoPlayer`, `AudioPlayer`.
+- **One contract for both** sound and pictures.
+- **The module is `DynamicMedia`,** imported by that name.
+- **The platform's controls by default** in `VideoPlayer`.
+- **The formats every host must play:** H.264 and AAC in MP4, MP3 and
+  WAV.
+- **`requires: .audio`** for every player. The manifest has the
+  capability now.
+- **Background playback is in the first version:**
+  [NowPlaying](NowPlaying.md).
+
+What was built differs in small ways:
+
+- `MediaPlayer.canPlay(_:)` gives a `MediaSupport`: `.no`, `.maybe` or
+  `.probably`.
+- `MediaEvent.loaded` carries the duration and a `MediaSize`, and there
+  are `.nextTrack` and `.previousTrack`.
+- `AudioPlayer` holds its delegate strongly, since Embedded Swift has no
+  weak references. Set it to `nil` to let it go.
