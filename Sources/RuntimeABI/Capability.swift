@@ -32,6 +32,9 @@ public extension Capability {
     static var motion: Capability { Capability("motion") }
 
     static var nfc: Capability { Capability("nfc") }
+
+    /// The platform's file pickers. It prompts for nothing.
+    static var userFiles: Capability { Capability("userFiles") }
 }
 
 extension Capability: ExpressibleByStringLiteral {
