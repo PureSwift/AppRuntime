@@ -44,6 +44,8 @@ let package = Package(
                 .product(name: "DynamicFiles", package: "AppRuntime"),
                 .product(name: "DynamicDocuments", package: "AppRuntime"),
                 .product(name: "RuntimeDocuments", package: "AppRuntime"),
+                .product(name: "DynamicNotifications", package: "AppRuntime"),
+                .product(name: "RuntimeNotifications", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
