@@ -53,7 +53,8 @@ public protocol Notifications: AnyObject {
     func addCategory(_ identifier: String, name: String, interruption: Int32, sound: Int32, soundName: String?)
 
     /// A button of a category just added. `options` are bits of
-    /// `NotificationActionOptions`.
+    /// `NotificationActionOptions`: 1 destructive, 2 needs the device
+    /// unlocked, 4 doesn't open the app.
     func addAction(_ category: String, identifier: String, title: String, options: Int32)
 
     /// A button that takes text from the user.
