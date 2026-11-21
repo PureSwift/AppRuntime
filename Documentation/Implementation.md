@@ -33,6 +33,7 @@ builds and the first provider contracts:
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
 | Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
 | Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
+| Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -467,6 +468,27 @@ which are each host's. TCP and UDP are not part of the spec.
     rule's text says no finer.
   - **`RecurrenceRule` and `CivilDate` are plain Swift,** with no
     Foundation and no Unicode tables, so they run in a guest.
+- **Contacts (`Contracts/Contacts.md`).**
+  - **The calendar's shape, again:** records with getters read whole into
+    a value, a record filled in to save, a store of the system's behind a
+    `ContactDirectory` that works in the guest's values, and access that
+    is the store's own.
+  - **A contact is eleven calls to read.** The nine parts of a name are
+    one array in a fixed order, each list of labelled values is two, and
+    addresses are seven strings apiece in one.
+  - **`displayName` is the store's.** A `Contact` carries it read-only,
+    it doesn't cross on a save, and a directory sets it with `named(_:)`.
+    A contact with only that in it is empty.
+  - **Writing is a setting of the host's,** from the manifest, not a
+    level of access: `access` says what the user granted, and a write by
+    an app that declared reading alone is `notAuthorized`.
+  - **Limited access needs nothing here.** The platform's store is then
+    the contacts the user chose.
+  - **The shared host looks a contact up before changing it,** so a save
+    of someone gone is `notFound` on every host.
+  - **`MemoryContactDirectory` finds by the start of a word,** of any
+    part of a name and of an email address, one word at a time, and lists
+    by family name. A platform's own search does more.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -1073,6 +1095,23 @@ Each of these needs a decision, or is verified only as far as noted:
   against `HostCalendars`, as `App.wasm`, a sealed macOS slice and wasm2c
   output. Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker),
   where the time zones are swift-corelibs-foundation's.
+- `DynamicContactsTests`: the contacts contracts' keys and signatures;
+  labels; a birthday with and without a year, and what isn't one; a
+  contact as a value, with names and addresses as the arrays they cross
+  as; and the guest's `ContactStore` against a scripted host: access, a
+  contact crossing field by field, what each call asks, answers heard
+  once, and one listener.
+- `RuntimeContactsTests`: `HostContacts` over `MemoryContactDirectory`,
+  from the guest through `NativeRuntime`: no directory, the user asked
+  once, limited access, an app that declared reading alone, a contact
+  saved, found, changed and removed, what a name falls back to, an empty
+  contact, someone who can't be changed, the list's order, a search by
+  the start of any word, a limit, a burst of changes, and the async
+  forms. `AppManifestTests` and `Scripts/test_manifest.py` cover
+  `.contacts`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleContacts`
+  against `HostContacts`, as `App.wasm`, a sealed macOS slice and wasm2c
+  output. Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1377,3 +1416,11 @@ Each of these needs a decision, or is verified only as far as noted:
    core apps plan had the Calendar app sync for itself. How EventKit's
    and Android's expansion differ from `MemoryCalendarStore`'s hasn't
    been looked at. Then attendees, and the system's add-event sheet.
+17. Contacts in the hosts (`Documentation/Contracts/Contacts.md`): a
+   `ContactDirectory` over `CNContactStore` in the Darwin host, with
+   `CNContactFormatter` for names, and Android's own host side over
+   `ContactsContract`, where one person is several raw contacts. Linux
+   needs a contacts service in the host, which isn't decided. How each
+   platform's search differs from the one promise the contract makes
+   hasn't been looked at. Then photos, once an `Image` can show one, and
+   the system's contact picker.
