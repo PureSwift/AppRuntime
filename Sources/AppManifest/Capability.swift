@@ -87,6 +87,13 @@ public extension Capability {
         Capability("calendars", usage: usage, options: ["access": access.rawValue])
     }
 
+    /// The people in the user's address book. `.readOnly` is for an app
+    /// that only looks people up, such as a mail app completing an
+    /// address: it changes none.
+    static func contacts(_ access: ContactsAccess = .readWrite, usage: ManifestText) -> Capability {
+        Capability("contacts", usage: usage, options: ["access": access.rawValue])
+    }
+
     /// Keeping secrets in the system's store: a token, a password. It
     /// prompts for nothing.
     static var secrets: Capability {
@@ -149,6 +156,16 @@ public extension Capability {
 }
 
 /// `Capability.location(_:usage:)`.
+/// What an app does with the user's contacts.
+public enum ContactsAccess: String, Sendable {
+
+    /// Reading them, and adding, changing and removing them.
+    case readWrite
+
+    /// Reading them, and changing none.
+    case readOnly
+}
+
 /// How much of the user's calendars an app asks for.
 public enum CalendarAccess: String, Sendable {
 
