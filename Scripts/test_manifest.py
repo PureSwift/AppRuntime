@@ -214,6 +214,26 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(info["RTCapabilityOptions"], {"calendars": {"access": "writeOnly"}})
         self.assertEqual(info["RTCapabilityUsage"], {"calendars": "RTCapabilityUsage.calendars"})
 
+    def test_contacts(self):
+        store = [dict(name="org.pureswift.contacts.Contacts", kind="contract", version=1,
+                      capability="contacts", methods=[])]
+        usage = {"value": "Suggests addresses."}
+        for access in ("readWrite", "readOnly"):
+            declared = {"name": "contacts", "options": {"access": access}, "usage": usage}
+            errors, _ = self.check(sample(capabilities=[declared]), contracts=store)
+            self.assertFalse(errors, errors)
+        errors, _ = self.check(sample(capabilities=[
+            {"name": "contacts", "options": {"access": "writeOnly"}, "usage": usage}]), contracts=store)
+        self.assertIn("contacts access 'writeOnly' isn't readWrite or readOnly", errors)
+        errors, _ = self.check(sample(capabilities=[{"name": "contacts", "options": {"access": "readOnly"}}]),
+                               contracts=store)
+        self.assertIn("contacts needs a usage text: the user is asked, and iOS shows it", errors)
+
+        info = manifest.info_plist(sample(capabilities=[
+            {"name": "contacts", "options": {"access": "readOnly"}, "usage": usage}]), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTCapabilityOptions"], {"contacts": {"access": "readOnly"}})
+        self.assertEqual(info["RTCapabilityUsage"], {"contacts": "RTCapabilityUsage.contacts"})
+
     def test_authentication_schemes(self):
         secrets = [dict(name="org.pureswift.secrets.Secrets", kind="contract", version=1,
                         capability="secrets", methods=[])]
