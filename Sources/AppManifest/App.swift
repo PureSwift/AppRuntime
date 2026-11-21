@@ -58,6 +58,11 @@ public struct App: Sendable {
     /// `.backgroundTasks`.
     public var backgroundTasks: [BackgroundTaskDeclaration]
 
+    /// The URL schemes a sign-in redirects to, for
+    /// `WebAuthenticationSession`: the app's own, such as its identifier.
+    /// Each has a dot in it, so it can't be one of the web's.
+    public var authenticationSchemes: [String]
+
     /// Where the app runs, with its minimum OS for each.
     public var platforms: [Platform]
 
@@ -80,6 +85,7 @@ public struct App: Sendable {
         capabilities: [Capability] = [],
         documentTypes: [DocumentType] = [],
         backgroundTasks: [BackgroundTaskDeclaration] = [],
+        authenticationSchemes: [String] = [],
         platforms: [Platform],
         icon: String? = nil,
         apple: AppleSettings? = nil,
@@ -94,6 +100,7 @@ public struct App: Sendable {
         self.capabilities = capabilities
         self.documentTypes = documentTypes
         self.backgroundTasks = backgroundTasks
+        self.authenticationSchemes = authenticationSchemes
         self.platforms = platforms
         self.icon = icon
         self.apple = apple
