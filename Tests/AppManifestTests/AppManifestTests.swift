@@ -104,6 +104,15 @@ import AppManifest
         #expect(!plain.manifestJSON().contains("authenticationSchemes"))
     }
 
+    @Test func calendarsDeclareHowMuch() {
+        let full = Capability.calendars(usage: "Shows your events.")
+        #expect(full.options == ["access": "full"] && full.usage == "Shows your events.")
+        let adding = Capability.calendars(.writeOnly, usage: .localized("perm.calendars"))
+        #expect(adding.options == ["access": "writeOnly"])
+        let app = App(id: "org.example.Mail", name: "Mail", version: "1", build: 1, capabilities: [adding], platforms: [.linux])
+        #expect(app.manifestJSON().contains(#"{"name":"calendars","options":{"access":"writeOnly"},"usage":{"key":"perm.calendars"}}"#))
+    }
+
     @Test func audioDeclaresBackgroundPlayback() {
         #expect(Capability.audio == Capability("audio"))
         #expect(Capability.audio(background: true).options == ["background": "true"])
