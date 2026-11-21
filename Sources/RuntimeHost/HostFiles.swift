@@ -207,6 +207,18 @@ public final class HostFiles: Files {
         try FileSystem.replace(file: path, with: data)
     }
 
+    /// Makes the directories a file at an absolute path goes in, as a
+    /// write through `Files` does: for another contract's host that hands
+    /// the path to something that writes the file itself, such as a
+    /// camera. A file where one of them would be is `notDirectory`.
+    public static func makeDirectories(aboveFile path: String) throws(FileError) {
+        do throws(FileError) {
+            try FileSystem(directories: [:], maximumTransfer: 0).makeDirectories(FileSystem.parent(path))
+        } catch .alreadyExists {
+            throw .notDirectory
+        }
+    }
+
     /// Copies a file over whatever is at `destination`, atomically: for a
     /// save the user confirmed in a picker.
     public static func copy(file source: String, to destination: String) throws(FileError) {
