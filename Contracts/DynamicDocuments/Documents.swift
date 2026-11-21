@@ -20,7 +20,9 @@ import DynamicRuntime
 /// | Android | the Storage Access Framework |
 /// | Linux | the picker service the file manager owns |
 /// | Browser | `showOpenFilePicker`, or `<input type="file">` |
-@DynamicRuntime("org.pureswift.documents.Documents", requires: .userFiles)
+///
+/// Version 2 added `pickPhotos`.
+@DynamicRuntime("org.pureswift.documents.Documents", version: 2, requires: .userFiles)
 public protocol Documents: AnyObject {
 
     static func shared() -> Self
@@ -30,6 +32,15 @@ public protocol Documents: AnyObject {
     /// `access` is a `DocumentAccess` raw value. Answers `didPick`, with
     /// nothing if the user cancelled.
     func pick(_ types: [String], multiple: Bool, access: Int32, callback: DocumentCallback)
+
+    /// Asks the user for photos or videos from their library, with the
+    /// system's photo picker (`Documentation/Contracts/Photos.md`).
+    /// `kinds`: bits, 1 images, 2 videos; none means both. Answers
+    /// `didPick`, with nothing if the user cancelled. Each pick is
+    /// read-only, a copy the host holds while the guest holds the grant,
+    /// and can't be bookmarked. A host with no photo picker shows its
+    /// document picker, for images and videos. Since version 2.
+    func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)
 
     /// Asks the user for a folder. Answers `didPick` with it, or with
     /// nothing if the user cancelled.
@@ -51,6 +62,16 @@ public protocol Documents: AnyObject {
     /// that arrive while there's no delegate, and reports them when one is
     /// set.
     func setDelegate(_ delegate: DocumentsDelegate?)
+}
+
+public extension Documents {
+
+    /// What a host with no photo picker does: its document picker, for
+    /// images and videos. A host that implements `Documents` itself, and
+    /// has a photo picker, implements this.
+    func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback) {
+        pick(DocumentPicker.photoForms(kinds), multiple: multiple, access: DocumentAccess.read.rawValue, callback: callback)
+    }
 }
 
 /// One file or folder the user gave the app. Releasing it ends the access:
