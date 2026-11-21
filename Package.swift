@@ -40,6 +40,10 @@ let package = Package(
         .library(name: "DynamicText", targets: ["DynamicText"]),
         // Host only: the text contract over a host's own text views.
         .library(name: "RuntimeText", targets: ["RuntimeText"]),
+        // Shared: the user's address book, as the Contacts framework has it.
+        .library(name: "DynamicContacts", targets: ["DynamicContacts"]),
+        // Host only: the contacts contract over a host's own address book.
+        .library(name: "RuntimeContacts", targets: ["RuntimeContacts"]),
         // Shared: the user's calendars and events, as EventKit has them.
         .library(name: "DynamicCalendar", targets: ["DynamicCalendar"]),
         // Host only: the calendar contract over a host's own store.
@@ -118,7 +122,9 @@ let package = Package(
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example text guest app: a small editor over a text the host holds.
         .library(name: "ExampleText", type: .static, targets: ["ExampleText"]),
-        // Example calendar guest app: a week's events, added and changed.
+        // Example contacts guest app: an address book, searched and changed.
+        .library(name: "ExampleContacts", type: .static, targets: ["ExampleContacts"]),
+        // Example calendar guest app: a month's events, added and changed.
         .library(name: "ExampleCalendar", type: .static, targets: ["ExampleCalendar"]),
         // Example sign-in guest app: signs in with a provider and keeps the token.
         .library(name: "ExampleSignIn", type: .static, targets: ["ExampleSignIn"]),
@@ -363,6 +369,23 @@ let package = Package(
             dependencies: ["DynamicText", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicContacts",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicContacts"
+        ),
+        .target(
+            name: "RuntimeContacts",
+            dependencies: ["DynamicContacts", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicContactsTests",
+            dependencies: ["DynamicContacts", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeContactsTests",
+            dependencies: ["RuntimeContacts", "DynamicContacts", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicCalendar",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicCalendar"
@@ -593,6 +616,11 @@ let package = Package(
             name: "ExampleText",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicText"],
             path: "examples/ExampleText"
+        ),
+        .target(
+            name: "ExampleContacts",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicContacts"],
+            path: "examples/ExampleContacts"
         ),
         .target(
             name: "ExampleCalendar",
