@@ -31,7 +31,15 @@ SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
                       "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio", "secrets",
-                      "calendars", "contacts"}
+                      "calendars", "contacts", "microphone", "photoLibrary"}
+# The photo library (Contracts/Photos.md): whether an app browses it or only
+# adds to it. The user is asked, so there's a usage text.
+PHOTOS_CAPABILITY = "photoLibrary"
+PHOTOS_ACCESS = {"addOnly", "readWrite"}
+# The camera (Contracts/Camera.md), and the microphone a video with sound
+# needs. The user is asked for each, so each has a usage text.
+CAMERA_CAPABILITY = "camera"
+MICROPHONE_CAPABILITY = "microphone"
 # Contacts (Contracts/Contacts.md): whether an app changes them. The user is
 # asked, so there's a usage text.
 CONTACTS_CAPABILITY = "contacts"
@@ -288,7 +296,8 @@ def default_targets(manifest, targets, groups):
 # Capabilities a contract works without, and does more with: a web page
 # shows bundled content without `network`, and anything with it. Declaring
 # one for such a contract isn't unused.
-OPTIONAL_CAPABILITIES = {"org.pureswift.web.WebContent": "network"}
+OPTIONAL_CAPABILITIES = {"org.pureswift.web.WebContent": "network",
+                         "org.pureswift.camera.Capture": "microphone"}
 
 
 def optional_capabilities(contracts):
@@ -403,6 +412,19 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
             errors.append(f"contacts access {access!r} isn't readWrite or readOnly")
         if not contacts.get("usage"):
             errors.append("contacts needs a usage text: the user is asked, and iOS shows it")
+
+    photos = next((c for c in manifest.get("capabilities", []) if c.get("name") == PHOTOS_CAPABILITY), None)
+    if photos:
+        access = (photos.get("options") or {}).get("access")
+        if access not in PHOTOS_ACCESS:
+            errors.append(f"photoLibrary access {access!r} isn't addOnly or readWrite")
+        if not photos.get("usage"):
+            errors.append("photoLibrary needs a usage text: the user is asked, and iOS shows it")
+
+    for name in (CAMERA_CAPABILITY, MICROPHONE_CAPABILITY):
+        asked = next((c for c in manifest.get("capabilities", []) if c.get("name") == name), None)
+        if asked and not asked.get("usage"):
+            errors.append(f"{name} needs a usage text: the user is asked, and iOS shows it")
 
     schemes = manifest.get("authenticationSchemes", [])
     for scheme in sorted({s for s in schemes if schemes.count(s) > 1}):
