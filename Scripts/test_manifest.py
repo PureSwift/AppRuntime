@@ -194,6 +194,30 @@ class CheckTests(unittest.TestCase):
                                                      {"Identifier": "org.example.App.index", "Kind": "processing"}])
         self.assertNotIn("RTBackgroundTasks", manifest.info_plist(sample(), EXAMPLE / "resources", None))
 
+    def test_authentication_schemes(self):
+        secrets = [dict(name="org.pureswift.secrets.Secrets", kind="contract", version=1,
+                        capability="secrets", methods=[])]
+        errors, _ = self.check(sample(capabilities=[{"name": "secrets", "options": {}}],
+                                      authenticationSchemes=["org.example.app", "com.example.mail-beta"]),
+                               contracts=secrets)
+        self.assertFalse(errors, errors)
+        errors, _ = self.check(sample(capabilities=[], authenticationSchemes=["org.example.app"]), contracts=secrets)
+        self.assertTrue([e for e in errors if "secrets" in e], "the contract's capability isn't declared")
+
+        errors, _ = self.check(sample(authenticationSchemes=[
+            "https", "mailto", "myapp", "Org.Example.App", "org.example.app:", "org..app", "9.example",
+            "org.example.app", "org.example.app",
+        ]), contracts=[])
+        for bad in ("https", "mailto", "myapp", "Org.Example.App", "org.example.app:", "org..app", "9.example"):
+            self.assertIn(f"authentication scheme {bad!r} isn't the app's own: "
+                          "lower case with a dot in it, such as org.example.app", errors)
+        self.assertIn("authentication scheme 'org.example.app' is listed twice", errors)
+
+        info = manifest.info_plist(sample(authenticationSchemes=["org.example.app"]), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTAuthenticationSchemes"], ["org.example.app"])
+        self.assertNotIn("RTAuthenticationSchemes", manifest.info_plist(sample(), EXAMPLE / "resources", None))
+
+    def test_wakes_app_needs_remote(self):
         # Only a push wakes the app.
         wakes = {"name": "notifications", "options": {"wakesApp": "true"}}
         errors, _ = self.check(sample(capabilities=[wakes]), contracts=[])
