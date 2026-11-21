@@ -18,6 +18,9 @@ final class WasmTestPresenter: DocumentPresenter {
     /// What the next open picker gives; nothing is a cancel.
     var picked: [HostDocument] = []
 
+    /// What the next photo picker gives; nothing is a cancel.
+    var photos: [HostDocument] = []
+
     var folder: HostDocument?
 
     /// Where the next save goes; `nil` is a cancel.
@@ -26,6 +29,11 @@ final class WasmTestPresenter: DocumentPresenter {
     func pick(types: [String], multiple: Bool, access: DocumentAccess, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) {
         calls.append("pick \(types) \(multiple) \(access)")
         completion(.success(picked))
+    }
+
+    func pickPhotos(images: Bool, videos: Bool, multiple: Bool, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) {
+        calls.append("pickPhotos \(images) \(videos) \(multiple)")
+        completion(.success(photos))
     }
 
     func pickFolder(access: DocumentAccess, completion: @escaping (Result<HostDocument?, DocumentError>) -> Void) {
@@ -86,6 +94,8 @@ extension WasmShimTests {
         try Data("Dear reader".utf8).write(to: home.appendingPathComponent("letter.txt"))
         try Data("Opened from the file manager".utf8).write(to: home.appendingPathComponent("launched.txt"))
         try Data("First of May".utf8).write(to: home.appendingPathComponent("Letters/may.txt"))
+        // A copy the photo picker made of a photo in the user's library.
+        try Data("a holiday".utf8).write(to: root.appendingPathComponent("picked.jpg"))
         func onDisk(_ path: String) -> String? {
             (try? Data(contentsOf: home.appendingPathComponent(path))).map { String(decoding: $0, as: UTF8.self) }
         }
@@ -180,6 +190,20 @@ extension WasmShimTests {
         try tap("may.txt")
         #expect(text("text") == "First of May")
         #expect(text("status") == "Read may.txt from Letters")
+
+        // A photo comes from the system's photo picker, not the file
+        // browser: read, and no more of the library is seen.
+        var released = 0
+        presenter.photos = [HostDocument(path: root.appendingPathComponent("picked.jpg").path, isWritable: true,
+                                         name: "IMG_0042.JPG", contentType: "image/jpeg") { released += 1 }]
+        let pickers = presenter.calls.count
+        try tap("Attach Photo")
+        #expect(presenter.calls.last == "pickPhotos true false false" && presenter.calls.count == pickers + 1)
+        #expect(text("status") == "Attached IMG_0042.JPG, 9 bytes")
+        #expect(released == 1, "the app let it go once read, and the host removes its copy")
+        presenter.photos = []
+        try tap("Attach Photo")
+        #expect(text("status") == "No photo picked")
 
         // Opened again while it runs.
         HostDocuments.open([HostDocument(path: file("letter.txt"), isWritable: true)])
