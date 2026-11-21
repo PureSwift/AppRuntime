@@ -44,6 +44,15 @@ let package = Package(
         .library(name: "DynamicContacts", targets: ["DynamicContacts"]),
         // Host only: the contacts contract over a host's own address book.
         .library(name: "RuntimeContacts", targets: ["RuntimeContacts"]),
+        // Shared: the photos and videos the system keeps for the user, as
+        // PhotoKit has them, and the `PhotoView` that shows one.
+        .library(name: "DynamicPhotos", targets: ["DynamicPhotos"]),
+        // Host only: the photos contract over a host's own library.
+        .library(name: "RuntimePhotos", targets: ["RuntimePhotos"]),
+        // Shared: the camera: a preview, photos, and video with sound.
+        .library(name: "DynamicCamera", targets: ["DynamicCamera"]),
+        // Host only: the camera contract over a host's own cameras.
+        .library(name: "RuntimeCamera", targets: ["RuntimeCamera"]),
         // Shared: the user's calendars and events, as EventKit has them.
         .library(name: "DynamicCalendar", targets: ["DynamicCalendar"]),
         // Host only: the calendar contract over a host's own store.
@@ -124,6 +133,10 @@ let package = Package(
         .library(name: "ExampleText", type: .static, targets: ["ExampleText"]),
         // Example contacts guest app: an address book, searched and changed.
         .library(name: "ExampleContacts", type: .static, targets: ["ExampleContacts"]),
+        // Example camera guest app: a viewfinder that saves to the user's photos.
+        .library(name: "ExampleCamera", type: .static, targets: ["ExampleCamera"]),
+        // Example photos guest app: a gallery of the user's photos.
+        .library(name: "ExamplePhotos", type: .static, targets: ["ExamplePhotos"]),
         // Example calendar guest app: a month's events, added and changed.
         .library(name: "ExampleCalendar", type: .static, targets: ["ExampleCalendar"]),
         // Example sign-in guest app: signs in with a provider and keeps the token.
@@ -386,6 +399,40 @@ let package = Package(
             dependencies: ["RuntimeContacts", "DynamicContacts", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
         ),
         .target(
+            name: "DynamicPhotos",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"],
+            path: "Contracts/DynamicPhotos"
+        ),
+        .target(
+            name: "RuntimePhotos",
+            dependencies: ["DynamicPhotos", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicPhotosTests",
+            dependencies: ["DynamicPhotos", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimePhotosTests",
+            dependencies: ["RuntimePhotos", "DynamicPhotos", "DynamicFiles", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
+            name: "DynamicCamera",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"],
+            path: "Contracts/DynamicCamera"
+        ),
+        .target(
+            name: "RuntimeCamera",
+            dependencies: ["DynamicCamera", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicCameraTests",
+            dependencies: ["DynamicCamera", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeCameraTests",
+            dependencies: ["RuntimeCamera", "DynamicCamera", "DynamicFiles", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicCalendar",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicCalendar"
@@ -621,6 +668,16 @@ let package = Package(
             name: "ExampleContacts",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicContacts"],
             path: "examples/ExampleContacts"
+        ),
+        .target(
+            name: "ExampleCamera",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicCamera", "DynamicPhotos"],
+            path: "examples/ExampleCamera"
+        ),
+        .target(
+            name: "ExamplePhotos",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicPhotos"],
+            path: "examples/ExamplePhotos"
         ),
         .target(
             name: "ExampleCalendar",
