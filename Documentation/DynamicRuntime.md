@@ -536,6 +536,7 @@ Expanding capabilities into native entries:
 | `.audio` (`Contracts/MediaPlayer.md`; the game audio draft, §8.8) | none; with `background`, `UIBackgroundModes: audio` | none; with `background`, a media playback service | the sound server's socket, or `/dev/snd`; with `background`, a name on the session bus for MPRIS |
 | `.backgroundTasks` (`Contracts/BackgroundTasks.md`) | `BGTaskSchedulerPermittedIdentifiers` from the manifest's tasks; `UIBackgroundModes` with `fetch` and `processing` | none | the background service's socket |
 | `.secrets` (`Contracts/Secrets.md`) | none | none | the Secret Service on the session bus |
+| `.calendars(.full)` (`Contracts/Calendars.md`) | `NSCalendarsFullAccessUsageDescription`; with `.writeOnly`, `NSCalendarsWriteOnlyAccessUsageDescription` | `READ_CALENDAR` and `WRITE_CALENDAR`; with `.writeOnly`, `WRITE_CALENDAR` alone | the calendar service on the session bus |
 | `.userFiles` (`Contracts/Documents.md`) | none; on macOS the `files.user-selected.read-write` and `files.bookmarks.app-scope` entitlements | none | the picker service's socket |
 
 ### 7.4 Built-in contracts
