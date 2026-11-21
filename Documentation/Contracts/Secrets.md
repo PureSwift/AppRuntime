@@ -1,6 +1,10 @@
 # Secrets and sign-in
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side of both, and
+the part of the host side every host written in Swift shares. No platform
+host has a keychain or a browser behind it yet, so no secret has been
+kept safely and no provider's page has been shown: the tests keep the
+secrets in memory and play the browser.
 
 Two things an app with an account needs, and uses together:
 
@@ -29,6 +33,10 @@ Guest-side Swift:
 
 The render IR doesn't change: the host shows the browser over the app's
 window.
+
+Host-side Swift: `HostSecrets` in `RuntimeSecrets`, over a host's
+`SecretStore`; `HostWebAuthentication` in `RuntimeAuthentication`, over a
+host's `WebAuthenticationPresenter`.
 
 ## What shapes it
 
@@ -124,7 +132,7 @@ let callback = try await session.authenticate(
 |---|---|
 | `redirectURL(scheme:path:)` | the redirect to register with the provider and put in the URL |
 | `authenticate(using:redirect:preferredBrowserSession:)` | shows the page, and gives the URL the provider redirected to |
-| `authenticate(using:callbackURLScheme:)` | SwiftUI's form: the same, for a redirect of `scheme:/` and anything after |
+| `authenticate(using:callbackURLScheme:)` | SwiftUI's form: the same, for the host's redirect for that scheme and anything after it |
 | `cancel()` | closes the page; the call fails with `canceledLogin` |
 
 - **`redirectURL` is `scheme:/path` on a native host,** and on a browser
@@ -141,6 +149,8 @@ let callback = try await session.authenticate(
 - **Call it from a user action,** with the app in front.
 - **One at a time.** A second while one is showing fails with `busy`.
 - **Cancelling the task closes the page.**
+- **There's a completion-handler form** of `authenticate(using:redirect:)`
+  for code that isn't `async`.
 
 | `WebAuthenticationError` | |
 |---|---|
@@ -242,20 +252,27 @@ Two targets, as there are two modules.
 `HostSecrets`, in `RuntimeSecrets`, over a host's `SecretStore`:
 
 ```swift
-public protocol SecretStore: AnyObject {             // any one thread at a time
+public protocol SecretStore: AnyObject, Sendable {   // off the main thread, one call at a time
     func set(_ key: String, value: [UInt8], accessibility: KeychainAccessibility) throws(KeychainError)
     func value(forKey key: String) throws(KeychainError) -> [UInt8]?
     func remove(_ key: String) throws(KeychainError)
     func removeAll() throws(KeychainError)
     func keys() throws(KeychainError) -> [String]
 }
+
+HostSecrets.store = MyKeychain(service: appIdentifier)
+HostSecretsModule.register(in: runtime)
 ```
 
-- It checks keys and sizes, runs the store off the main thread in order,
-  and answers on it.
+- It checks keys and sizes, runs the store off the main thread in the
+  order the guest asked, sorts the keys by their bytes, and answers on
+  the main thread.
+- An accessibility it doesn't know, from a newer guest, is the stricter
+  one.
 - **Without a store, every call fails with `unavailable`.** It doesn't
   keep secrets in memory or in a file: a secret that isn't kept safely
   is worse than one that isn't kept.
+- **`MemorySecretStore`** is for a host's tests. Nothing uses it unasked.
 
 `HostWebAuthentication`, in `RuntimeAuthentication`, over a host's
 `WebAuthenticationPresenter`:
@@ -269,12 +286,19 @@ public protocol WebAuthenticationPresenter: AnyObject {       // main thread
     func cancel()
 }
 
-HostWebAuthentication.declaredSchemes = ["com.example.mail"]    // from the manifest
+HostWebAuthentication.presenter = MyBrowser()
+HostWebAuthentication.declaredSchemes = ["com.example.mail"]    // RTAuthenticationSchemes
+HostWebAuthenticationModule.register(in: runtime)
 ```
 
-- It checks the URL and the redirect, allows one session at a time, and
-  answers once.
-- **Without a presenter, `authenticate` fails with `unsupported`.**
+- It refuses a URL that isn't `https`, and a redirect that doesn't begin
+  with what the presenter gives for a declared scheme.
+- It allows one page at a time, and answers once: a presenter that
+  completes twice, or after a cancel, or for a page before, is ignored.
+- A redirect that isn't the one waited for is not a sign-in.
+- `cancel` answers the guest at once, then tells the presenter.
+- **Without a presenter, `authenticate` fails with `unsupported`,** and
+  `redirectURL` is still `scheme:/path`.
 
 ## The manifest
 
@@ -285,8 +309,9 @@ authenticationSchemes: ["com.example.mail"]
 
 `.secrets` has no usage text and prompts for nothing. The schemes reach a
 host in the bundle's `Info.plist`, as `RTAuthenticationSchemes`. The
-packager refuses one with no dot, and one of the web's own (`http`,
-`https`, `mailto`, `file` and the like).
+packager refuses one that isn't lower case with a dot in it, which rules
+out the web's own (`http`, `https`, `mailto`, `file` and the like), and
+one listed twice.
 
 | | `.secrets` | A scheme |
 |---|---|---|
@@ -324,25 +349,39 @@ From each platform's documentation. None of it has been tried.
 - **Encryption for an app's own files.** A key can be kept as a secret;
   the cipher is the app's.
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `Keychain` for the guest's secrets, Apple's word, in
-   `DynamicSecrets`; `WebAuthenticationSession`, SwiftUI's, in
-   `DynamicAuthentication`. Neither module is renamed in a guest build,
-   so an app says `import DynamicAuthentication` where SwiftUI code says
-   `import AuthenticationServices`.
-2. **Two modules.** One would make every app that keeps a password
-   declare the sign-in contract too.
-3. **A `.secrets` capability,** with no prompt. Only Linux needs it, to
-   open the Secret Service to the host. The alternative is none, and the
-   Linux launcher opening that door for every app.
-4. **A secret never leaves the device.** The alternative is an option to
-   sync, which only Apple's platforms can honour.
-5. **No store, no secrets.** A host without one fails every call. The
-   clipboard and text contracts give such a host a stand-in in memory;
-   here a stand-in would be a false promise.
-6. **The app asks the host for its redirect.** The alternative is a URL
-   scheme everywhere, which leaves a browser host with no sign-in.
-7. **No fingerprint before a read** in the first version.
-8. **Both are built together,** with one example that signs in and keeps
-   the token.
+`examples/ExampleSignIn` is an account with a provider: it asks the host
+for its redirect, shows the provider's page, checks the reply's `state`,
+keeps what it was given in the keychain for a background task to read,
+and signs out by removing it. It runs as `App.wasm` under WasmKit
+(`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
+(`Packages/LinkedSlice`), against both shared hosts, with the test
+playing the browser.
+
+- `DynamicSecretsTests`, `DynamicAuthenticationTests`: the contracts'
+  keys and signatures, and the guest's `Keychain` and
+  `WebAuthenticationSession` against scripted hosts.
+- `RuntimeSecretsTests`: `HostSecrets` over a store in memory, from the
+  guest: secrets by key, limits, a store's refusals, no store, the order
+  of work, and the `async` forms.
+- `RuntimeAuthenticationTests`: `HostWebAuthentication` over a browser
+  the test plays, from the guest: the redirect on a native host and on a
+  browser host, what's shown and what isn't, one page at a time, a
+  cancel, late and repeated answers, and a cancelled task.
+- `AppManifestTests` and `Scripts/test_manifest.py`: `.secrets` and
+  `authenticationSchemes`.
+
+## Decided in review
+
+The design was approved as drafted, so these stand:
+
+- **Names:** `Keychain` in `DynamicSecrets`; `WebAuthenticationSession`
+  in `DynamicAuthentication`. Neither module is renamed in a guest build.
+- **Two modules.**
+- **A `.secrets` capability,** with no prompt.
+- **A secret never leaves the device.**
+- **No store, no secrets.**
+- **The app asks the host for its redirect.**
+- **No fingerprint before a read.**
+- **Both were built together,** with one example.
