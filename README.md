@@ -192,9 +192,10 @@ clipboard behind it yet, so the tests keep one.
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
 every quarter of an hour, and asks for time to finish a save
-([Background tasks](Documentation/Contracts/BackgroundTasks.md)). No host
-runs anything in the background yet, so the tests run its task as the
-system would.
+([Background tasks](Documentation/Contracts/BackgroundTasks.md)). The
+Darwin host schedules its task and holds the app for the save on iOS and
+macOS (DarwinAppRuntime's `DarwinBackgroundTasks`); in the tests, the
+test runs its task as the system would.
 
 `examples/ExampleNotifications` is a set of kitchen timers: it asks the
 user's leave, schedules a notification for when each timer ends, answers
