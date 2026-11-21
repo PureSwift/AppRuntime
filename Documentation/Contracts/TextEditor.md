@@ -1,9 +1,10 @@
 # Text editing
 
 **Status:** implemented in this repository: the guest side, and the part
-of the host side every host written in Swift shares. No platform host has
-a text view behind it yet, so no text has been shown or typed into: the
-tests type into texts kept in memory.
+of the host side every host written in Swift shares. The Darwin host holds
+each text in a `UITextView` or `NSTextView` and shows it in a `TextEditor`
+node, with focus and the keyboard's modifiers (DarwinAppRuntime's
+`DarwinText`). Android, Linux and the browser need their own platform.
 
 Module `DynamicText`: a text the host holds and the user edits, and the
 view that shows it. The text editor's file, a mail message being written,
@@ -492,12 +493,13 @@ app's own directories need nothing, and a document was the user's choice.
 
 ## Per host
 
-From each platform's documentation. None of it has been tried.
+From each platform's documentation, except where the Darwin host's was
+tried, as said in its row.
 
 | | Notes |
 |---|---|
-| iOS | `UITextView`. `NSTextStorageDelegate` gives each edit's range and change in length. `undoManager` for the history, with `NSUndoManagerDidCloseUndoGroup` and its neighbours for `didChangeUndo`. TextKit 2 lays out only what's visible, so long texts open quickly. The keyboard layout guide keeps the caret in view. No wrapping: a text container as wide as the longest line, in a view that scrolls sideways. |
-| macOS | `NSTextView` in an `NSScrollView`, with `allowsUndo`. The same storage delegate. |
+| iOS | `UITextView`. `NSTextStorageDelegate` gives each edit's range and change in length. `undoManager` for the history, with `NSUndoManagerDidCloseUndoGroup` and its neighbours for `didChangeUndo`. TextKit 2 lays out only what's visible, so long texts open quickly. The keyboard layout guide keeps the caret in view. No wrapping: a text container as wide as the longest line, in a view that scrolls sideways. DarwinAppRuntime's `DarwinText` does this, except the history: UIKit's typing undo didn't stay on an undo manager it was given (on the iOS Simulator it emptied it), so the host keeps its own, as Android's and the browser's do, with a run of keystrokes as one step. Opening a file, typing, undoing and saving were tried with `ExampleText` on the iOS Simulator; turning wrapping off wasn't. |
+| macOS | `NSTextView` in an `NSScrollView`, with `allowsUndo`. The same storage delegate. DarwinAppRuntime's `DarwinText` keeps its own history here too, with the menu's Undo reaching it through the view's delegate; it's tested on real `NSTextView`s. |
 | Android | `EditText`. A `TextWatcher`'s `onTextChanged(start, before, count)` is `didEdit`. `EditText` has no undo an app can call, so the host keeps its own history from the watcher's edits. It lays out the whole text, so `maximumLength` is smallest there. |
 | Linux | Cacao's text view, which the core apps plan asks to handle large files. Swift strings are UTF-8, so the view keeps each line's length in UTF-16 units to answer positions without scanning. |
 | Browser | A `<textarea>`. Its `value` already has `\n` only, and `selectionStart` and `selectionEnd` are UTF-16 units. `setRangeText` for `replace`. A change from a script isn't on the browser's own undo history, so the host keeps its own and answers the `historyUndo` and `historyRedo` input events itself. `wrap="off"` for no wrapping. `TextEncoder` writes UTF-8 only, so the host encodes the other four. |
@@ -544,6 +546,10 @@ types into.
   replaced and a buffer released, searching, the views and their
   bindings, and `TextCoding` by itself.
 - `DynamicSwiftUITests`: focus as state, and the keyboard's modifiers.
+
+The Darwin host's engine is written (DarwinAppRuntime's `DarwinText`), and
+was tried with `ExampleText` on the iOS Simulator, as the iOS row says.
+Input methods, large files and a device are untried.
 
 ## Decided in review
 
