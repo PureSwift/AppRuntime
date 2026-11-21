@@ -50,6 +50,8 @@ let package = Package(
                 .product(name: "RuntimeBackgroundTasks", package: "AppRuntime"),
                 .product(name: "DynamicText", package: "AppRuntime"),
                 .product(name: "RuntimeText", package: "AppRuntime"),
+                .product(name: "DynamicClipboard", package: "AppRuntime"),
+                .product(name: "RuntimeClipboard", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
