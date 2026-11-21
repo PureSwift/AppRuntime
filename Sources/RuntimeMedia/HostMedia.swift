@@ -12,7 +12,9 @@ public enum HostMediaSource: Equatable, Sendable {
     /// `http` or `https`, which the app's manifest allows.
     case url(String)
 
-    /// An absolute path, of a file that's there.
+    /// An absolute path, of a file that's there; or what
+    /// `HostMediaPlayback.findFile` gave, for a host whose files aren't all
+    /// paths.
     case file(path: String)
 
     case data([UInt8], mimeType: String)
@@ -56,7 +58,7 @@ public protocol MediaEngine: AnyObject {
 /// A picture for what's playing, found.
 public enum HostArtwork: Equatable, Sendable {
 
-    /// An absolute path.
+    /// An absolute path, or what `HostMediaPlayback.findFile` gave.
     case file(path: String)
 
     case data([UInt8], mimeType: String)
@@ -163,6 +165,22 @@ public final class HostMediaPlayback: MediaPlayback {
 
     /// Whether the manifest says `.audio(background: true)`.
     nonisolated(unsafe) public static var allowsBackground = false
+
+    /// Where a file `Files` names is, as the engine takes it: a path, or a
+    /// URI for a host whose files aren't all paths (an Android app's
+    /// bundle is its APK's assets, a picked document a content URI). It
+    /// fails as `Files` would, and with `notFound` for a directory. The
+    /// default is `HostFiles`' path.
+    nonisolated(unsafe) public static var findFile: (Int32, String) throws(FileError) -> String = findPath
+
+    /// `HostFiles`' path of a file, checked to be one.
+    public static func findPath(_ directory: Int32, _ path: String) throws(FileError) -> String {
+        let found = try HostFiles.path(of: directory, path: path)
+        guard HostFiles.kind(ofItemAt: found) == .file else {
+            throw .notFound
+        }
+        return found
+    }
 
     nonisolated(unsafe) private static var players: [Int32: Weak] = [:]
 
@@ -343,6 +361,7 @@ public final class HostMediaPlayback: MediaPlayback {
         clock = nil
         allowsNetwork = false
         allowsBackground = false
+        findFile = findPath
         described = nil
         describedNumber = nil
         interrupted = []
@@ -492,7 +511,7 @@ public final class HostMediaPlayback: MediaPlayback {
     }
 
     public func setArtworkFile(_ directory: Int32, path: String) {
-        guard info != nil, let found = try? HostFiles.path(of: directory, path: path), HostFiles.kind(ofItemAt: found) == .file else {
+        guard info != nil, let found = try? Self.findFile(directory, path) else {
             return
         }
         artwork = .file(path: found)
@@ -558,13 +577,9 @@ public final class HostMediaPlayback: MediaPlayback {
     public func loadFile(_ directory: Int32, path: String) {
         let found: String
         do throws(FileError) {
-            found = try HostFiles.path(of: directory, path: path)
+            found = try Self.findFile(directory, path)
         } catch {
             refuse(MediaError(error == .notPermitted ? .notPermitted : .notFound, message: "no such file"))
-            return
-        }
-        guard HostFiles.kind(ofItemAt: found) == .file else {
-            refuse(MediaError(.notFound, message: "no such file"))
             return
         }
         begin(.file(path: found))
