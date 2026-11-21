@@ -447,6 +447,16 @@ struct Appearing: View {
         }
     }
 
+    @Test func textCanBeMadeSelectable() throws {
+        let (_, sink) = graph(Selectable())
+        let stack = try #require(sink.screen)
+        #expect(stack.modifiers.first { $0.kind == "textSelection" }?.args == ["enabled": true])
+        let texts = stack.children
+        #expect(texts[0].modifiers.isEmpty, "inherited: the host carries the stack's to its children")
+        #expect(texts[1].modifiers.map(\.kind) == ["textSelection"])
+        #expect(texts[1].modifiers[0].args == ["enabled": false], "a descendant's own wins")
+    }
+
     @Test func diffFindsTheSmallestChanges() {
         let old = RenderNode("VStack", id: 1, children: [
             RenderNode("Text", id: 2, props: ["text": "a"]),
@@ -462,6 +472,17 @@ struct Appearing: View {
         changes = []
         ViewGraph.diff(old, new, into: &changes)
         #expect(changes.map(\.id) == [1], "a new child replaces its parent")
+    }
+}
+
+struct Selectable: View {
+    var body: some View {
+        VStack {
+            Text("555 0100")
+            Text("Not this")
+                .textSelection(.disabled)
+        }
+        .textSelection(.enabled)
     }
 }
 
