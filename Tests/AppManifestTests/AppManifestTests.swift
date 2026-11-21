@@ -113,6 +113,15 @@ import AppManifest
         #expect(app.manifestJSON().contains(#"{"name":"calendars","options":{"access":"writeOnly"},"usage":{"key":"perm.calendars"}}"#))
     }
 
+    @Test func contactsDeclareWhetherTheyAreChanged() {
+        let editing = Capability.contacts(usage: "Shows your contacts.")
+        #expect(editing.options == ["access": "readWrite"] && editing.usage == "Shows your contacts.")
+        let reading = Capability.contacts(.readOnly, usage: .localized("perm.contacts"))
+        #expect(reading.options == ["access": "readOnly"])
+        let app = App(id: "org.example.Mail", name: "Mail", version: "1", build: 1, capabilities: [reading], platforms: [.linux])
+        #expect(app.manifestJSON().contains(#"{"name":"contacts","options":{"access":"readOnly"},"usage":{"key":"perm.contacts"}}"#))
+    }
+
     @Test func audioDeclaresBackgroundPlayback() {
         #expect(Capability.audio == Capability("audio"))
         #expect(Capability.audio(background: true).options == ["background": "true"])
