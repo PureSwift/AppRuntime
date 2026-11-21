@@ -437,6 +437,40 @@ import RuntimeNative
         #expect(failure { _ = try HostFiles.snapshot().contents(readOnly.rawValue, path: "") } == .notPermitted)
     }
 
+    @Test func aHostWhoseFilesArentHostFilesGivesItsOwnSnapshot() throws {
+        // As an Android host's bundle is its APK's assets.
+        final class Assets: WholeFileAccess, @unchecked Sendable {
+            var written: [String: [UInt8]] = [:]
+            func size(_ directory: Int32, path: String) throws(FileError) -> Int64 {
+                Int64(try contents(directory, path: path).count)
+            }
+            func contents(_ directory: Int32, path: String) throws(FileError) -> [UInt8] {
+                guard directory == FileDirectory.bundle.rawValue, path == "photo.png" else {
+                    throw .notFound
+                }
+                return [0x89, 0x50]
+            }
+            func write(_ data: [UInt8], to directory: Int32, path: String) throws(FileError) {
+                guard directory != FileDirectory.bundle.rawValue else {
+                    throw .readOnly
+                }
+                written[path] = data
+            }
+        }
+        let assets = Assets()
+        HostFiles.wholeFiles = assets
+        defer { HostFiles.wholeFiles = nil }
+        let snapshot = HostFiles.snapshot()
+        #expect(try snapshot.contents(FileDirectory.bundle.rawValue, path: "photo.png") == [0x89, 0x50])
+        #expect(try snapshot.size(FileDirectory.bundle.rawValue, path: "photo.png") == 2)
+        #expect(failure { try snapshot.write([1], to: FileDirectory.bundle.rawValue, path: "x") } == .readOnly)
+        try snapshot.write([1], to: Self.documents, path: "copy.png")
+        #expect(assets.written == ["copy.png": [1]])
+        HostFiles.wholeFiles = nil
+        #expect(failure { _ = try HostFiles.snapshot().contents(FileDirectory.bundle.rawValue, path: "photo.png") } != nil,
+                "without it, HostFiles' own")
+    }
+
     @Test func aHostsOwnFilesAreReadCopiedAndReplaced() throws {
         let home = try home()
         let notes = home.appendingPathComponent("notes.txt").path
