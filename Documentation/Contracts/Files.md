@@ -242,6 +242,10 @@ HostFilesModule.register(in: runtime)
 - **`HostFiles.path(of:path:)`** is where a file is, checked as `Files`
   checks it: for a media player, an image decoder, or any other contract
   that's handed a directory and a path.
+- **`HostFiles.snapshot()`** reads and writes a whole file as `Files`
+  does, with the grants there were when it was taken: for a contract that
+  does the work itself off the main thread, such as a text loaded into an
+  editor.
 
 ### Per host
 
