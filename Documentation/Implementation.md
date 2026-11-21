@@ -29,6 +29,7 @@ builds and the first provider contracts:
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. No platform host has an engine, so nothing has been decoded or heard |
+| Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -355,6 +356,45 @@ which are each host's. TCP and UDP are not part of the spec.
     since it owns the media player they're set on.
   - **A pause is said once per reason.** An engine that reports the same
     state twice isn't passed on.
+- **Text editing (`Contracts/TextEditor.md`).**
+  - **`TextEditor` is in `DynamicText`, not the frontend,** which the
+    design proposed. An app's `rt.contracts` lists every contract of the
+    modules it links, and `AppCompatibility` refuses an app that lists one
+    the host lacks. With the view in `DynamicSwiftUI`, every SwiftUI app
+    listed the three text contracts: `ExampleUI` and `ExampleMedia` did,
+    and no host has them. Focus and the keyboard's modifiers stay in the
+    frontend, since they need no contract.
+  - **Reads are synchronous.** `length`, `text`, `substring` and the line
+    calls answer from the text view's storage, on the main thread, as
+    `identifier()` does. Only files and searches answer through a
+    callback.
+  - **Positions are UTF-16 units,** `Int32` on the wire. The shared host
+    clamps them and moves them out of surrogate pairs before an engine
+    sees them, by reading the two units around one.
+  - **The shared host decides where the selection goes** after the
+    guest's edit (`TextPositions`), and says it once: an engine's own
+    idea of it isn't reported in between.
+  - **A buffer's first text is taken in silently.** A view may be the
+    first to use a buffer, in the middle of an update, and what the host
+    reports back then mustn't count as a change. The guest converts the
+    line breaks of that text itself, so `length` is right before the host
+    has it.
+  - **`TextEditor(text:)` keeps a buffer of its own** and copies the whole
+    text into the binding after each edit. What it pushes to the host
+    isn't written back.
+  - **`HostFiles.snapshot()`** is new: `Files`' whole-file read and write
+    with the grants as they were, for a contract that works off the main
+    thread. A text's load and save use it, so a picked document needs no
+    method of its own.
+  - **A load holds the text weakly.** A load that another replaced, or
+    whose buffer was released, answers `cancelled` when its file work
+    comes back.
+  - **`MemoryTextEngine` is the default,** not an error: a host with no
+    text view still holds, edits, searches and saves a guest's texts.
+  - **Case folding is per UTF-16 unit,** from the standard library's
+    lower-case mapping where that's one unit. No regular expressions.
+  - **`TextSelection` has no case for several ranges:** `RangeSet` needs
+    macOS 15, and an editor here has one selection.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -883,7 +923,29 @@ Each of these needs a decision, or is verified only as far as noted:
   the two it passes on, and a node finding its engine.
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleMedia`
   against `HostMediaPlayback`, as `App.wasm`, a sealed macOS slice and
-  wasm2c output.
+  wasm2c output. Both suites also pass on Linux (Swift 6.4.2, arm64, in
+  Docker).
+- `DynamicTextTests`: the text contracts' keys and signatures, and the
+  guest's `TextBuffer` against a scripted host: what it asks, a first
+  text sent once, state following the host's reports, a released buffer,
+  a load's answers of every kind, a save's format, and where a search
+  starts.
+- `RuntimeTextTests`: `HostTextStorage` over texts the test types into
+  and real files, from the guest through `NativeRuntime`: a text made
+  when first used, lines, surrogate pairs, the guest's edits and their
+  undo, the selection after each, the user's typing, line breaks on the
+  way in, a new text, files in each encoding with and without a mark, a
+  file that isn't UTF-8, the platform's own encoding, a text too long, a
+  picked document, a load replaced, a released buffer, a save's bytes and
+  failures, typing during a save, searching each way, replacing all as
+  one edit, the async forms, the node, a buffer first used by its view,
+  and a binding with its selection. `TextCoding` and `TextPositions` are
+  tested by themselves. `DynamicSwiftUITests` has focus as state and the
+  keyboard's modifiers.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleText`
+  against `HostTextStorage`, as `App.wasm`, a sealed macOS slice and
+  wasm2c output, and check the file it saves. The four suites also pass
+  on Linux (Swift 6.4.2, arm64, in Docker).
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -898,8 +960,7 @@ Each of these needs a decision, or is verified only as far as noted:
   run that overstays its grace, a run before the app listens, repeating
   requests asked again and remembered in a file across a restart, and
   activities that hold the app until they end or run out.
-  Neither suite has been run on Linux: Docker stopped answering during
-  the run.
+  Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleBackground`
   against `HostBackgroundTasks`, as `App.wasm`, a sealed macOS slice and
   wasm2c output, with the test running the task as the system would.
@@ -1153,3 +1214,11 @@ Each of these needs a decision, or is verified only as far as noted:
    Each host's renderer shows a `VideoPlayer` node's engine. Nothing has
    been decoded yet, so the formats and the timing are untested. Then a
    queue for gapless albums, which both designs leave out.
+13. Text in the hosts (`Documentation/Contracts/TextEditor.md`): a
+   `TextPlatform` and engine over `UITextView` and `NSTextView` in the
+   Darwin host, over Cacao's text view in the Linux host, and Android's
+   and the browser's own host side, which need an undo history of their
+   own. Each host's renderer shows a `TextEditor` node's engine, honours
+   `focused`, and reports `focus`. Nothing has been typed into a real
+   text view, so undo grouping, input methods and large files are
+   untested. Then styled text, for syntax colouring.
