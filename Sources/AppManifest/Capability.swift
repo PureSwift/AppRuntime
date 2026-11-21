@@ -80,6 +80,12 @@ public extension Capability {
         Capability("backgroundTasks")
     }
 
+    /// Keeping secrets in the system's store: a token, a password. It
+    /// prompts for nothing.
+    static var secrets: Capability {
+        Capability("secrets")
+    }
+
     /// Motion sensors: accelerometer, gyroscope, pedometer.
     static func motion(usage: ManifestText) -> Capability {
         Capability("motion", usage: usage)
