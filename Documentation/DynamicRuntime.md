@@ -529,7 +529,9 @@ Expanding capabilities into native entries:
 | Capability | iOS | Android | Linux |
 |---|---|---|---|
 | `.bluetooth` | `NSBluetoothAlwaysUsageDescription` | `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` (API 31+); `BLUETOOTH`, `BLUETOOTH_ADMIN` and `ACCESS_FINE_LOCATION` with `maxSdkVersion="30"`; `uses-feature bluetooth_le` | HCI / BlueZ D-Bus access |
-| `.camera` | `NSCameraUsageDescription` | `CAMERA` + `uses-feature camera` | `/dev/video*` |
+| `.camera` (`Contracts/Camera.md`) | `NSCameraUsageDescription` | `CAMERA` + `uses-feature camera` | the camera portal |
+| `.microphone` (`Contracts/Camera.md`) | `NSMicrophoneUsageDescription` | `RECORD_AUDIO` | the sound server's socket, for recording |
+| `.photoLibrary(.readWrite)` (`Contracts/Photos.md`) | `NSPhotoLibraryUsageDescription` and `NSPhotoLibraryAddUsageDescription`; with `.addOnly`, the second alone | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO` and `READ_MEDIA_VISUAL_USER_SELECTED` (`READ_EXTERNAL_STORAGE` before API 33); with `.addOnly`, nothing from API 29 and `WRITE_EXTERNAL_STORAGE` before | the user's Pictures and Videos folders; with `.addOnly`, for writing |
 | `.location(.whenInUse)` | `NSLocationWhenInUseUsageDescription` | `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` | runtime-defined |
 | `.notifications` (`Contracts/Notifications.md`) | asked when the app asks; with `remote`, the `aps-environment` entitlement; with `wakesApp`, `UIBackgroundModes: remote-notification` | `POST_NOTIFICATIONS` (API 33+) and `RECEIVE_BOOT_COMPLETED`; with `remote`, Firebase's service and `google-services.json`; with `exactTiming`, `USE_EXACT_ALARM` or `SCHEDULE_EXACT_ALARM` | the notification service's socket; with `remote`, the push service's |
 | `.gameControllers` (draft, §8.7) | `GCSupportsControllerUserInteraction`, `GCSupportedGameControllers` (`ExtendedGamepad`) | `uses-feature android.hardware.gamepad`, `required="false"` unless `.required()` | joystick-class `/dev/input/event*` nodes only |
