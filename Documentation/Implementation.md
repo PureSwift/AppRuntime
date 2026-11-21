@@ -32,6 +32,7 @@ builds and the first provider contracts:
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. No platform host has a clipboard behind it, so nothing has reached another app |
 | Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
+| Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -441,6 +442,31 @@ which are each host's. TCP and UDP are not part of the spec.
     can't leave the app waiting.
   - **`authenticationSchemes` needs no capability,** and each scheme
     must be lower case with a dot, which no scheme of the web's has.
+- **Calendar events (`Contracts/Calendars.md`).**
+  - **Events cross as records with getters,** read whole into a value as
+    they arrive, as the model store's records are. A month is some
+    hundreds of calls. A save goes the other way: a record the host
+    makes, filled in by setters, identity included.
+  - **A `CalendarStore` works in the guest's values,** `Event` and
+    `RecurrenceRule` among them, not in the wire's strings: a host over
+    EventKit never parses a rule.
+  - **Access is the store's own,** capped by the manifest's level, with
+    a permission provider for the built-in `Permissions` beside it.
+  - **Write-only learns nothing.** A save by an app with that level
+    gives back the event with no identifier, and it can't name an event
+    to change or remove.
+  - **The shared host looks an event up before changing it:** to refuse
+    a calendar that can't be written, a rule changed for one occurrence,
+    and to give an occurrence to an event saved without one.
+  - **An all-day event is rounded out to UTC days** on its way to a
+    store, whatever a guest gave.
+  - **`MemoryCalendarStore` expands rules by days,** with integer
+    arithmetic on `CivilDate`, and uses Foundation only to turn a day and
+    a time in a zone into a moment. A rule ended by "this and what
+    follows" gets an `UNTIL` a second before the occurrence, since a
+    rule's text says no finer.
+  - **`RecurrenceRule` and `CivilDate` are plain Swift,** with no
+    Foundation and no Unicode tables, so they run in a guest.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -1028,6 +1054,25 @@ Each of these needs a decision, or is verified only as far as noted:
   against both shared hosts, as `App.wasm`, a sealed macOS slice and
   wasm2c output. The four suites also pass on Linux (Swift 6.4.2, arm64,
   in Docker).
+- `DynamicCalendarTests`: the calendar contracts' keys and signatures;
+  rules written as `RRULE` text and read back, with what's kept of parts
+  that have no property and what isn't a rule; `CivilDate` against known
+  days and round the calendar; events as values; and the guest's
+  `EventStore` against a scripted host: access, an event crossing field
+  by field, what each call asks, answers heard once, and one listener.
+- `RuntimeCalendarTests`: `HostCalendars` over `MemoryCalendarStore`, from
+  the guest through `NativeRuntime`: no store, the user asked once, a
+  write-only app, calendars and a default that can't be written, an event
+  saved, found, changed and removed, a range's order and limits, what's
+  refused, all-day events, a weekly rule expanded, each kind of rule's
+  days, nine o'clock across a clock change, one occurrence changed and
+  removed, this and what follows as a new event, rules that can't be
+  held, a burst of changes, and the async forms.
+  `AppManifestTests` and `Scripts/test_manifest.py` cover `.calendars`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleCalendar`
+  against `HostCalendars`, as `App.wasm`, a sealed macOS slice and wasm2c
+  output. Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker),
+  where the time zones are swift-corelibs-foundation's.
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1323,3 +1368,11 @@ Each of these needs a decision, or is verified only as far as noted:
    `ASWebAuthenticationSession`, and the system's browser with a scheme
    handler on Linux. Each host reads `RTAuthenticationSchemes`, which
    `AppInfo` doesn't yet. Nothing here has met a real provider.
+16. Calendars in the hosts (`Documentation/Contracts/Calendars.md`): a
+   `CalendarStore` over `EKEventStore` in the Darwin host, with its two
+   levels of access and `EKEventStoreChanged`, and Android's own host
+   side over `CalendarContract`. Linux needs a calendar service in the
+   host that holds accounts and syncs them, which isn't decided: the
+   core apps plan had the Calendar app sync for itself. How EventKit's
+   and Android's expansion differ from `MemoryCalendarStore`'s hasn't
+   been looked at. Then attendees, and the system's add-event sheet.
