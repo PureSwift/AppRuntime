@@ -1,9 +1,10 @@
 # Clipboard
 
 **Status:** implemented in this repository: the guest side, and the part
-of the host side every host written in Swift shares. No platform host has
-a clipboard behind it yet, so nothing has reached another app: the tests
-keep the clipboard themselves.
+of the host side every host written in Swift shares. The Darwin host
+copies and pastes through `UIPasteboard` and `NSPasteboard`, and makes
+`textSelection` text selectable (DarwinAppRuntime's `DarwinClipboard`).
+Android, Linux and the browser need their own platform.
 
 Module `DynamicClipboard`: copying and pasting from code. A calculator's
 result, a browser's link, a contact's number, a photo.
@@ -285,12 +286,13 @@ at the moment it happens, in its own way.
 
 ## Per host
 
-From each platform's documentation. None of it has been tried.
+From each platform's documentation, except where the Darwin host's was
+tried, as said in its row.
 
 | | Notes |
 |---|---|
-| iOS | `UIPasteboard.general`. `hasStrings`, `hasURLs` and `hasImages` for `available`: they don't alert. A read from code alerts from iOS 16 ("Allow Paste"), unless the user chose Allow under the app's Paste from Other Apps setting; a refusal reads as nothing, which the host reports as `notAllowed` when `available` said there was something. `setItems(_:options:)` with `.localOnly` for `sensitive`. An image is set as PNG or JPEG data by its type identifier. |
-| macOS | `NSPasteboard.general`. Nothing asks. `sensitive` adds `org.nspasteboard.ConcealedType`, which clipboard managers honour. An image held as TIFF is converted to PNG. |
+| iOS | `UIPasteboard.general`. `hasStrings`, `hasURLs` and `hasImages` for `available`: they don't alert. A read from code alerts from iOS 16 ("Allow Paste"), unless the user chose Allow under the app's Paste from Other Apps setting; a refusal reads as nothing, which the host reports as `notAllowed` when `available` said there was something. `setItems(_:options:)` with `.localOnly` for `sensitive`. An image is set as PNG or JPEG data by its type identifier. DarwinAppRuntime's `DarwinClipboard` does this. On the iOS Simulator a copy reached the system's pasteboard, looking didn't ask, and an image went from a file to the pasteboard and back to a file. The "Allow Paste" alert couldn't show there, so a read of another app's copy was refused, as `notAllowed`. |
+| macOS | `NSPasteboard.general`. Nothing asks. `sensitive` adds `org.nspasteboard.ConcealedType`, which clipboard managers honour. An image held as TIFF is converted to PNG. DarwinAppRuntime's `DarwinClipboard`, tested on a pasteboard of the tests' own. |
 | Android | `ClipboardManager`. `ClipData.newPlainText` and `newRawUri`. `getPrimaryClipDescription()` for `available`: it shows no note. A read shows the system's note from Android 12, and from Android 10 works only while the app has focus. An image is a content URI: the host copies it to its cache and serves it from a `FileProvider`, and reads one through the `ContentResolver`. `ClipDescription.EXTRA_IS_SENSITIVE` for `sensitive`, from Android 13. |
 | Linux | The compositor's selection, through the host's toolkit: `text/plain;charset=utf-8`, `text/uri-list` and `image/png`. On Wayland an app reads the selection only while it has keyboard focus, and what it copied goes when it exits unless a clipboard manager kept it. `x-kde-passwordManagerHint` for `sensitive`. |
 | Browser | `navigator.clipboard`, in a secure context. `writeText`, `readText`, and `write` and `read` with `ClipboardItem`s. Both need a user action, and a read asks. Images are `image/png` only, so the host converts a JPEG through a canvas. There is no URL kind: a URL is written as text. `available` is always 7. Where the API is missing, every call is `notAllowed`. |
@@ -328,6 +330,11 @@ test keeps.
   twice, sizes, images by bytes and by file, a picked document, and the
   `async` forms.
 - `DynamicSwiftUITests`: `textSelection`.
+
+The Darwin host's platform is written (DarwinAppRuntime's
+`DarwinClipboard`), and was tried with `ExampleClipboard` on the iOS
+Simulator, as the iOS row says. Whether a paste the user allows comes
+through needs a device.
 
 ## Decided in review
 
