@@ -27,13 +27,15 @@ builds and the first provider contracts:
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
-| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
+| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. Version 2 of `Documents` adds the system's photo picker, `open(from: .photoLibrary)` (`Contracts/Photos.md`), which falls back to the file picker for images and videos on a host without one. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`), and has no photo picker yet; no other host does yet |
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. The Darwin host holds texts in `UITextView` and `NSTextView`, with its own undo history, and shows them in `TextEditor` nodes (DarwinAppRuntime's `DarwinText`); no other host does yet |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
 | Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
 | Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
 | Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
+| Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
+| Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -489,6 +491,59 @@ which are each host's. TCP and UDP are not part of the spec.
   - **`MemoryContactDirectory` finds by the start of a word,** of any
     part of a name and of an email address, one word at a time, and lists
     by family name. A platform's own search does more.
+- **Photo library (`Contracts/Photos.md`).**
+  - **Three ways to the user's photos, in two modules.** Adding and
+    browsing are `DynamicPhotos`. Being given one is the photo picker,
+    which is `Documents`' so that an app which only picks links nothing
+    of the library and declares none of its contracts.
+  - **Adding a method to a contract others implement.** `pickPhotos` made
+    `Documents` version 2. A guest asks whether the host has the method
+    (`DocumentsProxy.Methods.pickPhotos.isAvailable`) and asks the file
+    picker if it hasn't. The protocol has a default for it, and so has
+    `DocumentPresenter`, so a host that implements either itself still
+    compiles and does the same.
+  - **Nothing lists the library.** A fetch crosses as an object with a
+    count; its assets are asked for a range at a time, with a callback,
+    and come as seven strings apiece in one array. The shared host holds
+    the fetch's identifiers and reads a page's assets off the main
+    thread.
+  - **An asset is a value and an identifier.** The host draws it: a
+    `Photo` node carries the identifier, and the shared host has no part
+    in drawing.
+  - **An original is a grant in `HostFiles`,** as a picked document is,
+    made when the guest asks and revoked when it lets go. The store is
+    told then, to remove the copy it made.
+  - **The level is a setting of the host's,** from the manifest, as
+    writing is for contacts: an app that declared adding alone has
+    `addOnly` at most and isn't told which asset it added.
+  - **`addOnly` is also where a platform starts** when adding needs no
+    leave, as on Android. For an app that declared browsing, asking then
+    still asks.
+  - **A photo is known by its first bytes,** not its name
+    (`PhotoFileFormat`), before a store is given it.
+  - **Deleting is a closure the host sets,** not the store's, since the
+    system's question is shown from the main thread on Android.
+- **Camera (`Contracts/Camera.md`).**
+  - **The media player turned round.** No frame crosses: a node carries
+    the camera's identifier for the preview, a capture is a file at a
+    path the guest names, and the delegate reports what happened whoever
+    caused it.
+  - **Requests have numbers,** as the player's seeks have: a photo and a
+    recording are each answered once with the number they were asked
+    with, whatever an engine does.
+  - **The shared host keeps the rules,** and an engine only does what
+    it's told: one camera on, one photo, one recording, sound only with
+    two leaves, zoom inside the range, and the camera off while the app
+    isn't in front.
+  - **A file's folders are made before an engine sees its path**
+    (`HostFiles.makeDirectories(aboveFile:)`), since the platform writes
+    the file, not `Files`.
+  - **The microphone is a capability no contract requires.** The camera's
+    contract may use it, which the packager knows
+    (`OPTIONAL_CAPABILITIES`), and the host refuses sound without it.
+  - **A recording's time is the guest's clock's.** The host says when it
+    began, the guest works out how long it has run when asked, and tells
+    views once a second with a timer of its own.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -1112,6 +1167,47 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleContacts`
   against `HostContacts`, as `App.wasm`, a sealed macOS slice and wasm2c
   output. Both suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
+- `DynamicPhotosTests`: the photo contracts' keys and signatures; an
+  asset as seven strings and an album as four, and what a host sends
+  badly; and the guest's `PhotoLibrary` against a scripted host: access,
+  adding, a fetch as a count and a window, a fetch forgotten when it's
+  released, albums, an original held and let go, deleting, one listener,
+  and the `Photo` node.
+- `RuntimePhotosTests`: `HostPhotos` over `MemoryPhotoStore` and real
+  files, from the guest through `NativeRuntime`: no store, the user asked
+  once, a host that adds without leave, an app that declared adding
+  alone, a file's format by its first bytes, a photo copied in, what
+  isn't one, newest first, pages, a fetch as it was when made, albums,
+  limited access, an original read through `Files` and released, one in
+  the cloud, deleting, and a burst of changes.
+  `DynamicDocumentsTests` and `RuntimeDocumentsTests` cover the photo
+  picker: the kinds asked for, what's picked being read-only and not
+  bookmarked, one picker at a time, and a host without one.
+  `AppManifestTests` and `Scripts/test_manifest.py` cover `.photoLibrary`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExamplePhotos`
+  against `HostPhotos`, as `App.wasm`, a sealed macOS slice and wasm2c
+  output, asking for the grid's cells as a host does. The suites also
+  pass on Linux (Swift 6.4.2, arm64, in Docker).
+- `DynamicCameraTests`: the camera contract's keys and signatures, and
+  the guest's `Camera` against a scripted host: the device's cameras,
+  access and its two questions, starting and failing, a zoom the host
+  clamps, the flash, photos answered each to its own, a recording that
+  begins, ends and is cut short, views following one once a second, the
+  `CameraPreview` node, release, and the async forms.
+- `RuntimeCameraTests`: `HostCameraCapture` over a test's platform and
+  real files, from the guest through `NativeRuntime`: no platform, the
+  user asked once for each, a microphone the manifest didn't declare,
+  starting and switching, one camera at a time, an engine that fails,
+  release, zoom and flash, where a photo is written and when it's
+  refused, a recording on the guest's clock, sound's two leaves, a
+  recording ended by stopping and by switching, the background, and the
+  system taking the camera.
+  `AppManifestTests` and `Scripts/test_manifest.py` cover `.camera` and
+  `.microphone`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleCamera`
+  against `HostCameraCapture` and `HostPhotos`, as `App.wasm`, a sealed
+  macOS slice and wasm2c output. The suites also pass on Linux (Swift
+  6.4.2, arm64, in Docker).
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1424,3 +1520,20 @@ Each of these needs a decision, or is verified only as far as noted:
    platform's search differs from the one promise the contract makes
    hasn't been looked at. Then photos, once an `Image` can show one, and
    the system's contact picker.
+18. The photo library in the hosts (`Documentation/Contracts/Photos.md`):
+   a `PhotoStore` over PhotoKit in the Darwin host, with a requester for
+   its two levels and a deleter, and one over `MediaStore` in the Android
+   host; a `Photo` node in each renderer, drawn from the platform's
+   thumbnails; and a photo picker, `DocumentPresenter.pickPhotos` over
+   `PHPickerViewController` on iOS and `ACTION_PICK_IMAGES` on Android,
+   whose host implements `Documents` itself. Linux needs a store over the
+   user's Pictures and Videos folders. The packagers' entries for
+   `.photoLibrary`. None of the per-host notes has been tried.
+19. The camera in the hosts (`Documentation/Contracts/Camera.md`): a
+   `CameraPlatform` and its engines over `AVCaptureSession` in the Darwin
+   host, CameraX on Android and a GStreamer pipeline from the camera
+   portal on Linux; a `CameraPreview` node in each renderer, with the tap
+   and the pinch; the app's comings and goings told to
+   `HostCameraCapture`; and the packagers' entries for `.microphone`. A
+   capture is written at a path from `HostFiles`, which Android's picked
+   documents aren't.
