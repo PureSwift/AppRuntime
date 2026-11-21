@@ -1,8 +1,10 @@
 # Notifications
 
 **Status:** implemented in this repository: the guest side, and the part of
-the host side every host written in Swift shares. No platform host shows a
-notification yet; each needs a presenter ([For a host](#for-a-host)).
+the host side every host written in Swift shares. The Darwin host shows
+and schedules notifications on iOS and macOS, and registers for push
+(DarwinAppRuntime's `DarwinNotifications`). Android, Linux and the browser
+need their own presenter ([For a host](#for-a-host)).
 
 Module `DynamicNotifications`: telling the user something while the app
 isn't in front. A notification shown now, one scheduled for later, the
@@ -570,7 +572,7 @@ aren't written in Swift, and implement the contracts themselves.
 
 | | Notes |
 |---|---|
-| iOS / macOS | `UNUserNotificationCenter` throughout. Interruption and sound are copied from the category onto each request. `willPresent` answers with `foregroundPresentation`. Push is `registerForRemoteNotifications`; the token needs no prompt. |
+| iOS / macOS | `UNUserNotificationCenter` throughout. Interruption and sound are copied from the category onto each request. `willPresent` answers with `foregroundPresentation`. Push is `registerForRemoteNotifications`; the token needs no prompt. DarwinAppRuntime's `DarwinNotifications` does this. A moment becomes an interval from now; past 64 pending requests `add` fails with `limitReached`, where iOS would drop the request. Not yet: `wakesApp` and `.background` buttons, which wait on [BackgroundTasks](BackgroundTasks.md), and the time-sensitive entitlement. |
 | Android | The host posts with `NotificationManager`, one channel per category. A scheduled request is an `AlarmManager` alarm whose receiver posts it; requests are kept on disk and set again after a restart, and a repeating calendar trigger is set again each time it fires. Buttons are `PendingIntent`s that open the activity; a text action is `RemoteInput`. FCM's service builds a notification from a data message. No Google Play services: push is `unsupported`. |
 | Linux | Below. |
 | Browser | `Notification.requestPermission`, and `showNotification` on the host's service worker. Nothing is scheduled by the browser: the host fires scheduled requests from a timer while the page is open, and `deliversWhenClosed` is false. `notificationclick` opens or focuses the page and passes the response on. Push is `PushManager.subscribe`, which needs the permission and the server key. On iOS only a web app on the Home Screen can ask. |
@@ -622,9 +624,13 @@ registers for pushes.
   WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
   wasm2c output (`Packages/LinkedSlice`).
 
-Everything is tested against a centre in memory. No notification has been
-shown by a system, no push sent, and nothing here has been checked on a
-device: the platform behaviour above is from each platform's
+Everything here is tested against a centre in memory. The Darwin host's
+presenter is written (DarwinAppRuntime's `DarwinNotifications`), and was
+tried with `ExampleNotifications` on the iOS Simulator: the permission
+prompt, a banner in front, a push's buttons, a timer that fired with the
+app closed, and the tap that launched it. Registering with APNs, text
+buttons and the badge weren't tried there, and nothing has been checked
+on a device. The other platforms' behaviour above is from their
 documentation.
 
 ## Not in this design
