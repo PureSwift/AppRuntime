@@ -488,6 +488,22 @@ import RuntimeNative
         #expect(failure { try HostFiles.copy(file: home.appendingPathComponent("none").path, to: copy) } == .notFound)
     }
 
+    @Test func aHostMakesTheFoldersAFileItWritesGoesIn() throws {
+        // For a host that hands a path to something that writes the file
+        // itself, such as a camera.
+        let home = try home()
+        let shot = home.appendingPathComponent("shots/today/one.jpg").path
+        try HostFiles.makeDirectories(aboveFile: shot)
+        #expect(HostFiles.kind(ofItemAt: home.appendingPathComponent("shots/today").path) == .directory)
+        #expect(HostFiles.kind(ofItemAt: shot) == nil, "the file is the writer's to make")
+        try HostFiles.makeDirectories(aboveFile: shot)
+        try HostFiles.makeDirectories(aboveFile: home.appendingPathComponent("beside.jpg").path)
+        // A file where a folder would be.
+        let under = home.appendingPathComponent("notes.txt/one.jpg").path
+        #expect(failure { try HostFiles.makeDirectories(aboveFile: under) } == .notDirectory)
+        #expect(failure { try HostFiles.makeDirectories(aboveFile: under + "/deeper.jpg") } == .notDirectory)
+    }
+
     @Test func moduleListsItsContracts() {
         #expect(HostFilesModule.contracts.map(\.name) == ["org.pureswift.files.Files", "org.pureswift.files.FileCallback"])
         #expect(HostFilesModule.isUsed(by: ["org.pureswift.files.Files"]))
