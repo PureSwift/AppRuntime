@@ -41,6 +41,10 @@ don't depend on WasmKit.
 | `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
 | `DynamicContacts` | The people in the user's address book, as the system keeps them: the Contacts framework's place. The `Contacts` contract and the guest's `ContactStore` and `Contact` | yes |
 | `RuntimeContacts` | `HostContacts`: the contacts contract over a host's own address book, and one in memory for tests | host |
+| `DynamicPhotos` | The photos and videos the system keeps for the user: PhotoKit's place. The `Photos` contract, the guest's `PhotoLibrary`, `PhotoAsset` and `PhotoFetchResult`, and the `PhotoView` that shows one | yes |
+| `RuntimePhotos` | `HostPhotos`: the photos contract over a host's own library, and one in memory for tests | host |
+| `DynamicCamera` | The camera: a live preview, photos, and video with sound. The `CameraCapture` contract, the guest's `Camera`, and the `CameraPreview` view | yes |
+| `RuntimeCamera` | `HostCameraCapture`: the camera contract over a host's own cameras | host |
 | `DynamicCalendar` | The user's calendars and events, as the system keeps them: EventKit's place. The `Calendars` contract and the guest's `EventStore`, `Event` and `RecurrenceRule` | yes |
 | `RuntimeCalendar` | `HostCalendars`: the calendar contract over a host's own store, and a store in memory that expands repeating events | host |
 | `DynamicSecrets` | An app's secrets, kept encrypted by the system: a token, a password. The `Secrets` contract and the guest's `Keychain` | yes |
@@ -215,6 +219,19 @@ people as a name is typed, and adds, changes and removes someone
 ([Contacts](Documentation/Contracts/Contacts.md)). No host has an address
 book behind it yet, so the tests keep the people in memory.
 
+`examples/ExamplePhotos` is a gallery: it shows the user's newest photos
+in a grid a page at a time, lists the albums, shows a photo large, opens
+its original as a file and deletes it with the user's leave
+([Photo library](Documentation/Contracts/Photos.md)). The host draws
+every photo. No host has a photo library behind it yet, so the tests keep
+one in memory.
+
+`examples/ExampleCamera` is a viewfinder: it shows what the camera sees,
+takes a photo, records a video with sound, zooms, switches cameras, and
+saves what it took to the user's photos
+([Camera](Documentation/Contracts/Camera.md)). No host has a camera
+behind it yet, so the tests stand in for one.
+
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
 every quarter of an hour, and asks for time to finish a save
@@ -233,7 +250,8 @@ memory.
 
 `examples/ExampleDocuments` is a small text editor for the user's own
 files: it opens one with `fileImporter`, or the one it's launched with,
-saves back to it, saves a copy where the user says, and lists a folder
+saves back to it, saves a copy where the user says, lists a folder, and
+takes a photo from the system's photo picker
 ([Documents](Documentation/Contracts/Documents.md)). The Darwin host shows
 the system's pickers for it on iOS and macOS (DarwinAppRuntime's
 `DarwinDocuments`); in the tests, the test answers for the user.
@@ -423,7 +441,9 @@ the players, `ExampleText` the editor, with the test typing into its
 texts, `ExampleClipboard` the copying and pasting, with the test keeping
 the clipboard, `ExampleSignIn` the account, with the test playing the
 browser, `ExampleCalendar` the agenda, with its events in memory,
-`ExampleContacts` the address book, with its people in memory, `ExampleDefaults` the settings screen, with a real settings
+`ExampleContacts` the address book, with its people in memory,
+`ExamplePhotos` the gallery, with its library in memory, `ExampleCamera`
+the viewfinder, with the test standing in for the cameras, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
