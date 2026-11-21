@@ -39,6 +39,10 @@ don't depend on WasmKit.
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
 | `DynamicMedia` | Media players: a song, a podcast or a video the host decodes and shows. The `MediaPlayback` contract, the guest's `MediaPlayer`, `VideoPlayer` and `AudioPlayer`, what's playing for the lock screen, and playing on in the background | yes |
 | `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
+| `DynamicSecrets` | An app's secrets, kept encrypted by the system: a token, a password. The `Secrets` contract and the guest's `Keychain` | yes |
+| `RuntimeSecrets` | `HostSecrets`: the secrets contract over a host's own store | host |
+| `DynamicAuthentication` | Signing in on a page the system's browser shows: the `WebAuthentication` contract and the guest's `WebAuthenticationSession` | yes |
+| `RuntimeAuthentication` | `HostWebAuthentication`: the sign-in contract over a host's own browser | host |
 | `DynamicClipboard` | The system's clipboard, for an app's own Copy and Paste: text, a link, an image. The `Clipboard` contract and the guest's `Pasteboard` | yes |
 | `RuntimeClipboard` | `HostClipboard`: the clipboard contract over a host's own clipboard, with image files | host |
 | `DynamicText` | Text the host holds and the user edits: a file in an editor, a message. The `TextStorage` contract, the guest's `TextBuffer`, and the `TextEditor` view | yes |
@@ -188,6 +192,11 @@ in memory.
 there is to paste without reading it, and pastes text, a link and an image
 ([Clipboard](Documentation/Contracts/Clipboard.md)). No host has a
 clipboard behind it yet, so the tests keep one.
+
+`examples/ExampleSignIn` is an account with a provider: it shows the
+provider's page in the system's browser, checks the reply, and keeps the
+token in the keychain ([Secrets and sign-in](Documentation/Contracts/Secrets.md)).
+No host has a keychain or a browser behind it yet, so the tests play both.
 
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
@@ -395,7 +404,8 @@ notification centre, `ExampleBackground` the feed, with the test running
 its task, `ExampleMedia` the music player, with the test standing in for
 the players, `ExampleText` the editor, with the test typing into its
 texts, `ExampleClipboard` the copying and pasting, with the test keeping
-the clipboard, `ExampleDefaults` the settings screen, with a real settings
+the clipboard, `ExampleSignIn` the account, with the test playing the
+browser, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
