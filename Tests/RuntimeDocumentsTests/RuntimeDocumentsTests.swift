@@ -26,6 +26,11 @@ final class TestPresenter: DocumentPresenter {
         picks.append(completion)
     }
 
+    func pickPhotos(images: Bool, videos: Bool, multiple: Bool, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) {
+        calls.append("pickPhotos \(images) \(videos) \(multiple)")
+        picks.append(completion)
+    }
+
     func pickFolder(access: DocumentAccess, completion: @escaping (Result<HostDocument?, DocumentError>) -> Void) {
         calls.append("pickFolder \(access)")
         folders.append(completion)
@@ -62,6 +67,31 @@ final class TestPresenter: DocumentPresenter {
         calls.append("forget \(bookmark)")
         bookmarks[bookmark] = nil
     }
+}
+
+/// A host whose file picker shows the user's photos, and which has no
+/// other: it implements what a presenter must, and no more.
+final class FilesOnlyPresenter: DocumentPresenter {
+
+    var calls: [String] = []
+
+    var picks: [(Result<[HostDocument], DocumentError>) -> Void] = []
+
+    func pick(types: [String], multiple: Bool, access: DocumentAccess, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) {
+        calls.append("pick \(types) \(multiple) \(access)")
+        picks.append(completion)
+    }
+
+    func pickFolder(access: DocumentAccess, completion: @escaping (Result<HostDocument?, DocumentError>) -> Void) { }
+    func export(file source: String, name: String, completion: @escaping (Result<HostDocumentExport, DocumentError>) -> Void) { }
+
+    func bookmark(_ document: HostDocument, completion: @escaping (Result<String, DocumentError>) -> Void) {
+        calls.append("bookmark")
+        completion(.success("token"))
+    }
+
+    func resolve(_ bookmark: String, completion: @escaping (Result<HostDocument, DocumentError>) -> Void) { }
+    func forget(_ bookmark: String) { }
 }
 
 /// `HostDocuments` over a test's pickers and real files in a temporary
@@ -235,6 +265,92 @@ final class TestPresenter: DocumentPresenter {
         picker.open(allowsMultiple: true) { cancelled = $0 }
         presenter.picks.removeLast()(.success([]))
         #expect(try cancelled?.get().isEmpty == true)
+    }
+
+    // MARK: The photo picker
+
+    @Test func aPhotoIsPickedReadOnlyAndNotRemembered() throws {
+        var released = 0
+        do {
+            var result: Result<Document?, DocumentError>?
+            picker.open([.image], from: .photoLibrary, access: .readWrite) { result = $0 }
+            #expect(presenter.calls == ["pickPhotos true false false"])
+            // Whatever the platform's picker says of it.
+            presenter.picks.removeLast()(.success([
+                HostDocument(path: path("photo.jpg"), isWritable: true, name: "IMG_0042.JPG", contentType: "image/jpeg") { released += 1 },
+            ]))
+            let photo = try #require(try result?.get())
+            #expect(photo.name == "IMG_0042.JPG" && photo.contentType == .jpeg)
+            #expect(!photo.isWritable, "a photo is read")
+            #expect(read(photo.path) == .success("a photo"))
+            #expect(write("changed", to: photo.path) == .readOnly)
+            #expect(onDisk("photo.jpg") == "a photo")
+
+            var bookmark: Result<DocumentBookmark, DocumentError>?
+            photo.bookmark { bookmark = $0 }
+            #expect(failure(bookmark) == .unsupported, "the app was given this one look")
+            #expect(presenter.bookmarks.isEmpty)
+            #expect(released == 0)
+        }
+        #expect(released == 1, "where a host removes the copy its picker made")
+    }
+
+    @Test func aPhotoPickerShowsImagesVideosOrBoth() throws {
+        var many: Result<[Document], DocumentError>?
+        picker.open([.movie], from: .photoLibrary, allowsMultiple: true) { many = $0 }
+        #expect(presenter.calls.last == "pickPhotos false true true")
+        presenter.picks.removeLast()(.success([HostDocument(path: path("photo.jpg")), HostDocument(path: path("notes.txt"))]))
+        #expect(try many?.get().count == 2)
+
+        var one: Result<[Document], DocumentError>?
+        picker.open(from: .photoLibrary, allowsMultiple: false) { one = $0 }
+        #expect(presenter.calls.last == "pickPhotos true true false")
+        presenter.picks.removeLast()(.success([HostDocument(path: path("photo.jpg")), HostDocument(path: path("notes.txt"))]))
+        #expect(try one?.get().map(\.name) == ["photo.jpg"], "one is all a picker for one may give")
+
+        // Bits from a newer guest alone are both.
+        var failed: DocumentError?
+        DocumentsProxy.shared().pickPhotos(8, multiple: false, callback: FailureCallback { failed = $0 })
+        #expect(presenter.calls.last == "pickPhotos true true false")
+        presenter.picks.removeLast()(.failure(.notAllowed))
+        #expect(failed == .notAllowed)
+    }
+
+    @Test func aPhotoPickerIsOnePickerAmongTheOthers() throws {
+        var first: Result<Document?, DocumentError>?
+        var second: Result<Document?, DocumentError>?
+        picker.open([.image], from: .photoLibrary) { first = $0 }
+        picker.open([.image]) { second = $0 }
+        #expect(failure(second) == .busy)
+        picker.open([.image], from: .photoLibrary) { second = $0 }
+        #expect(failure(second) == .busy)
+        presenter.picks.removeLast()(.success([]))
+        #expect(try first?.get() == nil && first != nil)
+        picker.open([.image]) { second = $0 }
+        #expect(presenter.picks.count == 1, "and then the next may show")
+
+        HostDocuments.presenter = nil
+        var none: Result<Document?, DocumentError>?
+        DocumentPicker().open([.image], from: .photoLibrary) { none = $0 }
+        #expect(failure(none) == .unsupported)
+    }
+
+    @Test func aHostWithNoPhotoPickerShowsItsFilePicker() throws {
+        let filesOnly = FilesOnlyPresenter()
+        HostDocuments.presenter = filesOnly
+        var result: Result<Document?, DocumentError>?
+        picker.open([.image], from: .photoLibrary) { result = $0 }
+        #expect(filesOnly.calls == [#"pick ["image/*"] false read"#])
+        filesOnly.picks.removeLast()(.success([HostDocument(path: path("photo.jpg"), isWritable: true)]))
+        let photo = try #require(try result?.get())
+        #expect(!photo.isWritable && read(photo.path) == .success("a photo"))
+        // Still a photo that was picked, whichever screen showed it.
+        var bookmark: Result<DocumentBookmark, DocumentError>?
+        photo.bookmark { bookmark = $0 }
+        #expect(failure(bookmark) == .unsupported && filesOnly.calls.count == 1)
+
+        picker.open(from: .photoLibrary, allowsMultiple: true) { (_: Result<[Document], DocumentError>) in }
+        #expect(filesOnly.calls.last == #"pick ["image/*", "video/*"] true read"#)
     }
 
     @Test func aFolderIsADirectory() throws {
@@ -438,4 +554,19 @@ final class TestPresenter: DocumentPresenter {
             #expect(error == .unsupported)
         }
     }
+}
+
+/// A callback that only hears a failure.
+final class FailureCallback: DocumentCallback {
+
+    let failed: (DocumentError?) -> Void
+
+    init(_ failed: @escaping (DocumentError?) -> Void) {
+        self.failed = failed
+    }
+
+    func didPick(_ documents: [any DocumentGrant]) { failed(nil) }
+    func didComplete() { failed(nil) }
+    func didBookmark(_ bookmark: String) { failed(nil) }
+    func didFail(_ error: Int32) { failed(DocumentError(rawValue: error)) }
 }
