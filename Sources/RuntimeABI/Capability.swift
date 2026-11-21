@@ -43,6 +43,9 @@ public extension Capability {
     /// The platform's file pickers. It prompts for nothing.
     static var userFiles: Capability { Capability("userFiles") }
 
+    /// The user's calendars and the events in them.
+    static var calendars: Capability { Capability("calendars") }
+
     /// The system's store for an app's secrets. It prompts for nothing.
     static var secrets: Capability { Capability("secrets") }
 }
