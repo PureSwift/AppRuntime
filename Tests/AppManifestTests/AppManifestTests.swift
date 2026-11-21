@@ -122,6 +122,24 @@ import AppManifest
         #expect(app.manifestJSON().contains(#"{"name":"contacts","options":{"access":"readOnly"},"usage":{"key":"perm.contacts"}}"#))
     }
 
+    @Test func photosDeclareAddingOrBrowsing() {
+        let browsing = Capability.photoLibrary(usage: "Shows your photos.")
+        #expect(browsing.options == ["access": "readWrite"] && browsing.usage == "Shows your photos.")
+        let adding = Capability.photoLibrary(.addOnly, usage: .localized("perm.photos"))
+        #expect(adding.options == ["access": "addOnly"])
+        let app = App(id: "org.example.Camera", name: "Camera", version: "1", build: 1, capabilities: [adding], platforms: [.linux])
+        #expect(app.manifestJSON().contains(#"{"name":"photoLibrary","options":{"access":"addOnly"},"usage":{"key":"perm.photos"}}"#))
+    }
+
+    @Test func aCameraDeclaresItsMicrophoneApart() {
+        let camera = Capability.camera(usage: "Takes photos and videos.")
+        let microphone = Capability.microphone(usage: "Records sound with your videos.")
+        #expect(camera.name == "camera" && microphone.name == "microphone")
+        #expect(microphone.options.isEmpty && microphone.usage == "Records sound with your videos.")
+        let app = App(id: "org.example.Camera", name: "Camera", version: "1", build: 1, capabilities: [camera, microphone], platforms: [.linux])
+        #expect(app.manifestJSON().contains(#"{"name":"microphone","options":{},"usage":{"value":"Records sound with your videos."}}"#))
+    }
+
     @Test func audioDeclaresBackgroundPlayback() {
         #expect(Capability.audio == Capability("audio"))
         #expect(Capability.audio(background: true).options == ["background": "true"])
