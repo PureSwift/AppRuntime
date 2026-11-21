@@ -408,6 +408,35 @@ import RuntimeNative
         HostFiles.revoke(third)
     }
 
+    @Test func aSnapshotReadsAndWritesAsFilesDo() throws {
+        let home = try home()
+        try HostFiles.configure(HostFiles.Configuration(directories: directories, work: { $0() }, deliver: { $0() }))
+        let notes = home.appendingPathComponent("notes.txt").path
+        let readOnly = HostFiles.grant(HostFiles.Grant(path: notes, kind: .file, isWritable: false))
+        let music = HostFiles.grant(HostFiles.Grant(path: home.appendingPathComponent("Music").path, kind: .directory, isWritable: true))
+        let snapshot = HostFiles.snapshot()
+
+        // A picked document, one of the app's own files, and what isn't there.
+        #expect(try snapshot.contents(readOnly.rawValue, path: "") == Array("notes".utf8))
+        #expect(try snapshot.size(readOnly.rawValue, path: "") == 5)
+        #expect(failure { try snapshot.write([1], to: readOnly.rawValue, path: "") } == .readOnly)
+        try snapshot.write(Array("kept".utf8), to: Self.documents, path: "made/by/snapshot.txt")
+        #expect(try snapshot.contents(Self.documents, path: "made/by/snapshot.txt") == Array("kept".utf8))
+        #expect(try snapshot.size(Self.documents, path: "made/by/snapshot.txt") == 4)
+        try snapshot.write(Array("song".utf8), to: music.rawValue, path: "one.mp3")
+        #expect(onDisk("Home/Music/one.mp3") == Data("song".utf8))
+        #expect(failure { _ = try snapshot.size(Self.documents, path: "made") } == .isDirectory)
+        #expect(failure { _ = try snapshot.contents(Self.documents, path: "none.txt") } == .notFound)
+        #expect(failure { _ = try snapshot.contents(Self.documents, path: "../Home/notes.txt") } == .invalidPath)
+
+        // It has the grants there were when it was taken, as an operation
+        // already issued does.
+        HostFiles.revoke(readOnly)
+        HostFiles.revoke(music)
+        #expect(try snapshot.contents(readOnly.rawValue, path: "") == Array("notes".utf8))
+        #expect(failure { _ = try HostFiles.snapshot().contents(readOnly.rawValue, path: "") } == .notPermitted)
+    }
+
     @Test func aHostsOwnFilesAreReadCopiedAndReplaced() throws {
         let home = try home()
         let notes = home.appendingPathComponent("notes.txt").path
