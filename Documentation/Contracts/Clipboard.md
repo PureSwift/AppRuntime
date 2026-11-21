@@ -1,6 +1,9 @@
 # Clipboard
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares. No platform host has
+a clipboard behind it yet, so nothing has reached another app: the tests
+keep the clipboard themselves.
 
 Module `DynamicClipboard`: copying and pasting from code. A calculator's
 result, a browser's link, a contact's number, a photo.
@@ -18,9 +21,14 @@ Paste buttons.
 Guest-side Swift:
 
 - **`Pasteboard`**: the clipboard app code uses. `UIPasteboard`'s place.
-- `PasteboardImage`, `PasteboardOptions`, `PasteboardError`.
-- `textSelection(_:)`, SwiftUI's modifier, which lets the user select and
-  copy a `Text` with no code at all.
+- `PasteboardImage`, `PasteboardImageType`, `PasteboardOptions`,
+  `ClipboardKinds`, `PasteboardError`.
+
+In the SwiftUI frontend: `textSelection(_:)`, SwiftUI's modifier, which
+lets the user select and copy a `Text` with no code at all.
+
+Host-side Swift, in `RuntimeClipboard`: `HostClipboard`, the contract
+over a host's `ClipboardPlatform`, and `MemoryClipboard`.
 
 The render IR gains one modifier, `textSelection`.
 
@@ -79,9 +87,10 @@ Button("Paste") {
   the platform keeps it out of previews, clipboard history and other
   devices, where it can.
 - **They don't wait.** The calls above return at once and drop a
-  failure. Each has a form with a completion handler, and an `async` one
-  that throws `PasteboardError`, for an app that wants to say "Copied"
-  only when it was.
+  failure. Each takes a completion handler, and has an `async` form that
+  throws `PasteboardError`, for an app that wants to say "Copied" only
+  when it was. In `async` code the plain call is the `async` one, so it's
+  written `try await`.
 - **Call them from a user action.** A browser refuses otherwise, with
   `notAllowed`.
 
@@ -89,10 +98,12 @@ Button("Paste") {
 
 ```swift
 pasteboard.hasStrings      // also hasURLs, hasImages
+pasteboard.available       // ClipboardKinds: .text, .url, .image
 ```
 
 - **Whether a read might give one.** It never asks or tells the user, and
-  never sees the contents.
+  never sees the contents. `hasStrings` is true for a URL too, since
+  `string()` gives its text.
 - **A host that can't tell says yes.** A browser can't look without
   asking, so all three are true there.
 - **It isn't observable.** It's read when the view updates, which is
@@ -104,7 +115,7 @@ pasteboard.hasStrings      // also hasURLs, hasImages
 let text = try await pasteboard.string()          // String?
 let link = try await pasteboard.url()             // String?
 let image = try await pasteboard.image()          // PasteboardImage?: data and type
-let type = try await pasteboard.image(to: .caches / "pasted")   // ContentType?
+let type = try await pasteboard.image(to: .caches / "pasted")   // PasteboardImageType?
 ```
 
 - **`nil` means there isn't one.** That isn't an error.
@@ -121,16 +132,17 @@ let type = try await pasteboard.image(to: .caches / "pasted")   // ContentType?
   `url()` is always `nil`: read the string.
 - **An image arrives as PNG or JPEG,** whatever it was. `image()` is for
   a small one, such as a contact's photo. `image(to:)` writes the file
-  without the bytes crossing to the guest, and says which of the two it
-  wrote.
+  without the bytes crossing to the guest, replacing what's there, and
+  says which of the two it wrote: a `PasteboardImageType`, `.png` or
+  `.jpeg`, with its `mimeType` and `fileExtension`.
 
 ### Errors
 
 | `PasteboardError` | |
 |---|---|
-| `notAllowed` | the user or the platform refused: not from a user action, the app isn't in front, or the user said no |
+| `notAllowed` | the user or the platform refused: not from a user action, the app isn't in front, the user said no, or a file the app may not read or write |
 | `unsupported` | this host can't hold the kind: an image, on a host with text only |
-| `invalidData` | not a PNG or a JPEG, or a file that isn't there |
+| `invalidData` | not a PNG or a JPEG, a file that isn't there, or a path that isn't a file's |
 | `tooLarge` | more than the host passes in one call: use the file forms |
 | `cancelled` | the task waiting was cancelled |
 
@@ -228,8 +240,8 @@ host that can't shows the text as it would have.
 
 ## The shared host
 
-`HostClipboard`, in a new `RuntimeClipboard`, does what's the same on
-every platform. A host supplies a `ClipboardPlatform`:
+`HostClipboard`, in `RuntimeClipboard`, does what's the same on every
+platform. A host supplies a `ClipboardPlatform`:
 
 ```swift
 public protocol ClipboardPlatform: AnyObject {       // main thread
@@ -243,16 +255,28 @@ public protocol ClipboardPlatform: AnyObject {       // main thread
 
 public enum HostClipboardContent {
     case text(String, url: String?)
-    case image([UInt8], type: ContentType)           // PNG or JPEG
+    case image([UInt8], type: PasteboardImageType)   // PNG or JPEG
 }
+
+HostClipboard.platform = MyPasteboard()
+HostClipboardModule.register(in: runtime)
 ```
 
-- **Images:** it tells PNG from JPEG, refuses anything else, and finds,
-  reads and writes the files through `HostFiles`, off the main thread.
-- **Sizes:** it refuses more than `HostFiles`' largest transfer.
-- **Answers:** once each, on the main thread.
-- **Without a platform,** it keeps a clipboard of the app's own, in
-  memory. Copy and paste then work inside the app, and reach no other.
+A platform's `read` gives what's there of a kind, or `nil`. For text
+where a URL is all there is, it gives the URL's text. An image it
+converts to PNG, unless it's PNG or JPEG already.
+
+- **Images:** it tells PNG from JPEG by the first bytes, on the way in
+  and on the way out, and refuses anything else. It finds, reads and
+  writes the files through `HostFiles.snapshot()`, off the main thread,
+  so a picked document works.
+- **Sizes:** it refuses more than `maximumSize`, which is `Files`' own
+  default.
+- **Answers:** once each, on the main thread. A platform that answers
+  twice is heard once.
+- **Without a platform,** it keeps a clipboard of the app's own, a
+  `MemoryClipboard`. Copy and paste then work inside the app, and reach
+  no other.
 
 ## Capability
 
@@ -287,21 +311,40 @@ From each platform's documentation. None of it has been tried.
 - **The primary selection** on Linux: the middle-click paste.
 - **A share sheet.** That's with [Documents](Documents.md).
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `Pasteboard` for the guest's class, as UIKit and AppKit
-   have it; `Clipboard` for the contract; module `DynamicClipboard`.
-2. **No capability.** The alternative is one with no platform behind it,
-   so a store listing could say an app reads the clipboard.
-3. **Text, URLs and images only.** HTML is the next kind to add, for a
-   mail composer that isn't a web view.
-4. **No system paste button in the first version.** It would be a
-   `PasteButton` node the host draws with `UIPasteControl`, and it's the
-   only way past iOS's alert. Without it, an app's own Paste button
-   alerts on iOS each time, until the user allows the app in Settings.
-5. **No change count.** An app can't tell that what it copied is still
-   there, or that something new arrived.
-6. **`textSelection` is in,** though it needs no contract: it's the
-   other half of "let the user copy this".
-7. **A host with no clipboard keeps one for the app,** in memory. The
-   alternative fails every call with `unsupported`.
+`examples/ExampleClipboard` copies a sum, a link, a code and its logo,
+says what there is to paste without reading it, and pastes text, a link
+and an image, the image into a file. It runs as `App.wasm` under WasmKit
+(`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
+(`Packages/LinkedSlice`), against `HostClipboard` over a clipboard the
+test keeps.
+
+- `DynamicClipboardTests`: the contracts' keys and signatures, and the
+  guest's `Pasteboard` against a scripted host.
+- `RuntimeClipboardTests`: `HostClipboard` over a clipboard the test
+  fills and real files, driven from the guest: text and links, looking
+  without reading, refusals, a platform that asks first or answers
+  twice, sizes, images by bytes and by file, a picked document, and the
+  `async` forms.
+- `DynamicSwiftUITests`: `textSelection`.
+
+## Decided in review
+
+The design was approved as drafted, so these stand:
+
+- **Names:** `Pasteboard`, `Clipboard`, module `DynamicClipboard`.
+- **No capability.**
+- **Text, URLs and images only.**
+- **No system paste button.** An app's own Paste button alerts on iOS
+  each time, until the user allows the app in Settings.
+- **No change count.**
+- **`textSelection` is in.**
+- **A host with no clipboard keeps one for the app.**
+
+One thing changed in building it:
+
+- **`image(to:)` gives a `PasteboardImageType`,** not the documents
+  module's `ContentType`. An app declares every contract of the modules
+  it links, so borrowing that type would have made every app that copies
+  ask its host for the document pickers.
