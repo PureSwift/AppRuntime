@@ -58,6 +58,8 @@ let package = Package(
                 .product(name: "RuntimeAuthentication", package: "AppRuntime"),
                 .product(name: "DynamicCalendar", package: "AppRuntime"),
                 .product(name: "RuntimeCalendar", package: "AppRuntime"),
+                .product(name: "DynamicContacts", package: "AppRuntime"),
+                .product(name: "RuntimeContacts", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
