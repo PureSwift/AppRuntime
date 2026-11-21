@@ -191,8 +191,9 @@ system would.
 `examples/ExampleNotifications` is a set of kitchen timers: it asks the
 user's leave, schedules a notification for when each timer ends, answers
 the notification's buttons, and registers for pushes
-([Notifications](Documentation/Contracts/Notifications.md)). No host shows
-a notification yet, so it runs in the tests, against a centre kept in
+([Notifications](Documentation/Contracts/Notifications.md)). The Darwin
+host shows its notifications on iOS and macOS (DarwinAppRuntime's
+`DarwinNotifications`); in the tests, it runs against a centre kept in
 memory.
 
 `examples/ExampleDocuments` is a small text editor for the user's own
