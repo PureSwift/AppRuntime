@@ -17,6 +17,8 @@ import PackageDescription
 ///   `ExampleMedia`, whose players the test stands in for,
 ///   `ExampleText`, whose text views are texts the test types into,
 ///   `ExampleClipboard`, whose clipboard the test keeps,
+///   `ExampleSignIn`, whose browser the test plays, with its secrets in
+///   memory,
 ///   `ExampleDefaults`, whose settings are kept in a real file,
 ///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
@@ -72,6 +74,10 @@ let package = Package(
                 .product(name: "RuntimeText", package: "AppRuntime"),
                 .product(name: "DynamicClipboard", package: "AppRuntime"),
                 .product(name: "RuntimeClipboard", package: "AppRuntime"),
+                .product(name: "DynamicSecrets", package: "AppRuntime"),
+                .product(name: "RuntimeSecrets", package: "AppRuntime"),
+                .product(name: "DynamicAuthentication", package: "AppRuntime"),
+                .product(name: "RuntimeAuthentication", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
