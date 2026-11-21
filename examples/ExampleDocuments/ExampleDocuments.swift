@@ -12,7 +12,9 @@ import SwiftUI
 /// The example documents app: a small text editor for the user's own files.
 /// It opens a text file the user picks, or one the app is opened with;
 /// saves changes back to that file; saves a copy where the user says, and
-/// goes on editing the copy; and lists a folder the user picks.
+/// goes on editing the copy; lists a folder the user picks; and takes a
+/// photo the user picks from their photo library, with the system's photo
+/// picker.
 
 struct Entry: Identifiable {
     /// A name in the folder; a folder's ends in `/`.
@@ -167,6 +169,29 @@ final class Desk: @unchecked Sendable {
         }
     }
 
+    /// Asks for a photo from the user's library. The system shows its own
+    /// photos screen: the user is asked for no leave, and the app sees
+    /// nothing but what's picked, which it reads as any file.
+    func attachPhoto() {
+        picker.open([.image], from: .photoLibrary) { result in
+            switch result {
+            case .success(let photo?):
+                self.files.contents(at: photo.path) { read in
+                    switch read {
+                    case .success(let bytes):
+                        self.status = "Attached \(photo.name), \(bytes.count) bytes"
+                    case .failure(let error):
+                        self.report("read", error)
+                    }
+                }
+            case .success(nil):
+                self.status = "No photo picked"
+            case .failure(let error):
+                self.status = "Couldn't pick a photo: error \(error.rawValue)"
+            }
+        }
+    }
+
     func report(_ what: String, _ error: FileError) {
         status = "Couldn't \(what): error \(error.rawValue)"
     }
@@ -187,6 +212,7 @@ struct ContentView: View {
                 Button("Save") { desk.save() }
                 Button("Save a Copy") { desk.saveCopy() }
                 Button("Open Folder") { desk.openFolder() }
+                Button("Attach Photo") { desk.attachPhoto() }
             }
             ForEach(desk.entries) { entry in
                 Button(entry.id) { desk.open(entry: entry.id) }
