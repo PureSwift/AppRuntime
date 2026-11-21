@@ -29,8 +29,8 @@ builds and the first provider contracts:
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
-| Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
-| Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. No platform host has a clipboard behind it, so nothing has reached another app |
+| Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. The Darwin host holds texts in `UITextView` and `NSTextView`, with its own undo history, and shows them in `TextEditor` nodes (DarwinAppRuntime's `DarwinText`); no other host does yet |
+| Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
 | Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
 | Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
@@ -1344,20 +1344,21 @@ Each of these needs a decision, or is verified only as far as noted:
    device, and a muted player there still takes the sound from other
    apps. Then a
    queue for gapless albums, which both designs leave out.
-13. Text in the hosts (`Documentation/Contracts/TextEditor.md`): a
-   `TextPlatform` and engine over `UITextView` and `NSTextView` in the
-   Darwin host, over Cacao's text view in the Linux host, and Android's
-   and the browser's own host side, which need an undo history of their
-   own. Each host's renderer shows a `TextEditor` node's engine, honours
-   `focused`, and reports `focus`. Nothing has been typed into a real
-   text view, so undo grouping, input methods and large files are
-   untested. Then styled text, for syntax colouring.
-14. The clipboard in the hosts (`Documentation/Contracts/Clipboard.md`):
-   a `ClipboardPlatform` over `UIPasteboard` and `NSPasteboard` in the
-   Darwin host, over the compositor's selection in the Linux host, and
-   Android's and the browser's own host side. Each host's renderer makes
-   `textSelection` text selectable. What each platform does when an app
-   reads, the alert on iOS above all, is from documentation. Then a
+13. Text in the other hosts (`Documentation/Contracts/TextEditor.md`): an
+   engine over Cacao's text view in the Linux host, and Android's and the
+   browser's own host side, which need an undo history of their own. Each
+   host's renderer shows a `TextEditor` node's engine, honours `focused`,
+   and reports `focus`. The Darwin host has them (DarwinAppRuntime's
+   `DarwinText`), typed into on the iOS Simulator, where UIKit's undo
+   wouldn't keep its history and the host keeps its own; input methods
+   and large files are untested. Then styled text, for syntax colouring.
+14. The clipboard in the other hosts (`Documentation/Contracts/Clipboard.md`):
+   a `ClipboardPlatform` over the compositor's selection in the Linux
+   host, and Android's and the browser's own host side. Each host's
+   renderer makes `textSelection` text selectable. The Darwin host has
+   them (DarwinAppRuntime's `DarwinClipboard`); the iOS Simulator couldn't
+   show the paste alert, so what iOS does when the user allows a read
+   needs a device. Then a
    `PasteButton` node, which is the only way past that alert.
 15. Secrets and sign-in in the hosts
    (`Documentation/Contracts/Secrets.md`): a `SecretStore` over Keychain
