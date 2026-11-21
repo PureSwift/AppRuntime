@@ -1,9 +1,12 @@
 # Background tasks
 
 **Status:** implemented in this repository: the guest side, and the part of
-the host side every host written in Swift shares. No platform host runs
-anything in the background yet; each needs a scheduler ([For a
-host](#for-a-host)), and a renderer that can be made with no window.
+the host side every host written in Swift shares. The Darwin host
+schedules tasks with `BGTaskScheduler` on iOS and
+`NSBackgroundActivityScheduler` on macOS, and holds the app for an
+activity (DarwinAppRuntime's `DarwinBackgroundTasks`). Android and Linux
+need their own scheduler ([For a host](#for-a-host)), and a renderer that
+can be made with no window.
 
 Module `DynamicBackgroundTasks`: running the app's code while the app
 isn't in front. Work the system starts from time to time, such as fetching
@@ -174,7 +177,10 @@ then, and the delegate hears `.active`.
   frames, as whenever the app isn't active (§8).
 
 This asks one thing of every host: a `Renderer` that can be made before
-there's a window. Whether each host's can today wasn't checked. Nothing in
+there's a window. The Darwin host's can: it starts the guest as launch
+finishes, in the background or not, and keeps the tree until a window
+shows it, though a launch in the background hasn't been tried. The other
+hosts' weren't checked. Nothing in
 the guest or its frontend changed for it, and the tests' renderer, which
 has no window at all, is how the example runs.
 
@@ -193,7 +199,10 @@ it, both work by the rule above:
 What's built of these is the guest's side and the manifest's: the option
 on an action, which reaches the host as bit 4 of its options, and
 `wakesApp`, which the packager checks and puts in the bundle. Starting the
-app for them is each platform host's work.
+app for them is each platform host's work. The Darwin host starts the
+guest as for any launch, and its packager adds
+`UIBackgroundModes: remote-notification` for `wakesApp`; neither has been
+tried on a device.
 
 In both, the app has the time its handler takes to return, and no more.
 To go on after that, such as to fetch what the push announced, it begins
@@ -382,10 +391,10 @@ contract themselves.
 
 | | Notes |
 |---|---|
-| iOS | The host registers a launch handler for each of the manifest's tasks before launch finishes, natively, and forwards each to the delegate. `BGAppRefreshTaskRequest` and `BGProcessingTaskRequest`, with `earliestBeginDate`; a repeating request is submitted again as its run starts. `expirationHandler` is `didExpire`. An activity is `beginBackgroundTask`, and `timeRemaining` is `backgroundTimeRemaining`. `status` is `backgroundRefreshStatus`. An app the user swiped away isn't started until they open it again. |
+| iOS | The host registers a launch handler for each of the manifest's tasks before launch finishes, natively, and forwards each to the delegate. `BGAppRefreshTaskRequest` and `BGProcessingTaskRequest`, with `earliestBeginDate`; a repeating request is submitted again as its run starts. `expirationHandler` is `didExpire`. An activity is `beginBackgroundTask`, and `timeRemaining` is `backgroundTimeRemaining`. `status` is `backgroundRefreshStatus`. An app the user swiped away isn't started until they open it again. DarwinAppRuntime's `DarwinBackgroundTasks` does this. The iOS Simulator runs no task: a request there fails with `unsupported`. |
 | Android | `PeriodicWorkRequest` (15 minutes at least) or `OneTimeWorkRequest` with a delay, and `Constraints` for the network, charging, and an idle device for processing. The `Worker` starts the guest in the process with no activity, and `onStopped` is `didExpire`. Nothing on Android holds a process for a moment's work, so an activity there is `0`: the app runs on only while the system leaves it. `status` is `isBackgroundRestricted`. |
 | Linux | Below. |
-| macOS | A Mac app isn't suspended, so activities are never needed and `timeRemaining` is −1. `NSBackgroundActivityScheduler` runs tasks while the app is open; nothing starts a closed app. |
+| macOS | A Mac app isn't suspended, so activities are never needed and `timeRemaining` is −1. `NSBackgroundActivityScheduler` runs tasks while the app is open; nothing starts a closed app. DarwinAppRuntime's `DarwinBackgroundTasks`: an activity keeps the system from terminating the app, and repeating requests are scheduled again at launch; one that runs once doesn't survive the app quitting. |
 | Browser | `status` is `unavailable`, `submit` fails with `unsupported`, and an activity is `0`. A browser's periodic sync runs in a service worker, where the guest isn't. |
 
 ### Linux
@@ -426,9 +435,14 @@ of an hour, withdraws that, and asks for time to finish a save.
   WasmKit (`Packages/RuntimeWasm`), and as a sealed native slice and
   wasm2c output (`Packages/LinkedSlice`).
 
-Everything is tested against a scheduler in memory, with the test standing
-for the system. No system has started a guest in the background, and the
-platforms' limits above are from their documentation.
+Everything here is tested against a scheduler in memory, with the test
+standing for the system. The Darwin host's scheduler is written
+(DarwinAppRuntime's `DarwinBackgroundTasks`), and was tried with
+`ExampleBackground` on the iOS Simulator: its request reached
+`BGTaskScheduler`, which refuses every request there, and its activity
+ran out of time in the background and told the guest. No system has run
+a task or started a guest in the background yet; that needs a device.
+The platforms' limits above are from their documentation.
 
 ## Not in this design
 
