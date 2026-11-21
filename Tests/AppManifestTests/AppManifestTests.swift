@@ -86,6 +86,24 @@ import AppManifest
         #expect(Capability.notifications(wakesApp: true).options == ["wakesApp": "true"])
     }
 
+    @Test func signInSchemesAndSecretsEncode() {
+        let app = App(
+            id: "org.example.Mail", name: "Mail", version: "1", build: 1,
+            capabilities: [.secrets],
+            authenticationSchemes: ["org.example.mail"],
+            platforms: [.linux]
+        )
+        #expect(app.manifestJSON() == #"""
+            {"authenticationSchemes":["org.example.mail"],"build":1,\#
+            "capabilities":[{"name":"secrets","options":{}}],\#
+            "format":1,"id":"org.example.Mail","languages":["en"],"name":{"value":"Mail"},\#
+            "platforms":[{"name":"linux"}],"version":"1"}
+            """#)
+        #expect(Capability.secrets.usage == nil, "nothing is asked")
+        let plain = App(id: "org.example.Mail", name: "Mail", version: "1", build: 1, platforms: [.linux])
+        #expect(!plain.manifestJSON().contains("authenticationSchemes"))
+    }
+
     @Test func audioDeclaresBackgroundPlayback() {
         #expect(Capability.audio == Capability("audio"))
         #expect(Capability.audio(background: true).options == ["background": "true"])
