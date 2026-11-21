@@ -2,8 +2,13 @@
 
 **Status:** implemented in this repository with
 [MediaPlayer](MediaPlayer.md), which it adds to: the guest side, and the
-part of the host side every host written in Swift shares. No platform host
-shows what's playing or plays in the background yet.
+part of the host side every host written in Swift shares. The Darwin host
+shows what's playing in `MPNowPlayingInfoCenter`, answers
+`MPRemoteCommandCenter`'s buttons, and plays on in the background on iOS
+(DarwinAppRuntime's `DarwinMedia`). On the iOS Simulator `ExampleMedia`
+went on to its next songs from the background; the lock screen's card and
+the system's buttons weren't checked there. Android, Linux and the browser
+need their own.
 
 Three things a music or podcast app needs that the media player design
 left out, and that every platform ties together:
@@ -216,7 +221,7 @@ nothing. The option reaches a host in the bundle's `Info.plist`, as
 
 | | Notes |
 |---|---|
-| iOS / macOS | The audio session's category is `playback`, as the player design says. With `background`, the session stays active while a background player plays. `MPNowPlayingInfoCenter` is filled from the info and the player: elapsed time, duration and rate are set at each state change, not on a timer. `MPRemoteCommandCenter`'s play, pause, toggle, change-position and skip commands act on the `AVPlayer`; next and previous go to the delegate. Interruption notifications pause, and resume when they say to. |
+| iOS / macOS | The audio session's category is `playback`, as the player design says. With `background`, the session stays active while a background player plays. `MPNowPlayingInfoCenter` is filled from the info and the player: elapsed time, duration and rate are set at each state change, not on a timer. `MPRemoteCommandCenter`'s play, pause, toggle, change-position and skip commands act on the `AVPlayer`; next and previous go to the delegate. Interruption notifications pause, and resume when they say to. DarwinAppRuntime's `DarwinMedia` does this; a muted player still makes the session active, which takes the sound from other apps. |
 | Android | Media3's `MediaSessionService` holds the `ExoPlayer` and the session, which gives the notification, the lock screen and media buttons together. Play, pause and seek are the session's own; next and previous are forwarded. Audio focus pauses and resumes. |
 | Linux | The host owns `org.mpris.MediaPlayer2.<app id>` on the session bus: `Metadata`, `PlaybackStatus`, `Position`, and `Play`, `Pause`, `Seek`, `SetPosition`, `Next`, `Previous`. The shell shows it and sends the media keys. Artwork is written to a file the shell can read and named by `mpris:artUrl`. The shell and the background service leave an app alone while its status is playing. |
 | Browser | `navigator.mediaSession`: `metadata` with the artwork as a blob URL, `setPositionState`, and action handlers for `play`, `pause`, `seekto`, `seekbackward`, `seekforward`, `nexttrack`, `previoustrack`. `canPlayInBackground` is true: a tab that's playing goes on. |
