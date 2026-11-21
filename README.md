@@ -39,6 +39,8 @@ don't depend on WasmKit.
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
 | `DynamicMedia` | Media players: a song, a podcast or a video the host decodes and shows. The `MediaPlayback` contract, the guest's `MediaPlayer`, `VideoPlayer` and `AudioPlayer`, what's playing for the lock screen, and playing on in the background | yes |
 | `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
+| `DynamicContacts` | The people in the user's address book, as the system keeps them: the Contacts framework's place. The `Contacts` contract and the guest's `ContactStore` and `Contact` | yes |
+| `RuntimeContacts` | `HostContacts`: the contacts contract over a host's own address book, and one in memory for tests | host |
 | `DynamicCalendar` | The user's calendars and events, as the system keeps them: EventKit's place. The `Calendars` contract and the guest's `EventStore`, `Event` and `RecurrenceRule` | yes |
 | `RuntimeCalendar` | `HostCalendars`: the calendar contract over a host's own store, and a store in memory that expands repeating events | host |
 | `DynamicSecrets` | An app's secrets, kept encrypted by the system: a token, a password. The `Secrets` contract and the guest's `Keychain` | yes |
@@ -207,6 +209,11 @@ of what's on, adds a weekly meeting, moves one occurrence and cancels the
 rest ([Calendar events](Documentation/Contracts/Calendars.md)). No host
 has a calendar store behind it yet, so the tests keep the events in
 memory.
+
+`examples/ExampleContacts` is an address book: it lists everyone, finds
+people as a name is typed, and adds, changes and removes someone
+([Contacts](Documentation/Contracts/Contacts.md)). No host has an address
+book behind it yet, so the tests keep the people in memory.
 
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
@@ -415,7 +422,8 @@ its task, `ExampleMedia` the music player, with the test standing in for
 the players, `ExampleText` the editor, with the test typing into its
 texts, `ExampleClipboard` the copying and pasting, with the test keeping
 the clipboard, `ExampleSignIn` the account, with the test playing the
-browser, `ExampleCalendar` the agenda, with its events in memory, `ExampleDefaults` the settings screen, with a real settings
+browser, `ExampleCalendar` the agenda, with its events in memory,
+`ExampleContacts` the address book, with its people in memory, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
