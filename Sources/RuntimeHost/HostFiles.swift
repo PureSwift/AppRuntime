@@ -156,32 +156,37 @@ public final class HostFiles: Files {
     /// loaded into an editor, say. Take it on the main thread, where the
     /// grants are; use it on any one thread.
     public static func snapshot() -> Snapshot {
-        Snapshot(system: shared().system)
+        if let wholeFiles {
+            return Snapshot(access: wholeFiles)
+        }
+        return Snapshot(access: shared().system)
     }
+
+    /// The files a snapshot reads and writes, for a host whose files aren't
+    /// all `HostFiles`': an Android app's bundle is its APK's assets, and a
+    /// document the user picked a content URI. `nil`, the default, is
+    /// `HostFiles`' own.
+    nonisolated(unsafe) public static var wholeFiles: (any WholeFileAccess)?
 
     /// `Files`' reads and writes, with the grants there were when it was
     /// taken.
     public struct Snapshot: Sendable {
 
-        let system: FileSystem
+        let access: any WholeFileAccess
 
         /// The file's size in bytes.
         public func size(_ directory: Int32, path: String) throws(FileError) -> Int64 {
-            let attributes = try system.attributes(directory, path)
-            guard attributes.kind == .file else {
-                throw .isDirectory
-            }
-            return attributes.size
+            try access.size(directory, path: path)
         }
 
         /// The whole file.
         public func contents(_ directory: Int32, path: String) throws(FileError) -> [UInt8] {
-            try system.read(directory, path, offset: 0, length: -1)
+            try access.contents(directory, path: path)
         }
 
         /// Replaces the file, atomically where `Files` can.
         public func write(_ data: [UInt8], to directory: Int32, path: String) throws(FileError) {
-            try system.write(directory, path, data: data, mode: FileWriteMode.replace.rawValue)
+            try access.write(data, to: directory, path: path)
         }
     }
 
@@ -922,5 +927,41 @@ struct FileSystem: Sendable {
             // Links and special files aren't copied.
             break
         }
+    }
+}
+
+/// Whole files as `Files` names them, read and written off the main
+/// thread from any one thread at a time: what `HostFiles.snapshot()` uses.
+/// A host whose files aren't all `HostFiles`' sets `HostFiles.wholeFiles`
+/// to its own, with `Files`' rules and errors.
+public protocol WholeFileAccess: Sendable {
+
+    /// The file's size in bytes; `isDirectory` for a directory.
+    func size(_ directory: Int32, path: String) throws(FileError) -> Int64
+
+    /// The whole file.
+    func contents(_ directory: Int32, path: String) throws(FileError) -> [UInt8]
+
+    /// Replaces the file, atomically where the host can, making the
+    /// directories above it.
+    func write(_ data: [UInt8], to directory: Int32, path: String) throws(FileError)
+}
+
+extension FileSystem: WholeFileAccess {
+
+    func size(_ directory: Int32, path: String) throws(FileError) -> Int64 {
+        let attributes = try attributes(directory, path)
+        guard attributes.kind == .file else {
+            throw .isDirectory
+        }
+        return attributes.size
+    }
+
+    func contents(_ directory: Int32, path: String) throws(FileError) -> [UInt8] {
+        try read(directory, path, offset: 0, length: -1)
+    }
+
+    func write(_ data: [UInt8], to directory: Int32, path: String) throws(FileError) {
+        try write(directory, path, data: data, mode: FileWriteMode.replace.rawValue)
     }
 }
