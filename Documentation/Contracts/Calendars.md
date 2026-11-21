@@ -1,6 +1,9 @@
 # Calendar events
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares. No platform host has
+a calendar store behind it yet, so no real calendar has been read: the
+tests keep the events in memory.
 
 Module `DynamicCalendar`: the user's calendars and the events in them, as
 the system keeps them. EventKit's place.
@@ -24,9 +27,13 @@ Guest-side Swift:
 - **`Event`**, **`EventCalendar`**: values, as the app reads and writes
   them.
 - **`RecurrenceRule`**, `EventAlarm`, `EventSpan`, `EventAvailability`,
-  `EventStoreAccess`, `EventStoreError`.
+  `EventStoreAccess`, `EventStoreError`, and `CivilDate`, for the days an
+  all-day event is on.
 
 The render IR doesn't change.
+
+Host-side Swift, in `RuntimeCalendar`: `HostCalendars`, the contract over
+a host's `CalendarStore`, and `MemoryCalendarStore`.
 
 ## What shapes it
 
@@ -89,6 +96,8 @@ try await store.remove(next, span: .futureEvents)
   own identifier afterwards.
 - **`Permissions` works too,** as for any capability. `.writeOnly` is its
   `limited`.
+- **Asking has no `async throws`:** `requestAccess()` gives the level the
+  app has afterwards, whatever happened.
 
 ### Calendars
 
@@ -138,7 +147,13 @@ let events = try await store.events(from: start, to: end, in: [work, home])
 
 - **An all-day event** has `start` at 00:00 UTC of its first day and
   `end` at 00:00 UTC of the day after its last. It's on those days in
-  every time zone. Format it with a UTC `DateFormat`.
+  every time zone. Format it with a UTC `DateFormat`. One given loosely
+  is rounded out to whole days when it's saved.
+- **`CivilDate`** turns a year, month and day into such a moment and
+  back, and says the weekday: a guest has no Foundation to ask.
+- **An `Event` is a value.** It can be kept, compared and copied. To
+  change one the store has, change the value and save it: its `id` and
+  `occurrence` say which event it is.
 - **A `DatePicker`'s value is seconds;** these are milliseconds.
 
 ### Saving and removing
@@ -169,22 +184,24 @@ RecurrenceRule(.daily)
 RecurrenceRule(.weekly, interval: 2, daysOfWeek: [.monday, .wednesday])
 RecurrenceRule(.monthly, daysOfMonth: [1, 15], end: .until(millisecondsSince1970))
 RecurrenceRule(.monthly, daysOfWeek: [.friday], setPositions: [-1])     // the last Friday
+RecurrenceRule(.monthly, daysOfWeek: [.nth(2, .tuesday)])               // the second Tuesday
 RecurrenceRule(.yearly, end: .count(5))
 RecurrenceRule(rrule: "FREQ=WEEKLY;BYDAY=TU;COUNT=10")
 ```
 
 | `RecurrenceRule` | |
 |---|---|
-| `frequency` | `.daily`, `.weekly`, `.monthly`, `.yearly` |
+| `frequency` | `.daily`, `.weekly`, `.monthly`, `.yearly`; and RFC 5545's `.hourly`, `.minutely` and `.secondly`, which a store may refuse |
 | `interval` | every how many: 1 or more |
 | `daysOfWeek`, `daysOfMonth`, `monthsOfYear`, `setPositions` | which ones, as RFC 5545 has them |
 | `end` | `.never`, `.count(_:)`, `.until(_:)` |
 | `rrule` | the rule as text |
 
-- **`init?(rrule:)` reads any rule,** and keeps the text of parts it has
-  no property for, so saving it back loses nothing.
+- **`init?(rrule:)` reads any rule,** and keeps the parts it has no
+  property for in `otherParts`, so saving it back loses nothing.
 - **A store may refuse a rule it can't hold:** `unsupportedRecurrence`.
-  The six forms above work everywhere.
+  The forms above work everywhere.
+- **`.until` is to the second.** A rule's text says no finer.
 
 ### Changes
 
@@ -217,6 +234,11 @@ public protocol Calendars: AnyObject {
 
     static func shared() -> Self
 
+    /// An `EventStoreAccess` raw value. Never asks.
+    func access() -> Int32
+    /// Answered by `didChangeAccess`.
+    func requestAccess(_ callback: CalendarCallback)
+
     func setDelegate(_ delegate: CalendarsDelegate?)
 
     /// Answered by `didListCalendars`.
@@ -230,7 +252,8 @@ public protocol Calendars: AnyObject {
     /// Answered by `didFindEvent`.
     func event(_ identifier: String, callback: CalendarCallback)
 
-    /// A new event, in no calendar yet, to fill in and save.
+    /// An event to fill in and save: a new one, until it's told which
+    /// event it is.
     func makeEvent() -> CalendarEventRecord
 }
 
@@ -268,6 +291,9 @@ public protocol CalendarEventRecord: AnyObject {
     /// An `EventAvailability` raw value.
     func availability() -> Int32
 
+    /// Which event this is, to change one the store has; -1 for no
+    /// occurrence.
+    func setIdentity(_ identifier: String, occurrence: Int64)
     func setCalendar(_ identifier: String)
     func setText(_ title: String, location: String, notes: String, url: String)
     func setDates(_ start: Int64, end: Int64, allDay: Bool, timeZone: String)
@@ -285,6 +311,7 @@ public protocol CalendarEventRecord: AnyObject {
 @DynamicCallback("org.pureswift.calendar.Callback")
 public protocol CalendarCallback: AnyObject {
     func didComplete()
+    func didChangeAccess(_ access: Int32)
     func didListCalendars(_ calendars: [CalendarRecord])
     func didFindCalendar(_ calendar: CalendarRecord?)
     func didListEvents(_ events: [CalendarEventRecord])
@@ -299,9 +326,10 @@ public protocol CalendarsDelegate: AnyObject {
 }
 ```
 
-A record is the host's object. The guest reads it into an `Event` value
-when it arrives, and keeps the record beside the value, so a save changes
-the event the host already holds and a new event starts from `makeEvent`.
+A record is the host's object. The guest reads one into an `Event` value
+when it arrives, and lets it go. To save, it asks for a record with
+`makeEvent`, fills it in from the value, identity included, and tells it
+to save: the host finds the event by its identifier.
 
 ### Rules every host follows
 
@@ -333,28 +361,44 @@ the event the host already holds and a new event starts from `makeEvent`.
 
 ## The shared host
 
-`HostCalendars`, in a new `RuntimeCalendar`, over a host's
-`CalendarStore`, which works in plain values:
+`HostCalendars`, in `RuntimeCalendar`, over a host's `CalendarStore`,
+which works in the guest's own values:
 
 ```swift
-public protocol CalendarStore: AnyObject {           // any one thread at a time
-    func calendars() throws(EventStoreError) -> [HostCalendar]
-    func defaultCalendar() throws(EventStoreError) -> HostCalendar?
-    func events(from start: Int64, to end: Int64, in calendars: [String]) throws(EventStoreError) -> [HostEvent]
-    func event(withID identifier: String) throws(EventStoreError) -> HostEvent?
-    func save(_ event: HostEvent, span: EventSpan) throws(EventStoreError) -> HostEvent
-    func remove(_ event: HostEvent, span: EventSpan) throws(EventStoreError)
+public protocol CalendarStore: AnyObject, Sendable {   // off the main thread, one call at a time
+    func calendars() throws(EventStoreError) -> [EventCalendar]
+    func defaultCalendar() throws(EventStoreError) -> EventCalendar?
+    func events(from start: Int64, to end: Int64, in calendars: [String]) throws(EventStoreError) -> [Event]
+    func event(withID identifier: String) throws(EventStoreError) -> Event?
+    func save(_ event: Event, span: EventSpan) throws(EventStoreError) -> Event
+    func remove(_ event: Event, span: EventSpan) throws(EventStoreError)
 }
 
 HostCalendars.store = MyEventStore()
-HostCalendars.access = .full                         // what the user granted
-HostCalendars.storeChanged()                         // from the platform
+HostCalendars.declaredAccess = .full               // RTCapabilityOptions.calendars.access
+HostCalendars.access = .notDetermined              // what the platform says now
+HostCalendars.requester = { completion in … }       // the platform's question
+HostCalendarsModule.register(in: runtime)
+
+HostCalendars.storeChanged()                       // from the platform
 ```
 
-- It makes the records, checks access before every call, checks dates,
-  ranges and spans, sorts, runs the store off the main thread and
-  answers on it.
-- It gathers a burst of changes into one `didChange`.
+A store gets a `RecurrenceRule`, already read from its text, so a host
+over EventKit turns one into an `EKRecurrenceRule` without parsing.
+
+- **Access:** what the user granted, capped by what the manifest
+  declares, and checked before every call. The user is asked once, and a
+  requester that answers twice is heard once. A write-only save gives
+  back an event with no identifier.
+- **Before a store sees a save:** the dates, the rule, the calendar it's
+  going to and the one it's in, and for one occurrence that the rule is
+  unchanged. An all-day event is rounded out to whole days.
+- **Ranges** over four years, or backwards, are refused. What a store
+  returns is sorted by start, title and identifier.
+- **Threads:** the store is called off the main thread in order, and
+  every answer is on it.
+- **Changes:** a burst of `storeChanged` is one `didChange`, and this
+  app's own saves and removals are said too.
 - **`MemoryCalendarStore`** is a store in memory that expands rules
   itself: for tests, and as the rules in their plainest form. It is not
   a default. Without a store, every call fails with `unavailable`.
@@ -401,24 +445,53 @@ From each platform's documentation. None of it has been tried.
 - **Reading or writing `.ics` files.** That's a guest library.
 - **What changed.** `didChange` says only that something did.
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule`:
-   EventKit's, without the prefix, and `EventCalendar` since `Calendar`
-   is Foundation's. Module `DynamicCalendar`.
-2. **The system syncs, and the Calendar app is its client.** This
-   reverses the core apps plan, where the app kept its events and spoke
-   CalDAV. It leaves Linux needing a calendar service in the host.
-3. **A rule crosses as `RRULE` text.** The alternative is a structure
-   like `EKRecurrenceRule`'s on the wire, which Android would have to
-   parse text into anyway.
-4. **Times are milliseconds since 1970,** as `DateFormat` and
-   notifications have them. `DatePicker` uses seconds, which is the odd
-   one out.
-5. **Two levels of access,** chosen in the manifest.
-6. **No attendees** in the first version.
-7. **No add-event sheet** in the first version.
-8. **Calendars are read-only as a list.** The Calendar app can't make a
-   calendar, so a user with no account needs one made in the system's
-   settings, or a local one the host provides.
-9. **No stand-in store.** A host without one answers `unavailable`.
+`examples/ExampleCalendar` is a month's agenda: it asks for access, lists
+each occurrence, adds a weekly meeting and a day off, moves one
+occurrence, cancels the rest of a series, and looks again when the store
+says it changed. It runs as `App.wasm` under WasmKit
+(`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
+(`Packages/LinkedSlice`), against `HostCalendars` over a store in memory.
+
+- `DynamicCalendarTests`: the contracts' keys and signatures, rules as
+  `RRULE` text both ways, `CivilDate`, and the guest's `EventStore`
+  against a scripted host.
+- `RuntimeCalendarTests`: `HostCalendars` over `MemoryCalendarStore`, from
+  the guest: access and its two levels, calendars, saving and finding,
+  ranges, what's refused, all-day events, each kind of rule, a time zone
+  across a clock change, one occurrence changed and removed, this and
+  what follows, rules a store can't hold, a burst of changes, and the
+  `async` forms.
+- `AppManifestTests` and `Scripts/test_manifest.py`: `.calendars` and its
+  two levels.
+
+## Decided in review
+
+The design was approved as drafted, so these stand:
+
+- **Names:** `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule`;
+  module `DynamicCalendar`.
+- **The system syncs, and the Calendar app is its client.** Linux needs a
+  calendar service in the host, which isn't decided.
+- **A rule crosses as `RRULE` text.**
+- **Times are milliseconds since 1970.**
+- **Two levels of access,** chosen in the manifest.
+- **No attendees.**
+- **No add-event sheet.**
+- **Calendars are read-only as a list.**
+- **No stand-in store.**
+
+Three things changed in building it:
+
+- **The store has its own `access` and `requestAccess`,** as
+  notifications and location do, beside the built-in `Permissions`. The
+  draft left asking to `Permissions` alone, which has no word for
+  write-only but `limited`.
+- **An `Event` doesn't keep its record.** The draft had the guest hold
+  the host's record beside each value. A value that holds an object
+  can't be compared or kept in an app's state, so the event's identity
+  crosses with it instead (`setIdentity`).
+- **`RecurrenceRule.Frequency` has all seven of RFC 5545's.** With only
+  the four calendars use, an hourly rule from a store would read as no
+  rule, and saving the event would have removed it.
