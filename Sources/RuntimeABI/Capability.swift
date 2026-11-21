@@ -21,6 +21,12 @@ public extension Capability {
 
     static var camera: Capability { Capability("camera") }
 
+    /// Recording sound. A video with sound needs it beside `camera`.
+    static var microphone: Capability { Capability("microphone") }
+
+    /// The photos and videos the system keeps for the user.
+    static var photoLibrary: Capability { Capability("photoLibrary") }
+
     static var location: Capability { Capability("location") }
 
     static var notifications: Capability { Capability("notifications") }
