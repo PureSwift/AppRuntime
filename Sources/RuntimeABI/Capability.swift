@@ -42,6 +42,9 @@ public extension Capability {
 
     /// The platform's file pickers. It prompts for nothing.
     static var userFiles: Capability { Capability("userFiles") }
+
+    /// The system's store for an app's secrets. It prompts for nothing.
+    static var secrets: Capability { Capability("secrets") }
 }
 
 extension Capability: ExpressibleByStringLiteral {
