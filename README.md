@@ -39,6 +39,8 @@ don't depend on WasmKit.
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
 | `DynamicMedia` | Media players: a song, a podcast or a video the host decodes and shows. The `MediaPlayback` contract, the guest's `MediaPlayer`, `VideoPlayer` and `AudioPlayer`, what's playing for the lock screen, and playing on in the background | yes |
 | `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
+| `DynamicClipboard` | The system's clipboard, for an app's own Copy and Paste: text, a link, an image. The `Clipboard` contract and the guest's `Pasteboard` | yes |
+| `RuntimeClipboard` | `HostClipboard`: the clipboard contract over a host's own clipboard, with image files | host |
 | `DynamicText` | Text the host holds and the user edits: a file in an editor, a message. The `TextStorage` contract, the guest's `TextBuffer`, and the `TextEditor` view | yes |
 | `RuntimeText` | `HostTextStorage`: the text contract over a host's own text views, with files, encodings, line endings and search | host |
 | `DynamicBackgroundTasks` | Running while the app isn't in front: tasks the system starts from time to time, and time to finish something. The `BackgroundTasks` contract and the guest's `BackgroundTaskScheduler` | yes |
@@ -180,6 +182,11 @@ into a buffer the host holds, says where the caret is, finds and replaces,
 undoes and saves ([Text editing](Documentation/Contracts/TextEditor.md)).
 No host has a text view behind it yet, so the tests type into texts kept
 in memory.
+
+`examples/ExampleClipboard` copies a sum, a link and its logo, says what
+there is to paste without reading it, and pastes text, a link and an image
+([Clipboard](Documentation/Contracts/Clipboard.md)). No host has a
+clipboard behind it yet, so the tests keep one.
 
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
@@ -385,7 +392,8 @@ pickers, `ExampleNotifications` the timers, with the test keeping the
 notification centre, `ExampleBackground` the feed, with the test running
 its task, `ExampleMedia` the music player, with the test standing in for
 the players, `ExampleText` the editor, with the test typing into its
-texts, `ExampleDefaults` the settings screen, with a real settings
+texts, `ExampleClipboard` the copying and pasting, with the test keeping
+the clipboard, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
