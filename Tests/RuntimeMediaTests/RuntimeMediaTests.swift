@@ -213,6 +213,33 @@ final class QuietPlatform: MediaPlatform {
         #expect(failures.last == .decoding)
     }
 
+    @Test func aHostWhoseFilesArentPathsSaysWhereOneIs() throws {
+        // As an Android host's bundle is its APK's assets.
+        HostMediaPlayback.findFile = { directory, path throws(FileError) in
+            guard directory == FileDirectory.bundle.rawValue else {
+                return try HostMediaPlayback.findPath(directory, path)
+            }
+            guard path == "songs/one.mp3" else {
+                throw .notFound
+            }
+            return "asset:///rt/resources/" + path
+        }
+        let player = MediaPlayer()
+        var failures: [MediaError.Code] = []
+        player.onFailure = { failures.append($0.code) }
+        player.load(.file(.bundle / "songs/one.mp3"))
+        let engine = try #require(platform.engines.last)
+        #expect(engine.source == .file(path: "asset:///rt/resources/songs/one.mp3"))
+        player.load(.file(.bundle / "songs/two.mp3"))
+        #expect(failures == [.notFound])
+        player.load(.file(.documents / "songs/one.m4a"))
+        #expect(engine.source == .file(path: root.appendingPathComponent("Container/Documents/songs/one.m4a").path))
+        HostMediaPlayback.reset()
+        HostMediaPlayback.platform = platform
+        player.load(.file(.bundle / "songs/one.mp3"))
+        #expect(failures.last == .notFound, "reset finds paths again")
+    }
+
     @Test func aURLNeedsTheNetworkAndAScheme() throws {
         let player = MediaPlayer()
         player.load(.url("HTTPS://example.com/a.mp4"))
