@@ -80,6 +80,13 @@ public extension Capability {
         Capability("backgroundTasks")
     }
 
+    /// The user's calendars and the events in them. `.writeOnly` is for
+    /// an app that only adds events, such as a mail app with invitations:
+    /// it reads none.
+    static func calendars(_ access: CalendarAccess = .full, usage: ManifestText) -> Capability {
+        Capability("calendars", usage: usage, options: ["access": access.rawValue])
+    }
+
     /// Keeping secrets in the system's store: a token, a password. It
     /// prompts for nothing.
     static var secrets: Capability {
@@ -142,6 +149,16 @@ public extension Capability {
 }
 
 /// `Capability.location(_:usage:)`.
+/// How much of the user's calendars an app asks for.
+public enum CalendarAccess: String, Sendable {
+
+    /// Reading events and changing them.
+    case full
+
+    /// Adding events, and reading none.
+    case writeOnly
+}
+
 public enum LocationAccess: String, Sendable {
 
     /// While the app is in use.
