@@ -194,6 +194,26 @@ class CheckTests(unittest.TestCase):
                                                      {"Identifier": "org.example.App.index", "Kind": "processing"}])
         self.assertNotIn("RTBackgroundTasks", manifest.info_plist(sample(), EXAMPLE / "resources", None))
 
+    def test_calendars(self):
+        store = [dict(name="org.pureswift.calendar.Calendars", kind="contract", version=1,
+                      capability="calendars", methods=[])]
+        usage = {"value": "Shows your events."}
+        for access in ("full", "writeOnly"):
+            declared = {"name": "calendars", "options": {"access": access}, "usage": usage}
+            errors, _ = self.check(sample(capabilities=[declared]), contracts=store)
+            self.assertFalse(errors, errors)
+        errors, _ = self.check(sample(capabilities=[
+            {"name": "calendars", "options": {"access": "everything"}, "usage": usage}]), contracts=store)
+        self.assertIn("calendars access 'everything' isn't full or writeOnly", errors)
+        errors, _ = self.check(sample(capabilities=[{"name": "calendars", "options": {"access": "full"}}]),
+                               contracts=store)
+        self.assertIn("calendars needs a usage text: the user is asked, and iOS shows it", errors)
+
+        info = manifest.info_plist(sample(capabilities=[
+            {"name": "calendars", "options": {"access": "writeOnly"}, "usage": usage}]), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTCapabilityOptions"], {"calendars": {"access": "writeOnly"}})
+        self.assertEqual(info["RTCapabilityUsage"], {"calendars": "RTCapabilityUsage.calendars"})
+
     def test_authentication_schemes(self):
         secrets = [dict(name="org.pureswift.secrets.Secrets", kind="contract", version=1,
                         capability="secrets", methods=[])]
