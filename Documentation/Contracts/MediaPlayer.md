@@ -2,9 +2,10 @@
 
 **Status:** implemented in this repository: the guest side, and the part of
 the host side every host written in Swift shares, with
-[NowPlaying](NowPlaying.md)'s additions. No platform host has players yet,
-so nothing has been decoded or heard; each needs an engine ([The shared
-host](#the-shared-host)).
+[NowPlaying](NowPlaying.md)'s additions. The Darwin host plays through
+`AVPlayer` on iOS and macOS, and shows a `VideoPlayer` node in AVKit's
+player view (DarwinAppRuntime's `DarwinMedia`). Android, Linux and the
+browser need their own engine ([The shared host](#the-shared-host)).
 
 Module `DynamicMedia`: playing a song, a podcast or a video, from the
 bundle, the app's files or the network. The host decodes, keeps time and
@@ -487,9 +488,13 @@ plays on in the background, and shows a second player's picture.
   (`Packages/RuntimeWasm`), and as a sealed native slice and wasm2c output
   (`Packages/LinkedSlice`).
 
-Everything is tested against an engine in memory. No file has been
-decoded and no sound played: the formats, the platforms' behaviour and
-the timing above are from each platform's documentation.
+Everything here is tested against an engine in memory. The Darwin host's
+engine is written (DarwinAppRuntime's `DarwinMedia`): its tests play WAV
+files through `AVPlayer` on macOS, and `ExampleMedia` played its MP3s on
+the iOS Simulator. A video's picture, interruptions and unplugged
+headphones weren't tried there, and nothing has been checked on a
+device. The other platforms' behaviour and timing above are from their
+documentation.
 
 ## Decided in review
 
