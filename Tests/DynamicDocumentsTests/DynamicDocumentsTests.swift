@@ -66,6 +66,11 @@ final class ScriptedDocuments: Documents {
         callbacks.append(callback)
     }
 
+    func pickPhotos(_ kinds: Int32, multiple: Bool, callback: any DocumentCallback) {
+        calls.append("pickPhotos \(kinds) \(multiple)")
+        callbacks.append(callback)
+    }
+
     func pickFolder(_ access: Int32, callback: any DocumentCallback) {
         calls.append("pickFolder \(access)")
         callbacks.append(callback)
@@ -89,6 +94,33 @@ final class ScriptedDocuments: Documents {
         calls.append(delegate == nil ? "setDelegate nil" : "setDelegate")
         self.delegate = delegate
     }
+}
+
+/// A host's documents from before the photo picker: it implements what
+/// version 1 had, and no more.
+final class FilesOnlyDocuments: Documents {
+
+    var calls: [String] = []
+
+    static func shared() -> FilesOnlyDocuments { FilesOnlyDocuments() }
+
+    func pick(_ types: [String], multiple: Bool, access: Int32, callback: any DocumentCallback) {
+        calls.append("pick \(types) \(multiple) \(access)")
+    }
+
+    func pickFolder(_ access: Int32, callback: any DocumentCallback) { }
+    func export(_ directory: Int32, path: String, name: String, callback: any DocumentCallback) { }
+    func resolve(_ bookmark: String, callback: any DocumentCallback) { }
+    func forget(_ bookmark: String) { }
+    func setDelegate(_ delegate: (any DocumentsDelegate)?) { }
+}
+
+/// A callback nothing answers.
+final class UnheardCallback: DocumentCallback {
+    func didPick(_ documents: [any DocumentGrant]) { }
+    func didComplete() { }
+    func didBookmark(_ bookmark: String) { }
+    func didFail(_ error: Int32) { }
 }
 
 /// Records what a view graph sends.
@@ -180,11 +212,13 @@ struct DeskView: View {
         #expect(method(documents, "shared")?.kind == .constructor)
         #expect(method(documents, "pick:multiple:access:callback:")?.signature == Signature("(OZIO)V"))
         #expect(method(documents, "pickFolder:callback:")?.signature == Signature("(IO)V"))
+        #expect(method(documents, "pickPhotos:multiple:callback:")?.signature == Signature("(IZO)V"))
+        #expect(documents.version == 2, "the photo picker came in version 2")
         #expect(method(documents, "export:path:name:callback:")?.signature == Signature("(IOOO)V"))
         #expect(method(documents, "resolve:callback:")?.signature == Signature("(OO)V"))
         #expect(method(documents, "forget:")?.signature == Signature("(O)V"))
         #expect(method(documents, "setDelegate:")?.signature == Signature("(O)V"))
-        #expect(documents.methods.count == 7)
+        #expect(documents.methods.count == 8)
     }
 
     @Test func aGrantSaysWhichDirectoryItIs() {
@@ -248,6 +282,64 @@ struct DeskView: View {
         #expect(host.calls.last == "pick [] false 1")
         picker.open([.png, .item]) { (_: Result<Document?, DocumentError>) in }
         #expect(host.calls.last == "pick [] false 0", "anything is no type in particular")
+    }
+
+    // MARK: The photo picker
+
+    @Test func aPhotoPickerIsAskedForImagesVideosOrBoth() throws {
+        picker.open([.image], from: .photoLibrary) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls == ["pickPhotos 1 false"])
+        picker.open([.movie], from: .photoLibrary, allowsMultiple: true) { _ in }
+        #expect(host.calls.last == "pickPhotos 2 true")
+        picker.open(from: .photoLibrary) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == "pickPhotos 3 false", "no type in particular is both")
+        picker.open([.png, .quickTimeMovie], from: .photoLibrary) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == "pickPhotos 3 false")
+        picker.open([.heic, .jpeg], from: .photoLibrary) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == "pickPhotos 1 false")
+        // Types a photo library has none of ask for what it has.
+        picker.open([.pdf, .item], from: .photoLibrary) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == "pickPhotos 3 false")
+        // Photos are read: the access asked for isn't sent.
+        picker.open([.image], from: .photoLibrary, access: .readWrite) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == "pickPhotos 1 false")
+        #expect(!host.calls.contains { $0.hasPrefix("pick ") }, "the document picker never showed")
+
+        // The files, as before, when nothing says otherwise.
+        picker.open([.image], from: .files) { (_: Result<Document?, DocumentError>) in }
+        #expect(host.calls.last == #"pick ["image/*"] false 0"#)
+    }
+
+    @Test func aPickedPhotoIsADocument() throws {
+        var result: Result<[Document], DocumentError>?
+        picker.open([.image, .movie], from: .photoLibrary, allowsMultiple: true) { result = $0 }
+        host.callback().didPick([
+            ScriptedGrant(310, "IMG_0042.HEIC", type: "image/heic"),
+            ScriptedGrant(311, "IMG_0043.MOV", type: "video/quicktime"),
+        ])
+        let picked = try #require(try result?.get())
+        #expect(picked.map(\.name) == ["IMG_0042.HEIC", "IMG_0043.MOV"])
+        #expect(picked.map(\.contentType) == [.heic, .quickTimeMovie])
+        #expect(picked.allSatisfy { !$0.isWritable && $0.path.directory.isGrant })
+
+        var cancelled: Result<Document?, DocumentError>?
+        picker.open([.image], from: .photoLibrary) { cancelled = $0 }
+        host.callback().didPick([])
+        #expect(try cancelled?.get() == nil && cancelled != nil, "cancelling isn't an error")
+    }
+
+    @Test func aHostWithNoPhotoPickerShowsItsDocumentPicker() {
+        // What a host that implements the contract itself gets, until it
+        // has a photo picker of its own.
+        let old = FilesOnlyDocuments()
+        old.pickPhotos(1, multiple: true, callback: UnheardCallback())
+        old.pickPhotos(2, multiple: false, callback: UnheardCallback())
+        old.pickPhotos(3, multiple: false, callback: UnheardCallback())
+        #expect(old.calls == [#"pick ["image/*"] true 0"#, #"pick ["video/*"] false 0"#, #"pick ["image/*", "video/*"] false 0"#])
+        // Neither bit, or bits from a newer guest alone, is both.
+        old.pickPhotos(0, multiple: false, callback: UnheardCallback())
+        old.pickPhotos(8, multiple: false, callback: UnheardCallback())
+        #expect(old.calls.suffix(2) == [#"pick ["image/*", "video/*"] false 0"#, #"pick ["image/*", "video/*"] false 0"#])
     }
 
     // MARK: Opening
