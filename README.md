@@ -174,8 +174,9 @@ runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
 bundle one after another, says what's playing so the system can show it,
 answers next and previous, and plays on in the background
 ([Media players](Documentation/Contracts/MediaPlayer.md),
-[Now playing](Documentation/Contracts/NowPlaying.md)). No host has players
-yet, so the tests stand in for them.
+[Now playing](Documentation/Contracts/NowPlaying.md)). The Darwin host
+plays it on iOS and macOS (DarwinAppRuntime's `DarwinMedia`); in the
+tests, players kept in memory stand in.
 
 `examples/ExampleText` is a small editor: it loads a text from its bundle
 into a buffer the host holds, says where the caret is, finds and replaces,
