@@ -30,7 +30,12 @@ PLATFORM_GROUPS = {
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
-                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio", "secrets"}
+                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio", "secrets",
+                      "calendars"}
+# Calendars (Contracts/Calendars.md): how much of them an app asks for. The
+# user is asked, so there's a usage text.
+CALENDARS_CAPABILITY = "calendars"
+CALENDAR_ACCESS = {"full", "writeOnly"}
 # What a document type names, as a picker takes them (Contracts/Documents.md):
 # a MIME type, a MIME group, or an extension.
 MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$")
@@ -378,6 +383,14 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
             errors.append(f"background task {identifier!r}: unknown kind {task.get('kind')!r}")
     if sum(1 for task in background_tasks if task.get("kind") == "refresh") > 1:
         warnings.append("more than one refresh task: iOS keeps one refresh request pending at a time")
+
+    calendars = next((c for c in manifest.get("capabilities", []) if c.get("name") == CALENDARS_CAPABILITY), None)
+    if calendars:
+        access = (calendars.get("options") or {}).get("access")
+        if access not in CALENDAR_ACCESS:
+            errors.append(f"calendars access {access!r} isn't full or writeOnly")
+        if not calendars.get("usage"):
+            errors.append("calendars needs a usage text: the user is asked, and iOS shows it")
 
     schemes = manifest.get("authenticationSchemes", [])
     for scheme in sorted({s for s in schemes if schemes.count(s) > 1}):
