@@ -15,6 +15,7 @@ import PackageDescription
 ///   `ExampleNotifications`, whose notification centre the test keeps,
 ///   `ExampleBackground`, whose tasks the test runs as the system would,
 ///   `ExampleMedia`, whose players the test stands in for,
+///   `ExampleText`, whose text views are texts the test types into,
 ///   `ExampleDefaults`, whose settings are kept in a real file,
 ///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
@@ -66,6 +67,8 @@ let package = Package(
                 .product(name: "RuntimeNotifications", package: "AppRuntime"),
                 .product(name: "DynamicBackgroundTasks", package: "AppRuntime"),
                 .product(name: "RuntimeBackgroundTasks", package: "AppRuntime"),
+                .product(name: "DynamicText", package: "AppRuntime"),
+                .product(name: "RuntimeText", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
