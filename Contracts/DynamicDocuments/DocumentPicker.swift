@@ -10,7 +10,8 @@ import _Concurrency
 ///
 /// ```swift
 /// let picker = DocumentPicker()
-/// if let photo = try await picker.open([.image]) { … }
+/// if let scan = try await picker.open([.image]) { … }
+/// if let photo = try await picker.open([.image], from: .photoLibrary) { … }
 /// let notes = try await picker.open([.plainText], allowsMultiple: true, access: .readWrite)
 /// if let library = try await picker.openFolder() { … }
 /// ```
@@ -45,30 +46,81 @@ public final class DocumentPicker: @unchecked Sendable {
 
     /// Asks for files of `types`; none means any file. No documents if the
     /// user cancelled.
+    ///
+    /// With `from: .photoLibrary` the system's photo picker shows the
+    /// user's photos and videos instead of their files: `types` then says
+    /// images, videos or both, and what's picked is read-only whatever
+    /// `access` says.
     public func open(
         _ types: [ContentType] = [],
+        from source: DocumentSource = .files,
         allowsMultiple: Bool,
         access: DocumentAccess = .read,
         completion: @escaping (Result<[Document], DocumentError>) -> Void
     ) {
-        documents.pick(ContentType.wireForms(types), multiple: allowsMultiple, access: access.rawValue, callback: Receiver { outcome in
+        let receiver = Receiver { outcome in
             if case .picked(let documents) = outcome {
                 completion(.success(documents))
             } else {
                 completion(.failure(outcome.error))
             }
-        })
+        }
+        switch source {
+        case .files:
+            documents.pick(ContentType.wireForms(types), multiple: allowsMultiple, access: access.rawValue, callback: receiver)
+        case .photoLibrary:
+            let kinds = Self.photoKinds(types)
+            // Resolved once the host's documents are made.
+            let documents = self.documents
+            if DocumentsProxy.Methods.pickPhotos.isAvailable {
+                documents.pickPhotos(kinds, multiple: allowsMultiple, callback: receiver)
+            } else {
+                // A host from before the photo picker: its document
+                // picker, for images and videos.
+                documents.pick(Self.photoForms(kinds), multiple: allowsMultiple, access: DocumentAccess.read.rawValue, callback: receiver)
+            }
+        }
     }
 
     /// Asks for one file; `nil` if the user cancelled.
     public func open(
         _ types: [ContentType] = [],
+        from source: DocumentSource = .files,
         access: DocumentAccess = .read,
         completion: @escaping (Result<Document?, DocumentError>) -> Void
     ) {
-        open(types, allowsMultiple: false, access: access) { result in
+        open(types, from: source, allowsMultiple: false, access: access) { result in
             completion(result.map { $0.first })
         }
+    }
+
+    /// What a photo picker is asked for, from the types an app names:
+    /// bits, 1 images, 2 videos. Types that are neither ask for both.
+    static func photoKinds(_ types: [ContentType]) -> Int32 {
+        var kinds: Int32 = 0
+        for type in types {
+            if type.conforms(to: .image) {
+                kinds |= 1
+            }
+            if type.conforms(to: .movie) {
+                kinds |= 2
+            }
+        }
+        return kinds == 0 ? 3 : kinds
+    }
+
+    /// The document picker's types for the same kinds. Neither bit is
+    /// both.
+    static func photoForms(_ kinds: Int32) -> [String] {
+        let both = kinds & 3 == 0
+        var forms: [String] = []
+        if both || kinds & 1 != 0 {
+            forms.append("image/*")
+        }
+        if both || kinds & 2 != 0 {
+            forms.append("video/*")
+        }
+        return forms
     }
 
     /// Asks for a folder; `nil` if the user cancelled. The document
@@ -133,15 +185,20 @@ public final class DocumentPicker: @unchecked Sendable {
     /// user cancelled.
     public nonisolated(nonsending) func open(
         _ types: [ContentType] = [],
+        from source: DocumentSource = .files,
         allowsMultiple: Bool,
         access: DocumentAccess = .read
     ) async throws(DocumentError) -> [Document] {
-        try await documentResult { self.open(types, allowsMultiple: allowsMultiple, access: access, completion: $0) }
+        try await documentResult { self.open(types, from: source, allowsMultiple: allowsMultiple, access: access, completion: $0) }
     }
 
     /// Asks for one file; `nil` if the user cancelled.
-    public nonisolated(nonsending) func open(_ types: [ContentType] = [], access: DocumentAccess = .read) async throws(DocumentError) -> Document? {
-        try await documentResult { self.open(types, access: access, completion: $0) }
+    public nonisolated(nonsending) func open(
+        _ types: [ContentType] = [],
+        from source: DocumentSource = .files,
+        access: DocumentAccess = .read
+    ) async throws(DocumentError) -> Document? {
+        try await documentResult { self.open(types, from: source, access: access, completion: $0) }
     }
 
     /// Asks for a folder; `nil` if the user cancelled.
