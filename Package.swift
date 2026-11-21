@@ -40,6 +40,10 @@ let package = Package(
         .library(name: "DynamicText", targets: ["DynamicText"]),
         // Host only: the text contract over a host's own text views.
         .library(name: "RuntimeText", targets: ["RuntimeText"]),
+        // Shared: the user's calendars and events, as EventKit has them.
+        .library(name: "DynamicCalendar", targets: ["DynamicCalendar"]),
+        // Host only: the calendar contract over a host's own store.
+        .library(name: "RuntimeCalendar", targets: ["RuntimeCalendar"]),
         // Shared: the system's store for an app's secrets, as a keychain.
         .library(name: "DynamicSecrets", targets: ["DynamicSecrets"]),
         // Host only: the secrets contract over a host's own store.
@@ -114,6 +118,8 @@ let package = Package(
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example text guest app: a small editor over a text the host holds.
         .library(name: "ExampleText", type: .static, targets: ["ExampleText"]),
+        // Example calendar guest app: a week's events, added and changed.
+        .library(name: "ExampleCalendar", type: .static, targets: ["ExampleCalendar"]),
         // Example sign-in guest app: signs in with a provider and keeps the token.
         .library(name: "ExampleSignIn", type: .static, targets: ["ExampleSignIn"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
@@ -357,6 +363,23 @@ let package = Package(
             dependencies: ["DynamicText", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicCalendar",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicCalendar"
+        ),
+        .target(
+            name: "RuntimeCalendar",
+            dependencies: ["DynamicCalendar", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicCalendarTests",
+            dependencies: ["DynamicCalendar", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeCalendarTests",
+            dependencies: ["RuntimeCalendar", "DynamicCalendar", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicSecrets",
             dependencies: ["DynamicRuntime"],
             path: "Contracts/DynamicSecrets"
@@ -570,6 +593,11 @@ let package = Package(
             name: "ExampleText",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicText"],
             path: "examples/ExampleText"
+        ),
+        .target(
+            name: "ExampleCalendar",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicCalendar"],
+            path: "examples/ExampleCalendar"
         ),
         .target(
             name: "ExampleSignIn",
