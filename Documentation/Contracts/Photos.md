@@ -1,6 +1,10 @@
 # Photo library
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, the part of
+the host side every host written in Swift shares, and the photo picker in
+[Documents](Documents.md). No platform host has a photo library behind it
+yet, and none draws a `Photo` node, so no real photo has been shown: the
+tests keep the library in memory.
 
 Module `DynamicPhotos`: the photos and videos the system keeps for the
 user. PhotoKit's place.
@@ -21,7 +25,7 @@ This design is the first and the third, and adds the second to
 |---|---|---|---|---|---|
 | `Photos` | contract, `requires: .photoLibrary` | `PHPhotoLibrary` | `MediaStore` | the user's Pictures and Videos folders | a download, for adding; nothing else |
 | `PhotoResults` | contract: one fetch's results | `PHFetchResult` | a `Cursor` | | |
-| `PhotoFile` | contract: one original, as a file | a `PHAssetResource` written out | a content URI | | |
+| `PhotoFileGrant` | contract: one original, as a file | a `PHAssetResource` written out | a content URI | | |
 | `PhotoCallback` | callback: one operation's result | | | | |
 | `PhotosDelegate` | callback: the library changed | `PHPhotoLibraryChangeObserver` | a `ContentObserver` | | |
 
@@ -30,11 +34,16 @@ Guest-side Swift:
 - **`PhotoLibrary`**: the library app code uses.
 - **`PhotoAsset`**, **`PhotoAlbum`**: values.
 - **`PhotoFetchResult`**: a list too long to hold, read as it's needed.
+- **`PhotoFile`**: an asset's original, as a file.
 - **`PhotoView`**: the SwiftUI view that shows an asset, at whatever size
   it's given.
-- `PhotoLibraryAccess`, `PhotoKind`, `PhotoLibraryError`.
+- `PhotoLibraryAccess`, `PhotoKind`, `PhotoScaling`, `PhotoLibraryError`.
 
-The render IR gains one node, `Photo`.
+Host-side Swift, in `RuntimePhotos`: `HostPhotos`, the contract over a
+host's `PhotoStore`; `PhotoFileFormat`, which tells a photo from a video
+by a file's first bytes; and `MemoryPhotoStore`.
+
+The render IR has one node for it, `Photo`.
 
 ## What shapes it
 
@@ -85,6 +94,11 @@ try await library.add(video: .caches / "clip.mp4")
 - **`.limited` is the photos the user chose,** and what the app adds.
   Everything works on those.
 - **A host that needs no leave to add** says `.addOnly` from the start.
+  For an app that declared browsing, `requestAccess()` still asks then.
+- **`allowsReading`** is true for `.authorized` and `.limited`;
+  **`allowsAdding`** for those and `.addOnly`.
+- **Adding doesn't ask by itself.** Without leave it fails with
+  `notAuthorized`: ask first.
 
 ### Browsing
 
@@ -146,6 +160,7 @@ PhotoView(asset, scaling: .fit)             // the whole picture, full screen
 - **A video shows its first frame.** To play it, ask for its file.
 - **It fills its space and crops,** unless told to fit.
 - It takes the space it's offered. In a grid, give it a height.
+- `PhotoView(assetID:)` shows an asset by an identifier the app kept.
 
 ### Originals
 
@@ -159,7 +174,7 @@ try await FileManager.default.copyItem(at: file.path, to: .caches / "copy.jpg")
 |---|---|
 | `path` | a `FilePath`, for `FileManager` and any contract that takes one |
 | `contentType` | a MIME type: `image/heic`, `video/quicktime` |
-| `name` | the file's own name, where it has one |
+| `name` | the file's own name; `nil` where it has none |
 
 - **`path` is good while the `PhotoFile` lives.** Releasing it ends the
   access, as with a [document](Documents.md#a-document).
@@ -239,15 +254,24 @@ parameter:
 // Documents gains:
 
     /// Asks the user for photos or videos from their library, with the
-    /// system's photo picker. `kinds`: bits, 1 images, 2 videos. Answers
-    /// `didPick`, with nothing if the user cancelled.
+    /// system's photo picker. `kinds`: bits, 1 images, 2 videos; none
+    /// means both. Answers `didPick`, with nothing if the user cancelled.
     func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)
 ```
+
+`Documents` is version 2 with it. The types an app names say which
+kinds: image types ask for images, video types for videos, and anything
+else, or nothing, for both.
 
 - **Each pick is a read-only `Document`,** a copy the host holds while
   the app holds the document. It can't be bookmarked: `unsupported`.
 - **A host with no photo picker shows its document picker,** for images
-  and videos. So `from: .photoLibrary` always works.
+  and videos. So `from: .photoLibrary` always works: on a host from
+  before version 2 the guest asks for the document picker itself, and a
+  host written in Swift gets the same from the contract's and the
+  presenter's defaults until it has a photo picker of its own.
+- **What's picked is read-only and not remembered,** whichever screen
+  showed it and whatever access was asked for.
 - **It needs nothing of this module:** no `.photoLibrary`, and no
   `DynamicPhotos`.
 
@@ -288,17 +312,17 @@ public protocol Photos: AnyObject {
 @DynamicRuntime("org.pureswift.photos.Results")
 public protocol PhotoResults: AnyObject {
     func count() -> Int32
-    /// Seven strings for each asset in the range: identifier, kind,
-    /// creation date, width, height, duration in milliseconds, and `1`
-    /// for a favourite. Numbers are decimal.
-    func assets(_ start: Int32, count: Int32) -> [String]
+    /// The assets from `start`, `count` of them at most. Answered by
+    /// `didListAssets`.
+    func assets(_ start: Int32, count: Int32, callback: PhotoCallback)
 }
 
 @DynamicRuntime("org.pureswift.photos.File")
-public protocol PhotoFile: AnyObject {
+public protocol PhotoFileGrant: AnyObject {
     /// The directory `Files` takes for this file while the object lives:
     /// 256 or more. The file is the directory's empty path.
     func directory() -> Int32
+    /// Empty where the file has none.
     func name() -> String
     func contentType() -> String
 }
@@ -307,13 +331,17 @@ public protocol PhotoFile: AnyObject {
 public protocol PhotoCallback: AnyObject {
     func didComplete()
     func didChangeAccess(_ access: Int32)
-    /// The new asset's identifier; empty for an app that may only add.
-    func didAdd(_ identifier: String)
+    /// The new asset's seven strings; none for an app that may only add.
+    func didAdd(_ fields: [String])
     func didFetch(_ results: PhotoResults)
+    /// Seven strings for each asset: identifier, kind, creation date,
+    /// width, height, duration in milliseconds, and `1` for a favourite.
+    /// Numbers are decimal.
+    func didListAssets(_ fields: [String])
     func didFindAsset(_ fields: [String])
     /// Four strings for each album: identifier, title, count, kind.
     func didListAlbums(_ fields: [String])
-    func didOpenFile(_ file: PhotoFile)
+    func didOpenFile(_ file: PhotoFileGrant)
     /// A `PhotoLibraryError` raw value.
     func didFail(_ error: Int32)
 }
@@ -333,7 +361,13 @@ cross the same way.
 - **Every answer is on the main thread, once.** The library is read off
   it.
 - **A fetch is newest first, by creation date,** and doesn't change once
-  made. `assets` past its end gives fewer, or none.
+  made. `assets` past its end gives fewer, or none, and an asset that has
+  gone since the fetch is left out of its page.
+- **A page is read off the main thread,** as everything of the library
+  is, so reading one is a call with an answer.
+- **What a host sends badly is read safely:** a remainder of strings is
+  left out, a number that isn't one is 0, and a kind from a newer host is
+  an image, or an album the system keeps.
 - **An identifier lasts** across launches, for as long as the asset
   does.
 - **Sizes are the upright picture's.**
@@ -364,12 +398,12 @@ has no events: a tap on it is an `onTapGesture`, as on any view.
 
 ## The shared host
 
-`HostPhotos`, in a new `RuntimePhotos`, over a host's `PhotoStore`, which
+`HostPhotos`, in `RuntimePhotos`, over a host's `PhotoStore`, which
 works in the guest's own values:
 
 ```swift
 public protocol PhotoStore: AnyObject, Sendable {    // off the main thread, one call at a time
-    func add(fileAt path: String, kind: PhotoKind) throws(PhotoLibraryError) -> PhotoAsset?
+    func add(fileAt path: String, kind: PhotoKind) throws(PhotoLibraryError) -> PhotoAsset
     /// The identifiers, newest first.
     func identifiers(of kind: PhotoKind?, in album: String?) throws(PhotoLibraryError) -> [String]
     func assets(withIDs identifiers: [String]) throws(PhotoLibraryError) -> [PhotoAsset]
@@ -381,7 +415,7 @@ public protocol PhotoStore: AnyObject, Sendable {    // off the main thread, one
 }
 
 HostPhotos.store = MyPhotoLibrary()
-HostPhotos.declaredAccess = .authorized            // RTCapabilityOptions.photoLibrary.access
+HostPhotos.allowsReading = true                    // RTCapabilityOptions.photoLibrary.access
 HostPhotos.access = .notDetermined                 // what the platform says now
 HostPhotos.requester = { completion in … }          // the platform's question
 HostPhotos.deleter = { identifiers, completion in … }   // asks the user, then deletes
@@ -390,16 +424,28 @@ HostPhotosModule.register(in: runtime)
 HostPhotos.libraryChanged()                        // from the platform
 ```
 
-- It checks access before every call, holds each fetch's identifiers and
-  reads assets a page at a time, and makes an original a grant in
-  `HostFiles`, revoked when the guest lets go.
-- It finds the file to add through `HostFiles`, and tells a photo from a
-  video by its first bytes.
-- It asks the user once, and gathers a burst of changes into one
-  `didChange`.
-- **`MemoryPhotoStore`** is a library in memory, over files the test
-  gives it. It is not a default. Without a store, every call fails with
+- **Access:** checked before every call, and before every page of a
+  fetch made earlier. An app that declared adding alone has `addOnly` at
+  most, whatever the user granted, and isn't told which asset it added.
+  The user is asked once, and a requester that answers twice is heard
+  once.
+- **Adding:** the file is found through `HostFiles`, and must be what the
+  call says it is by its first bytes (`PhotoFileFormat`): a JPEG, PNG or
+  HEIC image, or an MP4 or QuickTime video.
+- **Fetching:** it holds each fetch's identifiers and reads assets a page
+  at a time, in the fetch's order whatever order the store gives.
+- **Originals:** an original is a read-only grant in `HostFiles`, revoked
+  when the guest lets go, and the store is then told to remove its copy.
+- **Deleting:** the host's `deleter` asks the user and deletes. Nothing
+  to delete asks nothing. Without a deleter, a deletion fails with
   `unavailable`.
+- **Threads:** the store is called off the main thread in order, and
+  every answer is on it.
+- **Changes:** a burst of `libraryChanged` is one `didChange`, and this
+  app's own additions and deletions are said too.
+- **`MemoryPhotoStore`** is a library in memory, over bytes the test
+  gives it, which writes an original out for as long as it's held. It is
+  not a default. Without a store, every call fails with `unavailable`.
 
 The host's renderer asks the platform for thumbnails itself. The shared
 host has no part in drawing a `Photo` node.
@@ -450,27 +496,74 @@ From each platform's documentation. None of it has been tried.
 - **Shared albums, people, memories, search by what's in a picture.**
 - **Hidden and recently deleted photos.**
 
-## Questions for review
+## Example and tests
 
-1. **One capability with a level,** `.photoLibrary(.addOnly)` or
-   `.photoLibrary(.readWrite)`, as calendars and contacts have. This
-   replaces `.photoLibraryAdditions`.
-2. **Names:** `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`,
-   `PhotoFetchResult`, `PhotoView`; contract `Photos`; module
-   `DynamicPhotos`.
-3. **The host draws every photo,** in a `Photo` node. The alternative
-   hands the guest thumbnails as bytes, which needs
-   [Drawing](Drawing.md)'s images and sends a grid's pictures across.
-4. **An original is a file grant,** so the media player, `Files` and the
-   clipboard take it with no change. The alternative gives each of them
-   a method for assets.
-5. **The photo picker belongs to Documents,** as `open(from:
-   .photoLibrary)`, and gives documents. The alternative is a
-   `PhotosPicker` here, as SwiftUI has, which would make every app that
-   picks a photo link this module.
-6. **Deleting is in, changing isn't.** A gallery deletes. Edits are a
-   larger thing.
-7. **No favourites, albums or places to write.**
-8. **No stand-in store.** A host without one answers `unavailable`.
-9. **Build order.** Adding is all the camera needs. Browsing needs a
-   `Photo` node in each host's renderer, and is the larger half.
+`examples/ExamplePhotos` is a gallery: it asks for access, shows the
+newest photos in a grid a page at a time, lists the albums and shows one,
+shows a photo large, opens its original as a file, deletes it with the
+user's leave, and looks again when the library says it changed.
+`examples/ExampleCamera` adds what it takes, with the add-only level, and
+`examples/ExampleDocuments` takes a photo from the photo picker. Each
+runs as `App.wasm` under WasmKit (`Packages/RuntimeWasm`) and as a sealed
+native slice and wasm2c output (`Packages/LinkedSlice`), against
+`HostPhotos` over a library in memory.
+
+- `DynamicPhotosTests`: the contracts' keys and signatures, an asset and
+  an album as strings and what a host sends badly, and the guest's
+  `PhotoLibrary`, `PhotoFetchResult`, `PhotoFile` and `PhotoView` against
+  a scripted host.
+- `RuntimePhotosTests`: `HostPhotos` over `MemoryPhotoStore` and real
+  files, from the guest: access and who is asked, an app that only adds,
+  a file's format by its first bytes, a photo copied in, fetches and
+  their pages, albums, limited access, an original read through `Files`
+  and released, one in the cloud, deleting, and a burst of changes.
+- `DynamicDocumentsTests` and `RuntimeDocumentsTests`: the photo picker,
+  what's picked, and a host without one.
+- `AppManifestTests` and `Scripts/test_manifest.py`: `.photoLibrary` and
+  its two levels.
+
+## Decided in review
+
+The design was approved as drafted:
+
+- **One capability with a level,** `.photoLibrary(.addOnly)` or
+  `.photoLibrary(.readWrite)`.
+- **Names:** `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`,
+  `PhotoFetchResult`, `PhotoView`; contract `Photos`; module
+  `DynamicPhotos`.
+- **The host draws every photo,** in a `Photo` node.
+- **An original is a file grant.**
+- **The photo picker belongs to Documents,** as
+  `open(from: .photoLibrary)`.
+- **Deleting is in, changing isn't.** No favourites, albums or places to
+  write.
+- **No stand-in store.**
+
+## Changed while building
+
+- **A page of a fetch is asked for with a callback,** not returned. The
+  draft's contract returned it, while its own guest example awaited it
+  and its host read the library off the main thread. On Linux a page
+  means opening files to learn their sizes.
+- **`didAdd` carries the new asset,** not only its identifier, so adding
+  is one call.
+- **The contract protocol for an original is `PhotoFileGrant`.** Its wire
+  name is `org.pureswift.photos.File`, as drafted; `PhotoFile` is the
+  guest's class.
+- **`HostPhotos.allowsReading`** is how a host says which level the
+  manifest declared, as `HostContacts.allowsWriting` is.
+- **A store's `add` always gives the asset.** The shared host decides
+  whether the guest hears of it.
+
+## What hosts still need
+
+- **A `PhotoStore`** over PhotoKit in the Darwin host and over
+  `MediaStore` in the Android host, with a `requester` and a `deleter`.
+  Linux needs one over the user's Pictures and Videos folders.
+- **A `Photo` node in each renderer,** drawn from the platform's
+  thumbnails.
+- **A photo picker:** `DocumentPresenter.pickPhotos` over
+  `PHPickerViewController` on iOS, where the default, the document
+  picker, doesn't show the user's photos; `ACTION_PICK_IMAGES` in the
+  Android host, which implements `Documents` itself.
+- **The packager's entries** for `.photoLibrary` and its level.
