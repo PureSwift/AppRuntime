@@ -34,6 +34,8 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `WebView` | `page` (int: a `WebContent`'s `identifier()`) | — | none here: the page reports through its contract (`Contracts/WebKit.md`) |
 | `VideoPlayer` | `player` (int: a `MediaPlayback`'s `identifier()`), `scaling` (`fit`, `fill`, `stretch`), `controls` (`platform`, `none`) | — | none here: the player reports through its contract (`Contracts/MediaPlayer.md`) |
 | `TextEditor` | `buffer` (int: a `TextStorage`'s `identifier()`), `editable` (bool), `wraps` (bool) | — | none here: the text reports through its contract (`Contracts/TextEditor.md`) |
+| `Photo` | `asset` (string: an asset's identifier in the photo library), `scaling` (`fill`, `fit`) | — | — (`Contracts/Photos.md`) |
+| `CameraPreview` | `camera` (int: a `CameraCapture`'s `identifier()`), `scaling` (`fill`, `fit`) | — | none here: the camera reports through its contract (`Contracts/Camera.md`) |
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
@@ -160,6 +162,23 @@ keyboard focus to the guest's state.
 A `TextEditor` shows the host's text its `buffer` names. Put the text's
 view there; when the node goes, take the view out and keep the text.
 Input inside the node belongs to that view.
+
+## Photos and the camera
+
+A `Photo` shows an asset of the user's photo library. Draw it in the
+node's bounds from the platform's own thumbnails, at the node's size in
+pixels or the next size up: a smaller copy first if there's one to hand,
+and a better one when it arrives. `fill` crops to the bounds and `fit`
+shows all of it. A video is its first frame. An asset the app may not
+see, or one that's gone, draws nothing. No pixel goes to the guest, and
+the node has no events of its own: a tap on it is an `onTapGesture`.
+
+A `CameraPreview` shows what the camera its `camera` names sees
+(`HostCameraCapture.camera(for:)` in a host written in Swift). Mirror the
+front camera's picture. A tap inside the node focuses and sets the
+exposure there, and a pinch zooms, which the host reports to the guest
+through the camera's contract; neither is a render event. Show nothing
+while the camera is off. When the node goes the camera stays on.
 
 ## Selection
 
