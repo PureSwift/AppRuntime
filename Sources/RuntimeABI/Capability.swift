@@ -43,6 +43,9 @@ public extension Capability {
     /// The platform's file pickers. It prompts for nothing.
     static var userFiles: Capability { Capability("userFiles") }
 
+    /// The people in the user's address book.
+    static var contacts: Capability { Capability("contacts") }
+
     /// The user's calendars and the events in them.
     static var calendars: Capability { Capability("calendars") }
 
