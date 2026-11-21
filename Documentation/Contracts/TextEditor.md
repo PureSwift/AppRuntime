@@ -1,15 +1,18 @@
 # Text editing
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares. No platform host has
+a text view behind it yet, so no text has been shown or typed into: the
+tests type into texts kept in memory.
 
 Module `DynamicText`: a text the host holds and the user edits, and the
 view that shows it. The text editor's file, a mail message being written,
 a note.
 
-The frontend has `TextField` and no `TextEditor`. A text field's content is
-a prop, sent whole each time it changes. That suits a line and not a file
-of several megabytes, so here the text lives in the host and the guest
-holds a reference to it, as it does to a web page or a player.
+A `TextField`'s content is a prop, sent whole each time it changes. That
+suits a line and not a file of several megabytes, so here the text lives
+in the host and the guest holds a reference to it, as it does to a web
+page or a player.
 
 | Contract | Kind | iOS | macOS | Android | Linux | Browser |
 |---|---|---|---|---|---|---|
@@ -21,9 +24,16 @@ Guest-side Swift:
 
 - **`TextBuffer`**: the observable text app code uses.
 - **`TextEditor`**: the SwiftUI view, for a buffer or for a `String`
-  binding.
+  binding, with SwiftUI's `TextSelection`.
 - `TextEncoding`, `LineEnding`, `TextSearchOptions`, `TextEdit`,
   `TextError`.
+
+In the SwiftUI frontend: `@FocusState` with `focused`, and
+`autocorrectionDisabled` and `textInputAutocapitalization`.
+
+Host-side Swift, in `RuntimeText`: `HostTextStorage`, the contract over a
+host's `TextPlatform` and its `TextEngine`s, with `TextCoding`,
+`TextSearch` and `MemoryTextEngine`.
 
 The render IR gains one node, `TextEditor`; two modifiers for the
 keyboard; and focus, as a modifier and an event, which `TextField` gains
@@ -94,6 +104,8 @@ try await buffer.save(to: document.path)
   edited from code on screen or not, and keeps its text, selection and
   undo history while its view comes and goes. Releasing the `TextBuffer`
   destroys it.
+- **It's made in the host when first used.** A buffer made with a text
+  sends it then, with its line breaks already as the host will hold them.
 - **One editor shows a buffer at a time.** If two name it, the later one
   has it.
 - **`string` copies everything.** Fine for a note. For a large file,
@@ -176,10 +188,16 @@ buffer.undo()
 
 - **Each call is one undo step,** on the same history as the user's
   typing.
+- **The selection follows the app's edits by one rule,** on every host. A
+  position before the edit stays. One after what was replaced moves with
+  the text. One inside it, or a caret where text is inserted, goes to the
+  end of the new text.
 - **`onEdit`** is called after every change, whoever made it, with a
   `TextEdit`: the range replaced and the length of what replaced it. Not
   the text itself, which may be a large paste; ask with `substring`.
   `buffer.edits` is the same as a stream.
+- **`onSelectionChange`** is called when the selection moves, whoever
+  moved it.
 - **`reveal(_:)`** scrolls a range into view.
 
 ### Finding
@@ -200,7 +218,10 @@ let count = await buffer.replaceAll("colour", with: "color")
 
 The search is the host's, over text the guest doesn't hold. It matches
 code units, with simple case folding for `.caseInsensitive`: no locale's
-rules, and accents count.
+rules, and accents count. Characters outside the Basic Multilingual Plane
+are compared as they are. `.wholeWords` wants no letter, digit or
+underscore on either side. A cancelled task stops waiting, with `nil` or
+0; a replacing still happens.
 
 ### The view
 
@@ -217,6 +238,9 @@ TextEditor(buffer, wrapsLines: false)           // scrolls sideways
 - `.autocorrectionDisabled()` and `.textInputAutocapitalization(_:)` are
   SwiftUI's, and new here. They apply to `TextField` too.
 - The host keeps the caret clear of the on-screen keyboard.
+- **It's in `DynamicText`, not the SwiftUI frontend,** so an app imports
+  that to use it, the binding form too. See
+  [Decided in review](#decided-in-review).
 
 ### Focus
 
@@ -251,7 +275,8 @@ binding is set to something else. For a note or a message, not a file.
 
 `TextSelection` is SwiftUI's: a range of the string's own indices, or an
 insertion point. The view converts between them and the buffer's
-positions, which it can because the app holds the string.
+positions, which it can because the app holds the string. SwiftUI's case
+for several ranges isn't here.
 
 ## The contract
 
@@ -273,7 +298,7 @@ public protocol TextStorage: AnyObject {
     // Reading. Positions and lengths are UTF-16 units.
     func length() -> Int32
     func text() -> String
-    func text(_ location: Int32, length: Int32) -> String
+    func substring(_ location: Int32, length: Int32) -> String
     func lineCount() -> Int32
     func line(_ location: Int32) -> Int32
     /// Where a line starts, or -1 past the last.
@@ -329,7 +354,8 @@ public protocol TextCallback: AnyObject {
 ```
 
 `TextError`: `file(FileError)`, `undecodable`, `unencodable`,
-`unsupportedEncoding`, `tooLarge`, `cancelled`.
+`unsupportedEncoding`, `tooLarge`, `cancelled`, and `unknown` for a code
+from a newer host.
 
 ### Rules every host follows
 
@@ -345,18 +371,23 @@ public protocol TextCallback: AnyObject {
   and `setModified(false)` clear it. Undoing back to the saved text
   doesn't.
 - **`didChangeUndo` is sent when either answer changes.**
+- **`didChangeSelection` is sent when the selection moves,** whoever moved
+  it, once, and after the `didEdit` of an edit that moved it.
 - **The guest's edits are undoable like typing.** `setText` and `load`
   empty the history.
+- **The selection follows the guest's edits by the rule above,** whatever
+  the platform's text view would do by itself.
 - **The text holds `\n` only.** A paste or a `replace` with `\r\n` or
-  `\r` is converted on the way in.
+  `\r` is converted on the way in, and so is a search's text.
 - **Positions are moved, never refused:** out of a surrogate pair to its
   start, and into the text.
 - **A text is shown where a `TextEditor` node names it.** When the node
   goes the text stays. If two nodes name it, the later has it and the
   other is empty.
-- **`find` and `replaceAll` may answer before they return,** or later if
-  the host searches off the main thread. An empty search text matches
-  nothing.
+- **`find` and `replaceAll` may answer before they return,** or later.
+  An empty search text matches nothing. A `find` going forwards gives the
+  first match that starts at or after `location`; going backwards, the
+  last that ends at or before it.
 - **Input inside the node belongs to the text view:** pointers, keys,
   scrolling, the platform's editing menu and its shortcuts for cut, copy,
   paste, select all, undo and redo.
@@ -371,8 +402,7 @@ public protocol TextCallback: AnyObject {
 | Kind | Args | Inherited |
 |---|---|---|
 | `autocorrection` | `disabled` (bool) | yes |
-| `autocapitalization` | `mode` (`never`, `words`, `sentences`, `characters`) | yes |
-
+| `autocapitalization` | `mode` (`never`, `words`, `sentences`, `characters`); none: the platform's way | yes |
 | `focused` | `value` (bool); report `focus` | no |
 
 The two keyboard modifiers apply to `TextEditor`, `TextField` and
@@ -393,9 +423,9 @@ The two keyboard modifiers apply to `TextEditor`, `TextField` and
 
 ## The shared host
 
-`HostTextStorage`, in a new `RuntimeText`, does what's the same on every
-platform. A host supplies a `TextEngine` per text, which is its text view's
-storage:
+`HostTextStorage`, in `RuntimeText`, does what's the same on every
+platform. A host supplies a `TextPlatform`, which makes a `TextEngine` per
+text: its text view's storage.
 
 ```swift
 public protocol TextEngine: AnyObject {              // main thread
@@ -412,6 +442,16 @@ public protocol TextEngine: AnyObject {              // main thread
     func reveal(_ range: Range<Int>)
 }
 
+public protocol TextPlatform: AnyObject {
+    func makeEngine(for storage: HostTextStorage) -> any TextEngine
+    var maximumLength: Int { get }
+    func supportsEncoding(_ name: String) -> Bool    // beyond the five
+    var extraEncodings: TextCoding.Extra? { get }    // run off the main thread
+}
+
+HostTextStorage.platform = MyTextViews()
+HostTextModule.register(in: runtime)
+
 storage.edited(at: 4, removed: 5, inserted: 5)       // from the engine
 storage.selectionChanged()
 storage.undoChanged(canUndo: true, canRedo: false)
@@ -419,18 +459,31 @@ storage.undoChanged(canUndo: true, canRedo: false)
 HostTextStorage.storage(for: identifier)?.engine     // for the renderer
 ```
 
-- **Files:** it finds the file through `HostFiles`, so a document's grant
-  works; reads and writes off the main thread; allows one load at a time;
-  and checks the size before decoding.
-- **Encodings:** the five every host has, the byte-order mark, and the
-  refusal of invalid bytes. A platform can add others.
+An engine reports every change to its text with `edited`, whoever made
+it, and converts what the user pastes with
+`TextCoding.normalizingLineBreaks`. The positions it's given are already
+inside the text and outside its surrogate pairs.
+
+- **Files:** read and written off the main thread through
+  `HostFiles.snapshot()`, which is `Files`' own reads and writes with the
+  grants there were, so a picked document works. One load at a time. A
+  file too long to fit isn't read.
+- **Encodings:** `TextCoding` has the five every host has, the
+  byte-order mark, and the refusal of invalid bytes. A platform adds
+  others through `extraEncodings`.
 - **Line endings:** found and converted on load, written on save, and
-  converted in whatever the guest or a paste puts in.
+  converted in whatever the guest puts in.
 - **Positions:** clamped and moved out of surrogate pairs before the
   engine sees them.
+- **The selection after the guest's edit,** by `TextPositions`, said
+  once.
 - **`isModified`,** and when the delegate hears of it.
-- **`find` and `replaceAll`,** over the engine's text. A platform with a
-  faster search of its own can replace them.
+- **`find` and `replaceAll`:** `TextSearch`, over the engine's whole
+  text, copied for each call.
+- **Without a platform,** a text is a `MemoryTextEngine`: held in memory
+  with an undo history, and shown nowhere. A guest's buffers then work on
+  a host with no text view yet. It's also the rules in their plainest
+  form, for a host writing its own engine to compare with.
 
 ## Capability
 
@@ -461,8 +514,7 @@ From each platform's documentation. None of it has been tried.
 - **A line-number gutter,** and a highlight for the current line.
 - **Several edits as one undo step.** One `replace` of the whole range
   does for most.
-- **More than one selection.** `TextSelection` has SwiftUI's case for
-  it, which is never given and is ignored when set.
+- **More than one selection.**
 - **Two views of one text.**
 - **Noticing that the file changed on disk,** and saving by itself.
 - **Guessing an encoding** beyond the byte-order mark.
@@ -474,31 +526,48 @@ From each platform's documentation. None of it has been tried.
 - **What an input method is composing.** It's the text view's. An edit is
   reported as the platform's storage changes.
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `TextBuffer` for the guest's class, `TextStorage` for the
-   contract, module `DynamicText`. The analysis called this a text
-   document; `Document` is already a picked file.
-2. **Positions are UTF-16 units.** They are what iOS, macOS, Android and
-   the browser count in, so those hosts answer without converting. The
-   alternative is UTF-8 bytes, Swift's own and the file's, which makes
-   those four scan the text on each call.
-3. **Where `TextEditor` lives.** Proposed: in the SwiftUI frontend, so
-   `TextEditor(text:)` compiles with `import SwiftUI` alone. Then
-   `DynamicSwiftUI` depends on `DynamicText` and `DynamicFiles`. The
-   alternative keeps the view in `DynamicText`, as `WebView` is in
-   `DynamicWebKit`, and an app imports that to use it. What the
-   dependency adds to an app with no editor hasn't been measured.
-4. **`TextEditor(text:)` is built on a buffer in the guest.** The host
-   then has one kind of editor. The alternative gives the node a `text`
-   prop and a `change` event, as `TextField` has, and a second path in
-   every host.
-5. **No regular expressions** in the first version.
-6. **No guessing of encodings.** A file with no byte-order mark that
-   isn't UTF-8 fails, and the app decides what to try.
-7. **`isModified` isn't cleared by undoing back to the saved text.**
-   Desktop editors do clear it. Android and the browser have no undo
-   history of the platform's to ask, so the plain rule is the same
-   everywhere.
-8. **Focus is SwiftUI's `@FocusState`,** in the render IR, and not a
-   property of the buffer. `TextField` gets it too.
+`examples/ExampleText` is a small editor: it loads a text from its bundle,
+says where the caret is and whether there's anything to save, finds and
+replaces, undoes, saves, takes the keyboard with `@FocusState`, and keeps
+a note through a binding. It runs as `App.wasm` under WasmKit
+(`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
+(`Packages/LinkedSlice`), against `HostTextStorage` over texts the test
+types into.
+
+- `DynamicTextTests`: the contracts' keys and signatures, and the guest's
+  `TextBuffer` against a scripted host.
+- `RuntimeTextTests`: `HostTextStorage` over texts in memory and real
+  files, driven from the guest: editing, the selection, line breaks,
+  surrogate pairs, loading and saving in each encoding, failures, a load
+  replaced and a buffer released, searching, the views and their
+  bindings, and `TextCoding` by itself.
+- `DynamicSwiftUITests`: focus as state, and the keyboard's modifiers.
+
+## Decided in review
+
+The design was approved as drafted, with `@FocusState` and
+`TextEditor(text:selection:)` added on the way. One proposal didn't
+survive being built:
+
+- **`TextEditor` is in `DynamicText`,** not the SwiftUI frontend. The
+  draft put it in the frontend so `TextEditor(text:)` would compile with
+  `import SwiftUI` alone, and said the cost hadn't been measured. Measured,
+  it's this: an app declares every contract of the modules it links, and a
+  host refuses an app that declares one it doesn't have. With the view in
+  the frontend, every SwiftUI app declared the text contracts and no
+  existing host would have run it. An app that edits text says
+  `import DynamicText`.
+
+The rest stand:
+
+- **Names:** `TextBuffer`, `TextStorage`, module `DynamicText`.
+- **Positions are UTF-16 units.**
+- **`TextEditor(text:)` is built on a buffer in the guest,** so a host has
+  one kind of editor.
+- **No regular expressions.**
+- **No guessing of encodings.**
+- **`isModified` isn't cleared by undoing back to the saved text.**
+- **Focus is SwiftUI's `@FocusState`,** in the render IR, and not a
+  property of the buffer. `TextField` has it too.
