@@ -104,6 +104,7 @@ own, like SwiftUI's environment.
 | `italic` | `value` | yes |
 | `lineLimit` | `lines`; none: unlimited | yes |
 | `multilineTextAlignment` | `alignment` | yes |
+| `textSelection` | `enabled` (bool) | yes |
 | `disabled` | `value` | yes |
 | `autocorrection` | `disabled` (bool) | yes |
 | `autocapitalization` | `mode` (`never`, `words`, `sentences`, `characters`); none: the platform's way | yes |
@@ -140,6 +141,11 @@ typing, dragging or a toggle in progress isn't overwritten.
 `autocorrection` and `autocapitalization` are for the on-screen keyboard
 of the `TextField`, `TextEditor` and `Searchable` nodes they reach. A host
 without one ignores them.
+
+`textSelection` is for `Text` and `Label` nodes: where it's enabled, let
+the user select the text and copy it with the platform's own menu and
+shortcuts. Nothing is reported. A host that can't shows the text as it
+would have.
 
 A `focused` modifier is on a `TextField` or a `TextEditor`, and ties its
 keyboard focus to the guest's state.
