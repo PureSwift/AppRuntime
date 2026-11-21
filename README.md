@@ -187,13 +187,15 @@ tests, players kept in memory stand in.
 `examples/ExampleText` is a small editor: it loads a text from its bundle
 into a buffer the host holds, says where the caret is, finds and replaces,
 undoes and saves ([Text editing](Documentation/Contracts/TextEditor.md)).
-No host has a text view behind it yet, so the tests type into texts kept
-in memory.
+The Darwin host shows it in a `UITextView` or `NSTextView`
+(DarwinAppRuntime's `DarwinText`); in the tests, the test types into texts
+kept in memory.
 
 `examples/ExampleClipboard` copies a sum, a link and its logo, says what
 there is to paste without reading it, and pastes text, a link and an image
-([Clipboard](Documentation/Contracts/Clipboard.md)). No host has a
-clipboard behind it yet, so the tests keep one.
+([Clipboard](Documentation/Contracts/Clipboard.md)). The Darwin host copies
+and pastes through the system's pasteboard (DarwinAppRuntime's
+`DarwinClipboard`); in the tests, the test keeps one.
 
 `examples/ExampleSignIn` is an account with a provider: it shows the
 provider's page in the system's browser, checks the reply, and keeps the
