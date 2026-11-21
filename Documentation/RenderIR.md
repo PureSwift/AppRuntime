@@ -33,6 +33,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `GLSurface` | `surface` (int: a `Surface`'s `identifier()`) | — | none here: frames and input go to the surface's delegate (§8.2) |
 | `WebView` | `page` (int: a `WebContent`'s `identifier()`) | — | none here: the page reports through its contract (`Contracts/WebKit.md`) |
 | `VideoPlayer` | `player` (int: a `MediaPlayback`'s `identifier()`), `scaling` (`fit`, `fill`, `stretch`), `controls` (`platform`, `none`) | — | none here: the player reports through its contract (`Contracts/MediaPlayer.md`) |
+| `TextEditor` | `buffer` (int: a `TextStorage`'s `identifier()`), `editable` (bool), `wraps` (bool) | — | none here: the text reports through its contract (`Contracts/TextEditor.md`) |
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
@@ -104,6 +105,9 @@ own, like SwiftUI's environment.
 | `lineLimit` | `lines`; none: unlimited | yes |
 | `multilineTextAlignment` | `alignment` | yes |
 | `disabled` | `value` | yes |
+| `autocorrection` | `disabled` (bool) | yes |
+| `autocapitalization` | `mode` (`never`, `words`, `sentences`, `characters`); none: the platform's way | yes |
+| `focused` | `value` (bool); report `focus` | no |
 | `onTapGesture` | `count`; report `tap` | no |
 | `accessibilityLabel` | `text` | no |
 | `accessibilityIdentifier` | `identifier` | no |
@@ -124,11 +128,32 @@ props of the `Picker`, `TabView` and `Tab` nodes.
 | `submit` | 3 | — |
 | `pop` | 4 | `NavStack`: the number of levels left (int) |
 | `refresh` | 5 | — |
+| `focus` | 6 | whether the view now has the keyboard (bool) |
 
 **Control sync.** The guest's state is the source of truth, and its answer
 to an event arrives as an update before the event call returns. Set a control
 from the IR only when the value differs from what you last rendered, so
 typing, dragging or a toggle in progress isn't overwritten.
+
+## Text input
+
+`autocorrection` and `autocapitalization` are for the on-screen keyboard
+of the `TextField`, `TextEditor` and `Searchable` nodes they reach. A host
+without one ignores them.
+
+A `focused` modifier is on a `TextField` or a `TextEditor`, and ties its
+keyboard focus to the guest's state.
+
+- When the user moves the keyboard into or out of the view, send `focus`.
+- Sync it like a control: give or take the keyboard only when `value`
+  differs from what was last rendered or reported. A node that appears
+  with `value` true gets the keyboard then.
+- At most one view has it. Giving it to one takes it from another, and
+  that one reports `focus` false.
+
+A `TextEditor` shows the host's text its `buffer` names. Put the text's
+view there; when the node goes, take the view out and keep the text.
+Input inside the node belongs to that view.
 
 ## Selection
 
