@@ -28,7 +28,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
-| Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. No platform host has an engine, so nothing has been decoded or heard |
+| Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. No platform host has a clipboard behind it, so nothing has reached another app |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
@@ -1244,13 +1244,14 @@ Each of these needs a decision, or is verified only as far as noted:
    for a push when the manifest says `wakesApp`. `AppInfo` doesn't read
    `RTBackgroundTasks`, `RTCapabilityOptions` or `RTDocumentTypes` yet, so
    each host reads them itself.
-12. Media in the hosts (`Documentation/Contracts/MediaPlayer.md`,
-   `NowPlaying.md`): a `MediaPlatform` and engine over `AVPlayer` in the
-   Darwin host, with `MPNowPlayingInfoCenter` and the remote commands; a
-   GStreamer engine and MPRIS in the Linux host, where the H.264 decoder
-   is the distro's to ship; Android's and the browser's own host side.
-   Each host's renderer shows a `VideoPlayer` node's engine. Nothing has
-   been decoded yet, so the formats and the timing are untested. Then a
+12. Media in the other hosts (`Documentation/Contracts/MediaPlayer.md`,
+   `NowPlaying.md`): a GStreamer engine and MPRIS in the Linux host, where
+   the H.264 decoder is the distro's to ship; Android's and the browser's
+   own host side. Each host's renderer shows a `VideoPlayer` node's
+   engine. The Darwin host has them (DarwinAppRuntime's `DarwinMedia`),
+   tried with MP3 and WAV on the iOS Simulator but not with video or on a
+   device, and a muted player there still takes the sound from other
+   apps. Then a
    queue for gapless albums, which both designs leave out.
 13. Text in the hosts (`Documentation/Contracts/TextEditor.md`): a
    `TextPlatform` and engine over `UITextView` and `NSTextView` in the
