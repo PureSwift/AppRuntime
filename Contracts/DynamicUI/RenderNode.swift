@@ -148,4 +148,8 @@ public enum RenderEventKind: Int32, Sendable {
     /// Pull to refresh on a `Refreshable` node. No payload. The node's
     /// `refreshing` prop is true until the guest finishes.
     case refresh = 5
+
+    /// The keyboard came to, or left, a view with a `focused` modifier:
+    /// the payload is a bool, whether it has it now.
+    case focus = 6
 }
