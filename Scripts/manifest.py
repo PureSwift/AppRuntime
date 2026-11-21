@@ -30,7 +30,7 @@ PLATFORM_GROUPS = {
 SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos": "tvos",
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
-                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio"}
+                      "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio", "secrets"}
 # What a document type names, as a picker takes them (Contracts/Documents.md):
 # a MIME type, a MIME group, or an extension.
 MIME_TYPE = re.compile(r"^(\*/\*|[a-z0-9][a-z0-9!#$&^_.+-]*/(\*|[a-z0-9][a-z0-9!#$&^_.+-]*))$")
@@ -48,6 +48,11 @@ GOOGLE_SERVICES = "google-services.json"
 BACKGROUND_CAPABILITY = "backgroundTasks"
 BACKGROUND_KINDS = {"refresh", "processing"}
 BACKGROUND_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Sign-in (Contracts/Secrets.md): the URL schemes a provider redirects to.
+# One is the app's own: lower case, with a dot in it, which none of the web's
+# has.
+AUTHENTICATION_SCHEME = re.compile(r"^[a-z][a-z0-9+-]*(\.[a-z0-9+-]+)+$")
 
 IDENTIFIER = re.compile(r"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 VERSION = re.compile(r"^\d+(\.\d+){0,2}$")
@@ -374,6 +379,14 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
     if sum(1 for task in background_tasks if task.get("kind") == "refresh") > 1:
         warnings.append("more than one refresh task: iOS keeps one refresh request pending at a time")
 
+    schemes = manifest.get("authenticationSchemes", [])
+    for scheme in sorted({s for s in schemes if schemes.count(s) > 1}):
+        errors.append(f"authentication scheme {scheme!r} is listed twice")
+    for scheme in schemes:
+        if not AUTHENTICATION_SCHEME.match(scheme):
+            errors.append(f"authentication scheme {scheme!r} isn't the app's own: "
+                          "lower case with a dot in it, such as org.example.app")
+
     document_types = manifest.get("documentTypes", [])
     if document_types and DOCUMENTS_CAPABILITY not in declared:
         errors.append(f"documentTypes needs the {DOCUMENTS_CAPABILITY!r} capability: "
@@ -488,6 +501,8 @@ def info_plist(manifest, resources, icon_name):
     if manifest.get("backgroundTasks"):
         info["RTBackgroundTasks"] = [{"Identifier": task["identifier"], "Kind": task["kind"]}
                                      for task in manifest["backgroundTasks"]]
+    if manifest.get("authenticationSchemes"):
+        info["RTAuthenticationSchemes"] = list(manifest["authenticationSchemes"])
     document_types = []
     for document_type in manifest.get("documentTypes", []):
         entry = {"Name": resolve(document_type["name"], development), "Types": document_type["types"],
