@@ -67,11 +67,14 @@ import DynamicFiles
 
 let picker = DocumentPicker()
 
-// One photo, to look at.
-if let photo = try await picker.open([.image]) {
-    title = photo.name                                          // "IMG_0042.jpg"
-    let bytes = try await FileManager.default.contents(at: photo.path)
+// One image file, to look at.
+if let scan = try await picker.open([.image]) {
+    title = scan.name                                           // "scan.png"
+    let bytes = try await FileManager.default.contents(at: scan.path)
 }
+
+// One of the user's photos, from the system's photo picker.
+if let photo = try await picker.open([.image], from: .photoLibrary) { … }
 
 // Several files, to change in place.
 let notes = try await picker.open([.plainText], allowsMultiple: true, access: .readWrite)
@@ -86,8 +89,8 @@ if let library = try await picker.openFolder() {
 
 | `DocumentPicker` | Gives |
 |---|---|
-| `open(_:access:)` | a `Document`, or `nil` if the user cancelled |
-| `open(_:allowsMultiple:access:)` | `[Document]`, empty if the user cancelled |
+| `open(_:from:access:)` | a `Document`, or `nil` if the user cancelled |
+| `open(_:from:allowsMultiple:access:)` | `[Document]`, empty if the user cancelled |
 | `openFolder(access:)` | a folder `Document`, or `nil` |
 | `export(_:suggestedName:)` | see [Saving](#saving) |
 | `opened`, `onOpen(_:)` | see [Opened with a document](#opened-with-a-document) |
@@ -96,6 +99,14 @@ if let library = try await picker.openFolder() {
   completion-handler form, as `FileManager`'s do.
 - Cancelling isn't an error. It is the ordinary way out of a picker.
 - An empty list of types means any file.
+- **`from: .photoLibrary` shows the system's photo picker** instead of
+  its file browser: the user's photos and videos, which on iOS the file
+  browser doesn't show. The types then say images, videos or both. What's
+  picked is read-only, whatever `access` says, and can't be bookmarked.
+  The user is asked for no leave and the app sees nothing else of the
+  library. A host with no photo picker shows its file picker for images
+  and videos. Browsing the library is the
+  [photo library](Photos.md)'s, and the two are compared there.
 - `access` is `.read` unless the app says `.readWrite`. Android decides it
   when the file is picked, and a browser asks the user about writing only
   during a user action, so a host can't add it later.
@@ -259,13 +270,17 @@ The frontend adds `typealias UTType = ContentType`.
 ## The contract
 
 ```swift
-@DynamicRuntime("org.pureswift.documents.Documents", requires: .userFiles)
+@DynamicRuntime("org.pureswift.documents.Documents", version: 2, requires: .userFiles)
 protocol Documents {
     static func shared() -> Self
 
     /// `types`: see Content types on the wire. Empty: any file.
     /// `access`: 0 read, 1 read and write.
     func pick(_ types: [String], multiple: Bool, access: Int32, callback: DocumentCallback)     // didPick
+    /// The system's photo picker. `kinds`: bits, 1 images, 2 videos; none
+    /// means both. Since version 2: a guest on an older host asks `pick`
+    /// for `image/*` and `video/*` instead.
+    func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)                 // didPick
     func pickFolder(_ access: Int32, callback: DocumentCallback)                                // didPick
     /// Copies the file to where the user says. `name` is the suggestion.
     func export(_ directory: Int32, path: String, name: String, callback: DocumentCallback)     // didPick, or didComplete
@@ -429,6 +444,8 @@ final class MyPickers: DocumentPresenter {
     func pick(types: [String], multiple: Bool, access: DocumentAccess,
               completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) { … }
     func pickFolder(access:completion:) { … }
+    // Optional: the default shows `pick` for image/* and video/*.
+    func pickPhotos(images: Bool, videos: Bool, multiple: Bool, completion:) { … }
     func export(file source: String, name: String, completion:) { … }
     func bookmark(_ document: HostDocument, completion:) { … }
     func resolve(_ bookmark: String, completion:) { … }
@@ -447,6 +464,9 @@ HostDocuments.open([HostDocument(path: path, isWritable: true)])
 - **`HostDocuments` makes each one a grant** in `HostFiles` when it hands
   it to the guest, and revokes the grant when the guest lets go. `release`
   runs then: where a host stops a security scope or closes a descriptor.
+- **A photo that was picked is read-only and isn't bookmarked,**
+  whatever the presenter says of it. Its `release` is where a host
+  removes the copy its photo picker made.
 - **It shows one picker at a time,** answering `busy` to a second, and
   `unsupported` to everything while there's no presenter.
 - **It keeps the documents the app is opened with** until the guest
@@ -527,8 +547,9 @@ Every callback runs on the main thread (§6.4). Pickers are shown from it.
 
 `examples/ExampleDocuments`: a small text editor for the user's own files.
 It opens a file with `fileImporter`, or the one it's launched with; saves
-back to that file; saves a copy and goes on editing the copy; and lists a
-folder and reads a file under it.
+back to that file; saves a copy and goes on editing the copy; lists a
+folder and reads a file under it; and takes a photo from the photo
+picker.
 
 - `DynamicDocumentsTests`: the contracts' keys and signatures, content
   types, and `DocumentPicker`, `Document` and the two modifiers against a
