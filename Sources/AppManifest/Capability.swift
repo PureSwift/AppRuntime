@@ -29,8 +29,21 @@ public extension Capability {
         Capability("bluetooth", usage: usage)
     }
 
+    /// The camera: a preview, photos and video.
     static func camera(usage: ManifestText) -> Capability {
         Capability("camera", usage: usage)
+    }
+
+    /// Recording sound: a video's, with the camera.
+    static func microphone(usage: ManifestText) -> Capability {
+        Capability("microphone", usage: usage)
+    }
+
+    /// The photos and videos the system keeps for the user. `.addOnly` is
+    /// for an app that only saves what it made, such as a camera: it reads
+    /// none.
+    static func photoLibrary(_ access: PhotosAccess = .readWrite, usage: ManifestText) -> Capability {
+        Capability("photoLibrary", usage: usage, options: ["access": access.rawValue])
     }
 
     /// Device location. `.always` also asks for background access.
@@ -155,7 +168,16 @@ public extension Capability {
     }
 }
 
-/// `Capability.location(_:usage:)`.
+/// What an app does with the user's photos.
+public enum PhotosAccess: String, Sendable {
+
+    /// Adding photos and videos, and reading none.
+    case addOnly
+
+    /// Browsing them, adding to them and deleting them.
+    case readWrite
+}
+
 /// What an app does with the user's contacts.
 public enum ContactsAccess: String, Sendable {
 
@@ -176,6 +198,7 @@ public enum CalendarAccess: String, Sendable {
     case writeOnly
 }
 
+/// `Capability.location(_:usage:)`.
 public enum LocationAccess: String, Sendable {
 
     /// While the app is in use.
