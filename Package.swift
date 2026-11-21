@@ -40,6 +40,14 @@ let package = Package(
         .library(name: "DynamicText", targets: ["DynamicText"]),
         // Host only: the text contract over a host's own text views.
         .library(name: "RuntimeText", targets: ["RuntimeText"]),
+        // Shared: the system's store for an app's secrets, as a keychain.
+        .library(name: "DynamicSecrets", targets: ["DynamicSecrets"]),
+        // Host only: the secrets contract over a host's own store.
+        .library(name: "RuntimeSecrets", targets: ["RuntimeSecrets"]),
+        // Shared: signing in on a page the system's browser shows.
+        .library(name: "DynamicAuthentication", targets: ["DynamicAuthentication"]),
+        // Host only: the sign-in contract over a host's own browser.
+        .library(name: "RuntimeAuthentication", targets: ["RuntimeAuthentication"]),
         // Shared: the system's clipboard, for an app's own Copy and Paste.
         .library(name: "DynamicClipboard", targets: ["DynamicClipboard"]),
         // Host only: the clipboard contract over a host's own clipboard.
@@ -106,6 +114,8 @@ let package = Package(
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example text guest app: a small editor over a text the host holds.
         .library(name: "ExampleText", type: .static, targets: ["ExampleText"]),
+        // Example sign-in guest app: signs in with a provider and keeps the token.
+        .library(name: "ExampleSignIn", type: .static, targets: ["ExampleSignIn"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
         .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
@@ -347,6 +357,40 @@ let package = Package(
             dependencies: ["DynamicText", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicSecrets",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicSecrets"
+        ),
+        .target(
+            name: "RuntimeSecrets",
+            dependencies: ["DynamicSecrets", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicSecretsTests",
+            dependencies: ["DynamicSecrets", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeSecretsTests",
+            dependencies: ["RuntimeSecrets", "DynamicSecrets", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
+            name: "DynamicAuthentication",
+            dependencies: ["DynamicRuntime"],
+            path: "Contracts/DynamicAuthentication"
+        ),
+        .target(
+            name: "RuntimeAuthentication",
+            dependencies: ["DynamicAuthentication", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicAuthenticationTests",
+            dependencies: ["DynamicAuthentication", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeAuthenticationTests",
+            dependencies: ["RuntimeAuthentication", "DynamicAuthentication", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicClipboard",
             dependencies: ["DynamicRuntime", "DynamicFiles"],
             path: "Contracts/DynamicClipboard"
@@ -526,6 +570,11 @@ let package = Package(
             name: "ExampleText",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicText"],
             path: "examples/ExampleText"
+        ),
+        .target(
+            name: "ExampleSignIn",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicSecrets", "DynamicAuthentication"],
+            path: "examples/ExampleSignIn"
         ),
         .target(
             name: "ExampleClipboard",
