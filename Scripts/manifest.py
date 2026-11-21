@@ -31,7 +31,11 @@ SLICE_PLATFORMS = {"ios": "ios", "ios-simulator": "ios", "macos": "macos", "tvos
                    "watchos": "watchos", "xros": "visionos"}
 KNOWN_CAPABILITIES = {"bluetooth", "camera", "location", "notifications", "network", "graphics",
                       "motion", "nfc", "localNetwork", "userFiles", "backgroundTasks", "audio", "secrets",
-                      "calendars"}
+                      "calendars", "contacts"}
+# Contacts (Contracts/Contacts.md): whether an app changes them. The user is
+# asked, so there's a usage text.
+CONTACTS_CAPABILITY = "contacts"
+CONTACTS_ACCESS = {"readWrite", "readOnly"}
 # Calendars (Contracts/Calendars.md): how much of them an app asks for. The
 # user is asked, so there's a usage text.
 CALENDARS_CAPABILITY = "calendars"
@@ -391,6 +395,14 @@ def check(manifest, icon, resources, contracts, targets, target_configs):
             errors.append(f"calendars access {access!r} isn't full or writeOnly")
         if not calendars.get("usage"):
             errors.append("calendars needs a usage text: the user is asked, and iOS shows it")
+
+    contacts = next((c for c in manifest.get("capabilities", []) if c.get("name") == CONTACTS_CAPABILITY), None)
+    if contacts:
+        access = (contacts.get("options") or {}).get("access")
+        if access not in CONTACTS_ACCESS:
+            errors.append(f"contacts access {access!r} isn't readWrite or readOnly")
+        if not contacts.get("usage"):
+            errors.append("contacts needs a usage text: the user is asked, and iOS shows it")
 
     schemes = manifest.get("authenticationSchemes", [])
     for scheme in sorted({s for s in schemes if schemes.count(s) > 1}):
