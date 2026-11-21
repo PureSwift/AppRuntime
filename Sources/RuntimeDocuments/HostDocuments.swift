@@ -74,6 +74,16 @@ public protocol DocumentPresenter: AnyObject {
     /// file. Nothing picked means the user cancelled.
     func pick(types: [String], multiple: Bool, access: DocumentAccess, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void)
 
+    /// Shows the system's photo picker, for images, videos or both: the
+    /// screen that runs outside the app and asks the user for no leave.
+    /// Each pick is a file the host's process can read while the document
+    /// is held; a copy the picker made is removed in the document's
+    /// `release`. Nothing picked means the user cancelled.
+    ///
+    /// The default shows the document picker for `image/*` and `video/*`:
+    /// right for a host whose file picker shows the user's photos.
+    func pickPhotos(images: Bool, videos: Bool, multiple: Bool, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void)
+
     /// Shows the picker for a folder. `nil` means the user cancelled.
     func pickFolder(access: DocumentAccess, completion: @escaping (Result<HostDocument?, DocumentError>) -> Void)
 
@@ -88,6 +98,20 @@ public protocol DocumentPresenter: AnyObject {
     func resolve(_ bookmark: String, completion: @escaping (Result<HostDocument, DocumentError>) -> Void)
 
     func forget(_ bookmark: String)
+}
+
+public extension DocumentPresenter {
+
+    func pickPhotos(images: Bool, videos: Bool, multiple: Bool, completion: @escaping (Result<[HostDocument], DocumentError>) -> Void) {
+        var types: [String] = []
+        if images {
+            types.append("image/*")
+        }
+        if videos {
+            types.append("video/*")
+        }
+        pick(types: types, multiple: multiple, access: .read, completion: completion)
+    }
 }
 
 /// The `Documents` contract over a host's `DocumentPresenter`: what every
@@ -142,7 +166,7 @@ public final class HostDocuments: Documents {
     public static func open(_ documents: [HostDocument]) {
         guard !documents.isEmpty else { return }
         if let delegate = instance.delegate {
-            delegate.didOpen(documents.map(HostDocumentGrant.init))
+            delegate.didOpen(documents.map { HostDocumentGrant($0) })
         } else {
             instance.waiting += documents
         }
@@ -193,7 +217,27 @@ public final class HostDocuments: Documents {
                 case .success(let documents):
                     // One file is all a picker for one may give.
                     let picked = multiple ? documents : Array(documents.prefix(1))
-                    callback.didPick(picked.map(HostDocumentGrant.init))
+                    callback.didPick(picked.map { HostDocumentGrant($0) })
+                case .failure(let error):
+                    callback.didFail(error.rawValue)
+                }
+            }
+        }
+    }
+
+    public func pickPhotos(_ kinds: Int32, multiple: Bool, callback: any DocumentCallback) {
+        guard let presenter = presenterForPicker(callback) else { return }
+        // Neither bit, or bits from a newer guest alone, is both.
+        let both = kinds & 3 == 0
+        presenter.pickPhotos(images: both || kinds & 1 != 0, videos: both || kinds & 2 != 0, multiple: multiple) { [self] result in
+            isShowing = false
+            Self.later(callback) { callback in
+                switch result {
+                case .success(let documents):
+                    let picked = multiple ? documents : Array(documents.prefix(1))
+                    // A photo is read, and isn't remembered: the library
+                    // keeps it, and the app was given this one look.
+                    callback.didPick(picked.map { HostDocumentGrant($0, isFromPhotoLibrary: true) })
                 case .failure(let error):
                     callback.didFail(error.rawValue)
                 }
@@ -277,7 +321,7 @@ public final class HostDocuments: Documents {
             guard let documents = held.take(), let delegate = documents.delegate, !documents.waiting.isEmpty else { return }
             let waiting = documents.waiting
             documents.waiting = []
-            delegate.didOpen(waiting.map(HostDocumentGrant.init))
+            delegate.didOpen(waiting.map { HostDocumentGrant($0) })
         }
     }
 }
@@ -290,8 +334,16 @@ final class HostDocumentGrant: DocumentGrant {
 
     let granted: FileDirectory
 
-    init(_ document: HostDocument) {
+    /// Picked with the photo picker: read-only, and not to be remembered.
+    let isFromPhotoLibrary: Bool
+
+    init(_ document: HostDocument, isFromPhotoLibrary: Bool = false) {
+        var document = document
+        if isFromPhotoLibrary {
+            document.isWritable = false
+        }
         self.document = document
+        self.isFromPhotoLibrary = isFromPhotoLibrary
         self.granted = HostFiles.grant(HostFiles.Grant(path: document.path, kind: document.kind, isWritable: document.isWritable))
     }
 
@@ -321,7 +373,7 @@ final class HostDocumentGrant: DocumentGrant {
     }
 
     func bookmark(_ callback: any DocumentCallback) {
-        guard let presenter = HostDocuments.presenter else {
+        guard !isFromPhotoLibrary, let presenter = HostDocuments.presenter else {
             HostDocuments.deliver(callback) { $0.didFail(DocumentError.unsupported.rawValue) }
             return
         }
