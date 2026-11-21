@@ -31,7 +31,7 @@ builds and the first provider contracts:
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. No platform host has an engine, so nothing has been decoded or heard |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
-| Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. No platform host has a presenter yet, so no system has shown one |
+| Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
 | Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
@@ -1189,12 +1189,13 @@ Each of these needs a decision, or is verified only as far as noted:
    the iOS Simulator confirmed and a device hasn't yet, and what Landlock
    does with a descriptor the picker service opened. Then sharing a file and opening
    one in another app, which the design leaves out.
-10. Notifications in the hosts (`Documentation/Contracts/Notifications.md`):
-   a `NotificationPresenter` over `UNUserNotificationCenter` in the Darwin
-   host, with APNs registration; the notification service in the Linux
-   shell, which holds scheduled requests and each app's categories;
-   Android's and the browser's own host side, where a push is built from
-   the `rt.` keys. None of the platform behaviour in the design has been
+10. Notifications in the other hosts (`Documentation/Contracts/Notifications.md`):
+   the notification service in the Linux shell, which holds scheduled
+   requests and each app's categories; Android's and the browser's own
+   host side, where a push is built from the `rt.` keys. The Darwin host
+   has them (DarwinAppRuntime's `DarwinNotifications`), tried on the iOS
+   Simulator but not with APNs, and without the time-sensitive
+   entitlement yet. None of the platform behaviour in the design has been
    checked on a device. Then an alarm that rings until answered, which
    the design leaves out and the planned Clocks app needs.
 11. Background work in the hosts (`Documentation/Contracts/BackgroundTasks.md`):
