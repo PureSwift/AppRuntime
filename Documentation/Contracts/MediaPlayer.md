@@ -462,6 +462,10 @@ An engine reports to the `HostMediaPlayback` it was made for: `loaded`,
   `HostFiles.path(of:path:)`, so the bundle, the app's files and a picked
   document are all files, and one that isn't there never reaches the
   engine.
+- **A host whose files aren't all paths** sets
+  `HostMediaPlayback.findFile`, which gives what its engine takes: an
+  Android app's bundle is its APK's assets (`asset:///…`), and a picked
+  document a content URI. The engine gets it as `.file(path:)`.
 - **It remembers a `play()` that came too early,** and plays when the
   source has loaded.
 - **It answers each seek once,** and `false` to one that another replaced.
