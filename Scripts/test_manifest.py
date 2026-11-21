@@ -234,6 +234,49 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(info["RTCapabilityOptions"], {"contacts": {"access": "readOnly"}})
         self.assertEqual(info["RTCapabilityUsage"], {"contacts": "RTCapabilityUsage.contacts"})
 
+    def test_photo_library(self):
+        store = [dict(name="org.pureswift.photos.Photos", kind="contract", version=1,
+                      capability="photoLibrary", methods=[])]
+        usage = {"value": "Shows your photos."}
+        for access in ("addOnly", "readWrite"):
+            declared = {"name": "photoLibrary", "options": {"access": access}, "usage": usage}
+            errors, warnings = self.check(sample(capabilities=[declared]), contracts=store)
+            self.assertFalse(errors, errors)
+            self.assertFalse([w for w in warnings if "photoLibrary" in w], warnings)
+        errors, _ = self.check(sample(capabilities=[
+            {"name": "photoLibrary", "options": {"access": "readOnly"}, "usage": usage}]), contracts=store)
+        self.assertIn("photoLibrary access 'readOnly' isn't addOnly or readWrite", errors)
+        errors, _ = self.check(sample(capabilities=[{"name": "photoLibrary", "options": {"access": "addOnly"}}]),
+                               contracts=store)
+        self.assertIn("photoLibrary needs a usage text: the user is asked, and iOS shows it", errors)
+
+        info = manifest.info_plist(sample(capabilities=[
+            {"name": "photoLibrary", "options": {"access": "addOnly"}, "usage": usage}]), EXAMPLE / "resources", None)
+        self.assertEqual(info["RTCapabilityOptions"], {"photoLibrary": {"access": "addOnly"}})
+        self.assertEqual(info["RTCapabilityUsage"], {"photoLibrary": "RTCapabilityUsage.photoLibrary"})
+
+    def test_camera_and_microphone(self):
+        camera = [dict(name="org.pureswift.camera.Capture", kind="contract", version=1,
+                       capability="camera", methods=[])]
+        usage = {"value": "Takes photos and videos."}
+        # The microphone is the camera contract's to use, and not to require.
+        errors, warnings = self.check(sample(capabilities=[
+            {"name": "camera", "options": {}, "usage": usage},
+            {"name": "microphone", "options": {}, "usage": {"value": "Records sound."}}]), contracts=camera)
+        self.assertFalse(errors, errors)
+        self.assertFalse([w for w in warnings if "microphone" in w or "camera" in w], warnings)
+        errors, _ = self.check(sample(capabilities=[{"name": "camera", "options": {}, "usage": usage}]),
+                               contracts=camera)
+        self.assertFalse(errors, errors)
+        errors, _ = self.check(sample(capabilities=[{"name": "camera", "options": {}},
+                                                    {"name": "microphone", "options": {}}]), contracts=camera)
+        self.assertIn("camera needs a usage text: the user is asked, and iOS shows it", errors)
+        self.assertIn("microphone needs a usage text: the user is asked, and iOS shows it", errors)
+        # Without the camera's contract, a microphone has nothing to record for.
+        _, warnings = self.check(sample(capabilities=[
+            {"name": "microphone", "options": {}, "usage": usage}]), contracts=[])
+        self.assertIn("capability 'microphone' is declared but no contract requires it", warnings)
+
     def test_authentication_schemes(self):
         secrets = [dict(name="org.pureswift.secrets.Secrets", kind="contract", version=1,
                         capability="secrets", methods=[])]
