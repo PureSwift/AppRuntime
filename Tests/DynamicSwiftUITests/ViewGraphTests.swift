@@ -393,6 +393,60 @@ struct Appearing: View {
         #expect(sink.screen?.children.map(\.type) == ["GLSurface", "Text"], "views over it stay over it")
     }
 
+    @Test func focusIsState() throws {
+        let (graph, sink) = graph(SignIn())
+        func field(_ index: Int) throws -> RenderNode {
+            let stack = try #require(sink.screen)
+            return stack.children[index]
+        }
+        func focused(_ index: Int) throws -> PropValue? {
+            try field(index).modifiers.first { $0.kind == "focused" }?.args["value"]
+        }
+        #expect(try focused(0) == false && focused(1) == false && focused(2) == false)
+        #expect(sink.screen?.find("Text")?.props["text"] == "none")
+
+        // The user taps into the name field.
+        #expect(graph.handle(try field(0).id, kind: .focus, payload: true))
+        graph.update()
+        #expect(try focused(0) == true && focused(1) == false)
+        #expect(sink.screen?.find("Text")?.props["text"] == "name")
+
+        // Then into the email field: the host says where it went, and
+        // that it left the other.
+        graph.handle(try field(1).id, kind: .focus, payload: true)
+        graph.handle(try field(0).id, kind: .focus, payload: false)
+        graph.update()
+        #expect(try focused(0) == false && focused(1) == true, "leaving a field doesn't take it from the one it went to")
+        #expect(sink.screen?.find("Text")?.props["text"] == "email")
+
+        // The app moves it, and puts the keyboard away.
+        try tap(graph, sink, "Button", text: nil)
+        graph.update()
+        #expect(try focused(0) == true && focused(1) == false && focused(2) == true, "the note is asked for too")
+        graph.handle(try field(0).id, kind: .focus, payload: false)
+        graph.handle(try field(2).id, kind: .focus, payload: false)
+        graph.update()
+        #expect(try focused(0) == false && focused(2) == false)
+        #expect(sink.screen?.find("Text")?.props["text"] == "none")
+        graph.handle(try field(1).id, kind: .focus)
+        graph.update()
+        #expect(try focused(1) == false, "a report with no answer in it changes nothing")
+    }
+
+    @Test func theKeyboardTakesModifiers() throws {
+        let (_, sink) = graph(CodeField())
+        let field = try #require(sink.screen?.find("TextField"))
+        #expect(field.modifiers.map(\.kind) == ["autocorrection", "autocapitalization", "autocorrection", "autocapitalization"])
+        #expect(field.modifiers[0].args == ["disabled": true])
+        #expect(field.modifiers[1].args == ["mode": "characters"])
+        #expect(field.modifiers[2].args == ["disabled": false])
+        #expect(field.modifiers[3].args.isEmpty, "none: the platform's way")
+        for mode: TextInputAutocapitalization in [.never, .words, .sentences, .characters] {
+            let (_, sink) = graph(Text("x").textInputAutocapitalization(mode))
+            #expect(sink.screen?.modifiers.first?.args["mode"]?.string == mode.mode)
+        }
+    }
+
     @Test func diffFindsTheSmallestChanges() {
         let old = RenderNode("VStack", id: 1, children: [
             RenderNode("Text", id: 2, props: ["text": "a"]),
@@ -408,6 +462,51 @@ struct Appearing: View {
         changes = []
         ViewGraph.diff(old, new, into: &changes)
         #expect(changes.map(\.id) == [1], "a new child replaces its parent")
+    }
+}
+
+struct CodeField: View {
+
+    @State var code = ""
+
+    var body: some View {
+        TextField("Code", text: $code)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.characters)
+            .autocorrectionDisabled(false)
+            .textInputAutocapitalization(nil)
+    }
+}
+
+/// Two fields that share one focus state, and a note with its own.
+struct SignIn: View {
+
+    enum Field {
+        case name
+        case email
+    }
+
+    @State var name = ""
+    @State var email = ""
+    @State var note = ""
+
+    @FocusState var field: Field?
+    @FocusState var editingNote: Bool
+
+    var body: some View {
+        VStack {
+            TextField("Name", text: $name)
+                .focused($field, equals: .name)
+            TextField("Email", text: $email)
+                .focused($field, equals: .email)
+            TextField("Note", text: $note)
+                .focused($editingNote)
+            Text(field == .name ? "name" : field == .email ? "email" : "none")
+            Button("Start") {
+                field = .name
+                editingNote = true
+            }
+        }
     }
 }
 
