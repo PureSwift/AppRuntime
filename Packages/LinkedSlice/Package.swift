@@ -19,6 +19,7 @@ import PackageDescription
 ///   `ExampleClipboard`, whose clipboard the test keeps,
 ///   `ExampleSignIn`, whose browser the test plays, with its secrets in
 ///   memory,
+///   `ExampleCalendar`, whose events are in a store in memory,
 ///   `ExampleDefaults`, whose settings are kept in a real file,
 ///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
@@ -78,6 +79,8 @@ let package = Package(
                 .product(name: "RuntimeSecrets", package: "AppRuntime"),
                 .product(name: "DynamicAuthentication", package: "AppRuntime"),
                 .product(name: "RuntimeAuthentication", package: "AppRuntime"),
+                .product(name: "DynamicCalendar", package: "AppRuntime"),
+                .product(name: "RuntimeCalendar", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
