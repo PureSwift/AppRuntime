@@ -26,6 +26,9 @@ public extension App {
         if !backgroundTasks.isEmpty {
             object["backgroundTasks"] = .array(backgroundTasks.map(\.json))
         }
+        if !authenticationSchemes.isEmpty {
+            object["authenticationSchemes"] = .array(authenticationSchemes.map(JSONValue.string))
+        }
         object["product"] = product.map(JSONValue.string)
         object["icon"] = icon.map(JSONValue.string)
         object["apple"] = apple.map(\.json)
