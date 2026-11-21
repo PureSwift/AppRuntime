@@ -40,6 +40,10 @@ let package = Package(
         .library(name: "DynamicText", targets: ["DynamicText"]),
         // Host only: the text contract over a host's own text views.
         .library(name: "RuntimeText", targets: ["RuntimeText"]),
+        // Shared: the system's clipboard, for an app's own Copy and Paste.
+        .library(name: "DynamicClipboard", targets: ["DynamicClipboard"]),
+        // Host only: the clipboard contract over a host's own clipboard.
+        .library(name: "RuntimeClipboard", targets: ["RuntimeClipboard"]),
         // Shared: media players: a song, a podcast or a video the host
         // decodes and shows, with what's playing and background playback.
         .library(name: "DynamicMedia", targets: ["DynamicMedia"]),
@@ -102,6 +106,8 @@ let package = Package(
         .library(name: "ExampleFiles", type: .static, targets: ["ExampleFiles"]),
         // Example text guest app: a small editor over a text the host holds.
         .library(name: "ExampleText", type: .static, targets: ["ExampleText"]),
+        // Example clipboard guest app: copies and pastes text, a link and an image.
+        .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
         .library(name: "ExampleMedia", type: .static, targets: ["ExampleMedia"]),
         // Example background guest app: a feed the system refreshes.
@@ -341,6 +347,23 @@ let package = Package(
             dependencies: ["DynamicText", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
         ),
         .target(
+            name: "DynamicClipboard",
+            dependencies: ["DynamicRuntime", "DynamicFiles"],
+            path: "Contracts/DynamicClipboard"
+        ),
+        .target(
+            name: "RuntimeClipboard",
+            dependencies: ["DynamicClipboard", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicClipboardTests",
+            dependencies: ["DynamicClipboard", "DynamicFiles", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeClipboardTests",
+            dependencies: ["RuntimeClipboard", "DynamicClipboard", "DynamicFiles", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
             name: "DynamicMedia",
             dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"],
             path: "Contracts/DynamicMedia"
@@ -503,6 +526,11 @@ let package = Package(
             name: "ExampleText",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicText"],
             path: "examples/ExampleText"
+        ),
+        .target(
+            name: "ExampleClipboard",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicClipboard"],
+            path: "examples/ExampleClipboard"
         ),
         .target(
             name: "ExampleMedia",
