@@ -31,6 +31,7 @@ builds and the first provider contracts:
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. No platform host has a clipboard behind it, so nothing has reached another app |
+| Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -415,6 +416,31 @@ which are each host's. TCP and UDP are not part of the spec.
     clipboard, copy and paste work inside the app.
   - **`textSelection` is a modifier with nothing behind it:** no contract
     and no event. It's in the frontend.
+- **Secrets and sign-in (`Contracts/Secrets.md`).**
+  - **Two modules, each depending on `DynamicRuntime` alone,** so an app
+    that keeps a password declares one contract and not the other's.
+  - **No stand-in store.** Without a `SecretStore`, `HostSecrets` fails
+    every call with `unavailable`. `MemorySecretStore` exists for tests
+    and is never chosen by the shared host.
+  - **A store is called off the main thread, in order,** on one serial
+    queue: a keychain call can block on the user. The store is
+    `Sendable`; the callback stays on the main thread.
+  - **Limits are the contract's, not the platform's:** 255 bytes of key
+    and 16 KB of value everywhere, checked before a store sees them.
+  - **A string is its UTF-8,** and a read of bytes that aren't is
+    `invalidData`, decided in the guest.
+  - **The host gives the redirect.** `scheme:/path` by default; a
+    presenter overrides it, as a browser host must. A redirect is
+    accepted when it begins with what the presenter gives for a declared
+    scheme and no path.
+  - **A sign-in is numbered,** so a presenter's completion after a
+    cancel, or for a page before, is told from the current one and
+    dropped.
+  - **Cancelling answers first.** The guest gets `canceledLogin` at once
+    and the presenter is told after: a presenter that never completes
+    can't leave the app waiting.
+  - **`authenticationSchemes` needs no capability,** and each scheme
+    must be lower case with a dot, which no scheme of the web's has.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -983,6 +1009,25 @@ Each of these needs a decision, or is verified only as far as noted:
   `examples/ExampleClipboard` against `HostClipboard`, as `App.wasm`, a
   sealed macOS slice and wasm2c output, and check the file it pastes.
   The three suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
+- `DynamicSecretsTests` and `DynamicAuthenticationTests`: both contracts'
+  keys and signatures, and the guest's `Keychain` and
+  `WebAuthenticationSession` against scripted hosts: what each asks, no
+  secret, bytes that aren't a string, and answers from a newer host.
+- `RuntimeSecretsTests`: `HostSecrets` over a store in memory, from the
+  guest through `NativeRuntime`: no store, secrets kept by key and
+  replaced, keys sorted, the limits on keys and values, a store's
+  refusals, work done in the order asked, and the async forms.
+- `RuntimeAuthenticationTests`: `HostWebAuthentication` over a browser
+  the test plays: a native host's redirect and a browser host's, the
+  redirect returned whole, what isn't `https` or declared, a redirect
+  that wasn't waited for, one sign-in at a time, a browser that answers
+  twice, the app closing the page, a late answer, and a cancelled task.
+  `AppManifestTests` and `Scripts/test_manifest.py` cover `.secrets` and
+  `authenticationSchemes`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleSignIn`
+  against both shared hosts, as `App.wasm`, a sealed macOS slice and
+  wasm2c output. The four suites also pass on Linux (Swift 6.4.2, arm64,
+  in Docker).
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1269,3 +1314,12 @@ Each of these needs a decision, or is verified only as far as noted:
    `textSelection` text selectable. What each platform does when an app
    reads, the alert on iOS above all, is from documentation. Then a
    `PasteButton` node, which is the only way past that alert.
+15. Secrets and sign-in in the hosts
+   (`Documentation/Contracts/Secrets.md`): a `SecretStore` over Keychain
+   Services in the Darwin host, with the marker that empties it after a
+   reinstall; over the Secret Service in the Linux host, with the sandbox
+   keeping guests off the session bus; and Android's and the browser's
+   own host side. A `WebAuthenticationPresenter` over
+   `ASWebAuthenticationSession`, and the system's browser with a scheme
+   handler on Linux. Each host reads `RTAuthenticationSchemes`, which
+   `AppInfo` doesn't yet. Nothing here has met a real provider.
