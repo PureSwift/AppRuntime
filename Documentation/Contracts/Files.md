@@ -243,6 +243,12 @@ HostFilesModule.register(in: runtime)
   checks it: for a media player, an image decoder, or any other contract
   that's handed a directory and a path.
 - **`HostFiles.snapshot()`** reads and writes a whole file as `Files`
+  would, off the main thread: for the clipboard's images, or a text
+  loaded into an editor. A host whose files aren't all `HostFiles`' sets
+  `HostFiles.wholeFiles` to its own `WholeFileAccess`, and every snapshot
+  uses it: an Android app's bundle is its APK's assets, and a picked
+  document a content URI.
+- **`HostFiles.snapshot()`** reads and writes a whole file as `Files`
   does, with the grants there were when it was taken: for a contract that
   does the work itself off the main thread, such as a text loaded into an
   editor.
