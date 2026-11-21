@@ -9,6 +9,19 @@ public enum DocumentAccess: Int32, Sendable {
     case readWrite = 1
 }
 
+/// Where a picker looks.
+public enum DocumentSource: Sendable {
+
+    /// The user's files: the system's file browser.
+    case files
+
+    /// The user's photos and videos: the system's photo picker. What's
+    /// picked is read-only and can't be bookmarked, and nothing else of
+    /// the library is seen. It asks the user for no leave, and needs
+    /// nothing of the photo library's own contract.
+    case photoLibrary
+}
+
 /// Why a picker or a bookmark failed.
 public enum DocumentError: Int32, Error, Sendable {
 
