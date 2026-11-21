@@ -21,6 +21,9 @@ import PackageDescription
 ///   memory,
 ///   `ExampleCalendar`, whose events are in a store in memory,
 ///   `ExampleContacts`, whose address book is in memory,
+///   `ExampleCamera`, whose cameras the test stands in for, saving to a
+///   photo library in memory,
+///   `ExamplePhotos`, whose photo library is in memory, over real files,
 ///   `ExampleDefaults`, whose settings are kept in a real file,
 ///   `ExampleModel`, whose store is CoreModel's in-memory backend, or
 ///   `ExampleGL`, which draws: the test host's GL is `CFakeGL`, which
@@ -84,6 +87,10 @@ let package = Package(
                 .product(name: "RuntimeCalendar", package: "AppRuntime"),
                 .product(name: "DynamicContacts", package: "AppRuntime"),
                 .product(name: "RuntimeContacts", package: "AppRuntime"),
+                .product(name: "DynamicPhotos", package: "AppRuntime"),
+                .product(name: "RuntimePhotos", package: "AppRuntime"),
+                .product(name: "DynamicCamera", package: "AppRuntime"),
+                .product(name: "RuntimeCamera", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
