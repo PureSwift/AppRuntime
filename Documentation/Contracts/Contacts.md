@@ -1,6 +1,9 @@
 # Contacts
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares. No platform host has
+an address book behind it yet, so no real contact has been read: the
+tests keep the people in memory.
 
 Module `DynamicContacts`: the people in the user's address book, as the
 system keeps them. The Contacts framework's place.
@@ -25,6 +28,9 @@ Guest-side Swift:
   `ContactStoreAccess`, `ContactStoreError`.
 
 The render IR doesn't change.
+
+Host-side Swift, in `RuntimeContacts`: `HostContacts`, the contract over
+a host's `ContactDirectory`, and `MemoryContactDirectory`.
 
 ## What shapes it
 
@@ -54,7 +60,7 @@ import DynamicContacts
 
 let store = ContactStore.default
 
-guard try await store.requestAccess() != .denied else { return }
+guard await store.requestAccess().allowsReading else { return }
 
 // Everyone, in the system's order.
 let people = try await store.contacts()
@@ -92,6 +98,7 @@ try await store.remove(ada)
 - **The manifest says whether the app writes** (below). One that declared
   reading alone gets `notAuthorized` from `save` and `remove`.
 - **`Permissions` works too,** as for any capability.
+- **`allowsReading`** is true for `.authorized` and `.limited`.
 
 ### A contact
 
@@ -114,6 +121,8 @@ try await store.remove(ada)
 - **`displayName` falls back** to the organization, then to an email
   address or a phone number, when there's no name.
 - **A phone number is text,** as the user wrote it. Nothing tidies it.
+- **`isEmpty`** says a contact has nothing in it. A display name isn't
+  something in it: an app can't set one.
 - **A `Contact` is a value.** It can be kept, compared and copied. To
   change one the store has, change the value and save it.
 
@@ -281,8 +290,8 @@ own text for any other.
 
 ## The shared host
 
-`HostContacts`, in a new `RuntimeContacts`, over a host's
-`ContactDirectory`, which works in the guest's own values:
+`HostContacts`, in `RuntimeContacts`, over a host's `ContactDirectory`,
+which works in the guest's own values:
 
 ```swift
 public protocol ContactDirectory: AnyObject, Sendable {   // off the main thread, one call at a time
@@ -303,14 +312,22 @@ HostContactsModule.register(in: runtime)
 HostContacts.storeChanged()                        // from the platform
 ```
 
-- It checks access before every call, refuses a write by an app that
-  declared reading alone, refuses an empty contact, runs the directory
-  off the main thread in order, and answers on it.
-- It asks the user once, and gathers a burst of changes into one
-  `didChange`.
-- **`MemoryContactDirectory`** is a directory in memory, for tests. It
-  is not a default. Without a directory, every call fails with
-  `unavailable`.
+A directory names each contact it gives, with `Contact.named(_:)`: the
+display name is the platform's formatting.
+
+- **Access:** checked before every call. A write by an app that declared
+  reading alone is refused, whatever the user granted. The user is asked
+  once, and a requester that answers twice is heard once.
+- **Before a directory sees a save:** that the contact has something in
+  it, and that the one it names is there. Before a search: that the text
+  isn't empty.
+- **Threads:** the directory is called off the main thread in order, and
+  every answer is on it.
+- **Changes:** a burst of `storeChanged` is one `didChange`, and this
+  app's own saves and removals are said too.
+- **`MemoryContactDirectory`** is a directory in memory, for tests, and
+  the rules in their plainest form. It is not a default. Without a
+  directory, every call fails with `unavailable`.
 
 ## The manifest
 
@@ -359,21 +376,40 @@ From each platform's documentation. None of it has been tried.
   country.
 - **What changed.** `didChange` says only that something did.
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `ContactStore`, `Contact`, `LabeledValue`, `PostalAddress`:
-   the Contacts framework's, without the prefix. Module
-   `DynamicContacts`.
-2. **The system syncs, and the Contacts app is its client.** As for the
-   calendar, this reverses the core apps plan, and leaves Linux needing a
-   contacts service in the host.
-3. **Reading and writing are declared apart,** with writing the default.
-4. **No photos** in the first version, since nothing could show them.
-5. **No contact picker** in the first version.
-6. **No notes, groups or accounts.**
-7. **Search is the platform's own,** with one promise: the start of any
-   word of a name, without regard to case.
-8. **Names and lists cross as arrays of strings in a fixed order,** not a
-   call for each field. A contact is then eleven calls to read, which
-   matters for an address book of thousands.
-9. **No stand-in store.** A host without one answers `unavailable`.
+`examples/ExampleContacts` is an address book: it asks for access, lists
+everyone, finds people as a name is typed, shows one person's details,
+adds someone, changes them, removes them, and looks again when the store
+says it changed. It runs as `App.wasm` under WasmKit
+(`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c output
+(`Packages/LinkedSlice`), against `HostContacts` over an address book in
+memory.
+
+- `DynamicContactsTests`: the contracts' keys and signatures, labels, a
+  birthday's text, a contact as a value, and the guest's `ContactStore`
+  against a scripted host.
+- `RuntimeContactsTests`: `HostContacts` over `MemoryContactDirectory`,
+  from the guest: access, an app that only reads, a contact saved, found,
+  changed and removed, what a name falls back to, someone who can't be
+  changed, the list's order, searching, a burst of changes, and the
+  `async` forms.
+- `AppManifestTests` and `Scripts/test_manifest.py`: `.contacts` and
+  whether it writes.
+
+## Decided in review
+
+The design was approved as drafted, and built as drafted:
+
+- **Names:** `ContactStore`, `Contact`, `LabeledValue`, `PostalAddress`;
+  module `DynamicContacts`.
+- **The system syncs, and the Contacts app is its client.** Linux needs a
+  contacts service in the host, which isn't decided.
+- **Reading and writing are declared apart,** with writing the default.
+- **No photos,** until an `Image` can show one.
+- **No contact picker.**
+- **No notes, groups or accounts.**
+- **Search is the platform's own,** with one promise: the start of any
+  word of a name, without regard to case.
+- **Names and lists cross as arrays of strings in a fixed order.**
+- **No stand-in store.**
