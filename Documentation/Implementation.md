@@ -30,6 +30,7 @@ builds and the first provider contracts:
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`); no other host does yet |
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. No platform host has an engine, so nothing has been decoded or heard |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. No platform host has a text view behind it, so no text has been shown or typed into |
+| Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. No platform host has a clipboard behind it, so nothing has reached another app |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. No platform host has a scheduler, or starts a guest without a window, so nothing has run in a real background |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
@@ -395,6 +396,25 @@ which are each host's. TCP and UDP are not part of the spec.
     lower-case mapping where that's one unit. No regular expressions.
   - **`TextSelection` has no case for several ranges:** `RangeSet` needs
     macOS 15, and an editor here has one selection.
+- **Clipboard (`Contracts/Clipboard.md`).**
+  - **No type from another contract's module.** `image(to:)` gives a
+    `PasteboardImageType` and not the documents module's `ContentType`,
+    which the design had: linking that module would have put the document
+    pickers in every copying app's `rt.contracts`. The module depends on
+    `DynamicFiles` alone, for `FilePath`.
+  - **A copy's completion handler is optional,** and the `async` forms
+    share the names. In a synchronous action the plain call drops a
+    failure; in `async` code the same call is the `async` one.
+  - **The bytes say what an image is,** on the way in and on the way out:
+    the type a guest or a platform gives is ignored.
+  - **File errors are folded into four:** not permitted and read-only are
+    `notAllowed`; missing, a folder and a bad path are `invalidData`.
+  - **A platform's completion is heard once.** The shared host drops a
+    second answer, since a guest's callback takes one.
+  - **`MemoryClipboard` is the default,** not an error: on a host with no
+    clipboard, copy and paste work inside the app.
+  - **`textSelection` is a modifier with nothing behind it:** no contract
+    and no event. It's in the frontend.
 - **Background tasks (`Contracts/BackgroundTasks.md`).**
   - **No new entry point.** A background start is `rt_main`, as any start
     is, and the host's renderer waits for a window. A slice keeps its
@@ -946,6 +966,23 @@ Each of these needs a decision, or is verified only as far as noted:
   against `HostTextStorage`, as `App.wasm`, a sealed macOS slice and
   wasm2c output, and check the file it saves. The four suites also pass
   on Linux (Swift 6.4.2, arm64, in Docker).
+- `DynamicClipboardTests`: the clipboard contracts' keys and signatures,
+  and the guest's `Pasteboard` against a scripted host: an image's bytes,
+  looking, what each copy asks, a copy's answer, pasted text and links,
+  and a pasted image as bytes and as a file, with answers from a newer
+  host.
+- `RuntimeClipboardTests`: `HostClipboard` over a clipboard the test
+  fills as another app would, and real files, from the guest through
+  `NativeRuntime`: an app's own clipboard with no platform, copied text
+  and links, looking without reading, pasted text as it is, a refusal, a
+  platform that asks first and one that answers twice, what's too large,
+  an image from its bytes and from its file, a picked document copied
+  from and pasted into, an image pasted as bytes and into a file, and the
+  async forms. `DynamicSwiftUITests` has `textSelection`.
+  `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleClipboard` against `HostClipboard`, as `App.wasm`, a
+  sealed macOS slice and wasm2c output, and check the file it pastes.
+  The three suites also pass on Linux (Swift 6.4.2, arm64, in Docker).
 - `DynamicBackgroundTasksTests`: the background contract's keys and
   signatures, and the guest's `BackgroundTaskScheduler` against a scripted
   host: what a request asks, a task with no handler, lists and
@@ -1223,3 +1260,10 @@ Each of these needs a decision, or is verified only as far as noted:
    `focused`, and reports `focus`. Nothing has been typed into a real
    text view, so undo grouping, input methods and large files are
    untested. Then styled text, for syntax colouring.
+14. The clipboard in the hosts (`Documentation/Contracts/Clipboard.md`):
+   a `ClipboardPlatform` over `UIPasteboard` and `NSPasteboard` in the
+   Darwin host, over the compositor's selection in the Linux host, and
+   Android's and the browser's own host side. Each host's renderer makes
+   `textSelection` text selectable. What each platform does when an app
+   reads, the alert on iOS above all, is from documentation. Then a
+   `PasteButton` node, which is the only way past that alert.
