@@ -1,6 +1,9 @@
 # Camera
 
-**Status:** a design for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares. No platform host has
+a camera behind it yet, and none shows a `CameraPreview` node, so no real
+photo has been taken: the tests keep a camera of their own.
 
 Module `DynamicCamera`: a live preview, photos, and video with sound.
 
@@ -18,9 +21,12 @@ Guest-side Swift:
 - **`Camera`**: the observable camera app code uses.
 - **`CameraPreview`**: the SwiftUI view that shows what it sees.
 - `CameraPosition`, `CameraFlashMode`, `CameraState`, `CameraAccess`,
-  `CapturedPhoto`, `CapturedVideo`, `CameraError`.
+  `CameraScaling`, `CapturedPhoto`, `CapturedVideo`, `CameraError`.
 
-The render IR gains one node, `CameraPreview`.
+Host-side Swift, in `RuntimeCamera`: `HostCameraCapture`, the contract
+over a host's `CameraPlatform` and the `CameraEngine`s it makes.
+
+The render IR has one node for it, `CameraPreview`.
 
 ## What shapes it
 
@@ -68,14 +74,14 @@ try await PhotoLibrary.shared.add(photo: .caches / "shot.jpg")
 
 | `Camera` | |
 |---|---|
-| `start(_:)` | turns on the back or the front camera. Starting again switches |
+| `start(_:)` | turns on the back or the front camera. Starting again switches, and `state` is `.starting` until the other is on |
 | `stop()` | turns it off |
 | `state` | observable: `.stopped`, `.starting`, `.running`, `.interrupted`, `.failed` |
 | `position` | observable: `.back`, `.front`, `.external` |
-| `zoomFactor` | observable and settable: 1 is the main lens |
+| `zoomFactor` | observable and settable: 1 is the main lens. It's what the host says it became |
 | `zoomRange` | observable: what this camera can do, such as `0.5...15` |
 | `hasFlash`, `flashMode` | `.off`, `.on`, `.auto`, for photos |
-| `isRecording`, `recordingDuration` | observable |
+| `isRecording`, `recordingDuration` | observable. The duration is exact when read, and changes for views once a second |
 | `onRecordingFinished` | called with the video when a recording ends, however it ended |
 | `error` | why it's `.failed` |
 
@@ -95,6 +101,7 @@ try await PhotoLibrary.shared.add(photo: .caches / "shot.jpg")
 | `Camera.microphoneAccess`, `Camera.requestMicrophoneAccess()` | the same, for sound |
 
 `start` without access fails: `state` is `.failed`, with `notAuthorized`.
+Starting never asks, and nor does recording.
 
 ### The preview
 
@@ -114,11 +121,11 @@ CameraPreview(camera, scaling: .fit)        // all of the picture
 
 ```swift
 let photo = try await camera.capturePhoto(to: .caches / "shot.jpg")
-// photo.width, photo.height
+// photo.path, photo.width, photo.height
 ```
 
 - **A JPEG,** at the camera's full size, written to the path given,
-  replacing what's there.
+  replacing what's there. The folders above it are made.
 - **It's upright.** Whichever way the device was held, the file shows
   the right way up in anything that reads it.
 - **`flashMode`** is used if the camera has a flash.
@@ -131,7 +138,7 @@ let photo = try await camera.capturePhoto(to: .caches / "shot.jpg")
 try await camera.startRecording(to: .caches / "clip.mp4", audio: true)
 // …
 let video = try await camera.stopRecording()
-// video.duration, video.contentType
+// video.path, video.duration, video.contentType, video.interruption
 ```
 
 - **`startRecording` returns when recording has begun.** `stopRecording`
@@ -142,9 +149,11 @@ let video = try await camera.stopRecording()
 - **`audio: true` needs the microphone:** `.microphone` in the manifest,
   and the user's leave. Without either it fails with `notAuthorized`,
   and nothing is recorded.
-- **A recording ends by itself** when the camera is interrupted or
-  stopped, or the disk fills. The file is kept, and `onRecordingFinished`
-  is called with it.
+- **A recording ends by itself** when the camera is interrupted,
+  stopped or switched, or the disk fills. The file is kept, and
+  `onRecordingFinished` is called with it. Its `interruption` says what
+  cut it short; it's `nil` when the app stopped the recording or the
+  camera.
 - **No photos while recording.**
 
 ### Errors
@@ -155,7 +164,7 @@ let video = try await camera.stopRecording()
 | `unavailable` | no such camera on this device |
 | `notRunning` | the camera is off |
 | `busy` | a photo is being taken, a recording is under way, or another app has the camera |
-| `interrupted` | the camera was taken away during the capture |
+| `interrupted` | the camera was taken away during the capture, or is away now |
 | `writeFailed` | the file couldn't be written: no space, or not a place the app may write |
 | `cancelled` | the task waiting was cancelled |
 
@@ -181,7 +190,8 @@ public protocol CameraCapture: AnyObject {
     /// What a `CameraPreview` node carries to say which camera it shows.
     func identifier() -> Int32
 
-    /// A `CameraPosition` raw value. Answered by `didStart` or `didFail`.
+    /// A `CameraPosition` raw value. On one that's running, it switches.
+    /// Answered by `didStart` or `didFail`.
     func start(_ position: Int32)
     func stop()
     func setZoom(_ factor: Double)
@@ -204,7 +214,7 @@ public protocol CameraCaptureDelegate: AnyObject {
     func didChangeAccess(_ access: Int32, microphone: Bool)
     /// A `CameraState` raw value.
     func didChangeState(_ state: Int32)
-    /// The camera is on.
+    /// The camera is on, at a zoom of 1.
     func didStart(_ position: Int32, minimumZoom: Double, maximumZoom: Double, hasFlash: Bool)
     /// The user pinched, or the guest set it.
     func didChangeZoom(_ factor: Double)
@@ -235,8 +245,13 @@ public protocol CameraCaptureDelegate: AnyObject {
   `mimeType`.
 - **The front camera's preview is mirrored. No file is.**
 - **A file is found as `Files` finds it,** so a document the user picked
-  works. It's written off the main thread, and the answer comes when it's
-  whole.
+  works, and the folders above it are made. It's written off the main
+  thread, and the answer comes when it's whole.
+- **Every request is answered once.** A photo being taken when the
+  camera goes off fails with `interrupted`.
+- **A capture is refused** with `notRunning` while the camera is off or
+  starting, `interrupted` while it's away, `busy` during another, and
+  `writeFailed` for a place the app may not write.
 - **A recording that's cut short is still a file.** `didFinishRecording`
   says why it ended.
 - **Zoom is clamped** to the camera's range, and `didChangeZoom` says
@@ -258,9 +273,9 @@ stays on.
 
 ## The shared host
 
-`HostCameraCapture`, in a new `RuntimeCamera`, over a host's
-`CameraPlatform` and the `CameraEngine` it makes, as the media player's
-shared host is over its platform and engines:
+`HostCameraCapture`, in `RuntimeCamera`, over a host's `CameraPlatform`
+and the `CameraEngine` it makes, as the media player's shared host is
+over its platform and engines:
 
 ```swift
 public protocol CameraEngine: AnyObject {            // main thread
@@ -269,9 +284,18 @@ public protocol CameraEngine: AnyObject {            // main thread
     func setZoom(_ factor: Double)
     func setFlashMode(_ mode: CameraFlashMode)
     /// Writes a JPEG at an absolute path, upright.
-    func capturePhoto(to path: String, completion: @escaping (Result<CapturedPhoto, CameraError>) -> Void)
+    func capturePhoto(to path: String, completion: @escaping (Result<(width: Int, height: Int), CameraError>) -> Void)
     func startRecording(to path: String, audio: Bool, completion: @escaping (CameraError?) -> Void)
     func stopRecording()
+}
+
+public protocol CameraPlatform: AnyObject {          // main thread
+    var positions: [CameraPosition] { get }
+    var access: CameraAccess { get }
+    var microphoneAccess: CameraAccess { get }
+    func requestAccess(_ completion: @escaping (CameraAccess) -> Void)
+    func requestMicrophoneAccess(_ completion: @escaping (CameraAccess) -> Void)
+    func makeEngine(for camera: HostCameraCapture) -> any CameraEngine
 }
 
 HostCameraCapture.platform = MyCameras()
@@ -284,12 +308,27 @@ HostCameraCapture.applicationWillEnterForeground()
 HostCameraCapture.camera(for: identifier)?.engine    // for the renderer
 ```
 
-- It finds each file through `HostFiles` before an engine sees a path,
-  and refuses one the app may not write.
-- It keeps one camera on, one photo at a time and one recording, and
-  answers each request once.
-- It refuses sound without the capability, turns the camera off for the
-  background and on again, and ends a recording when it must.
+An engine reports to the `HostCameraCapture` it was made for: `started`
+with its zoom range and whether it has a flash, `failed`, `zoomChanged`
+for a pinch, `interruptionBegan` and `interruptionEnded` when the system
+takes the camera and gives it back, and `recordingFinished`.
+
+- **Files:** each is found through `HostFiles` before an engine sees a
+  path, with the folders above it made. One the app may not write is
+  refused.
+- **One of each:** one camera on, one photo at a time and one recording,
+  and each request answered once, whatever an engine does.
+- **Access:** `start` needs the user's leave, and never asks. Sound needs
+  the capability and the user's leave: without `.microphone` in the
+  manifest the microphone is `denied` and the user isn't asked.
+- **Zoom:** clamped to the range the engine reported, for the guest and
+  for a pinch.
+- **Flash:** remembered, and told to an engine when its camera comes on,
+  if that camera has one.
+- **The background and interruptions:** the camera goes off, a recording
+  ends first with `interrupted`, and the camera that was on comes back
+  when nothing holds it off. A camera started in the background waits.
+- **Releasing:** the camera goes off, and a recording ends.
 - **Without a platform, there's no camera:** `positions` is none, access
   is `.unavailable`, and `start` fails.
 
@@ -344,21 +383,66 @@ From each platform's documentation. None of it has been tried.
 - **Where the photo was taken.** A camera that tags places needs
   [location](Location.md) too, and writes the tag itself.
 
-## Questions for review
+## Example and tests
 
-1. **Names:** `Camera` and `CameraPreview`, contract `CameraCapture`,
-   module `DynamicCamera`. AVFoundation's own names are too many to
-   follow.
-2. **Saving to the user's photos isn't here.** It's the
-   [photo library](Photos.md)'s add-only level, in a module of its own.
-3. **Photos are JPEG.** HEIC is smaller and isn't everywhere.
-4. **A video is MP4 where the host can,** and the host says what it
-   wrote. A browser host may give WebM, which the media player needn't
-   play everywhere.
-5. **Focus and pinch are the preview's own,** in the host. The guest has
-   `zoomFactor` and nothing for focus.
-6. **Lenses are a zoom,** not a choice.
-7. **A new `.microphone` capability.** A video with sound needs it; one
-   without doesn't.
-8. **No stand-in camera.** A host without one says so. The tests keep an
-   engine of their own, as the media player's do.
+`examples/ExampleCamera` is a viewfinder: it asks for the camera and
+shows what it sees, takes a photo, records a video with sound if the user
+allows the microphone, zooms, switches cameras, and saves what it took to
+the user's photos, which it only adds to. It runs as `App.wasm` under
+WasmKit (`Packages/RuntimeWasm`) and as a sealed native slice and wasm2c
+output (`Packages/LinkedSlice`), against `HostCameraCapture` over a
+test's cameras and `HostPhotos` over a library in memory.
+
+- `DynamicCameraTests`: the contract's keys and signatures, and the
+  guest's `Camera` and `CameraPreview` against a scripted host: the
+  device's cameras, access, starting and failing, zoom, flash, photos, a
+  recording that begins, ends and is cut short, views that follow one,
+  the preview's node, release, and the `async` forms.
+- `RuntimeCameraTests`: `HostCameraCapture` over a test's platform and
+  real files, from the guest: who is asked, a microphone without the
+  manifest's leave, starting and switching, one camera at a time, zoom
+  and flash, where a photo is written and when it's refused, recordings
+  on the guest's clock, sound's two leaves, the background, and the
+  system taking the camera.
+- `AppManifestTests` and `Scripts/test_manifest.py`: `.camera`,
+  `.microphone`, and their usage texts.
+
+## Decided in review
+
+The design was approved as drafted, and built as drafted:
+
+- **Names:** `Camera` and `CameraPreview`, contract `CameraCapture`,
+  module `DynamicCamera`.
+- **Saving to the user's photos isn't here.** It's the
+  [photo library](Photos.md)'s add-only level.
+- **Photos are JPEG.** A video is MP4 where the host can, and the host
+  says what it wrote.
+- **Focus and pinch are the preview's own,** in the host. Lenses are a
+  zoom.
+- **A new `.microphone` capability,** which the camera's contract may
+  use and doesn't require.
+- **No stand-in camera.**
+
+Settled while building:
+
+- **Switching cameras shows `.starting`** until the other is on, and
+  ends a recording as an interruption does.
+- **A recording the app's own `stop()` ends isn't cut short:** its
+  `interruption` is `nil`.
+- **The packager wants a usage text** for `.camera` and for
+  `.microphone`.
+
+## What hosts still need
+
+- **A `CameraPlatform` and its engines:** `AVCaptureSession` in the
+  Darwin host, CameraX in the Android host, a GStreamer pipeline from the
+  camera portal on Linux.
+- **A `CameraPreview` node in each renderer,** showing
+  `HostCameraCapture.camera(for:)?.engine`'s picture, with a tap to focus
+  and a pinch reported through `zoomChanged`.
+- **The app's comings and goings:** `applicationDidEnterBackground` and
+  `applicationWillEnterForeground`, and the system's interruptions.
+- **The packager's entries** for `.microphone`.
+- **A path for every file.** A capture is written by the platform at a
+  path from `HostFiles`, which a host whose files aren't all paths, such
+  as Android's picked documents, has to provide for.
