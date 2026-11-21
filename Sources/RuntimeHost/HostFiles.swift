@@ -151,6 +151,40 @@ public final class HostFiles: Files {
         try shared().system.resolve(directory, path, writing: writing)
     }
 
+    /// The files as they are now, for another contract that reads or
+    /// writes a whole file as `Files` would, off the main thread: a text
+    /// loaded into an editor, say. Take it on the main thread, where the
+    /// grants are; use it on any one thread.
+    public static func snapshot() -> Snapshot {
+        Snapshot(system: shared().system)
+    }
+
+    /// `Files`' reads and writes, with the grants there were when it was
+    /// taken.
+    public struct Snapshot: Sendable {
+
+        let system: FileSystem
+
+        /// The file's size in bytes.
+        public func size(_ directory: Int32, path: String) throws(FileError) -> Int64 {
+            let attributes = try system.attributes(directory, path)
+            guard attributes.kind == .file else {
+                throw .isDirectory
+            }
+            return attributes.size
+        }
+
+        /// The whole file.
+        public func contents(_ directory: Int32, path: String) throws(FileError) -> [UInt8] {
+            try system.read(directory, path, offset: 0, length: -1)
+        }
+
+        /// Replaces the file, atomically where `Files` can.
+        public func write(_ data: [UInt8], to directory: Int32, path: String) throws(FileError) {
+            try system.write(directory, path, data: data, mode: FileWriteMode.replace.rawValue)
+        }
+    }
+
     // MARK: A host's own files
 
     // Absolute paths, for what a host keeps beside the app's files and for
