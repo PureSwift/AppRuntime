@@ -39,6 +39,8 @@ don't depend on WasmKit.
 | `DynamicFiles` | The app's files and its bundle's: the `Files` contract and the guest's `FileManager`. `RuntimeHost` has `HostFiles`, the host side over POSIX calls | yes |
 | `DynamicMedia` | Media players: a song, a podcast or a video the host decodes and shows. The `MediaPlayback` contract, the guest's `MediaPlayer`, `VideoPlayer` and `AudioPlayer`, what's playing for the lock screen, and playing on in the background | yes |
 | `RuntimeMedia` | `HostMediaPlayback`: the media contract over a host's own players | host |
+| `DynamicText` | Text the host holds and the user edits: a file in an editor, a message. The `TextStorage` contract, the guest's `TextBuffer`, and the `TextEditor` view | yes |
+| `RuntimeText` | `HostTextStorage`: the text contract over a host's own text views, with files, encodings, line endings and search | host |
 | `DynamicBackgroundTasks` | Running while the app isn't in front: tasks the system starts from time to time, and time to finish something. The `BackgroundTasks` contract and the guest's `BackgroundTaskScheduler` | yes |
 | `RuntimeBackgroundTasks` | `HostBackgroundTasks`: the background contract over a host's own scheduler | host |
 | `DynamicNotifications` | Notifications the system shows for the app, now or scheduled, with buttons, and pushes from the app's server: the `Notifications` and `PushNotifications` contracts and the guest's `UserNotificationCenter` | yes |
@@ -172,6 +174,12 @@ answers next and previous, and plays on in the background
 ([Media players](Documentation/Contracts/MediaPlayer.md),
 [Now playing](Documentation/Contracts/NowPlaying.md)). No host has players
 yet, so the tests stand in for them.
+
+`examples/ExampleText` is a small editor: it loads a text from its bundle
+into a buffer the host holds, says where the caret is, finds and replaces,
+undoes and saves ([Text editing](Documentation/Contracts/TextEditor.md)).
+No host has a text view behind it yet, so the tests type into texts kept
+in memory.
 
 `examples/ExampleBackground` is a feed that keeps itself fresh: it
 registers a task the system may run while the app is closed, asks for it
@@ -375,7 +383,8 @@ directory, `ExampleDocuments` the text editor, with the test answering its
 pickers, `ExampleNotifications` the timers, with the test keeping the
 notification centre, `ExampleBackground` the feed, with the test running
 its task, `ExampleMedia` the music player, with the test standing in for
-the players, `ExampleDefaults` the settings screen, with a real settings
+the players, `ExampleText` the editor, with the test typing into its
+texts, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
 engine, and `ExampleGL` the one that draws, against a GL that writes down
