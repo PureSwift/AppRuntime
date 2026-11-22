@@ -7,30 +7,31 @@ final class NavigationDestinations {
     var table: [RenderNode.ID: (inout [RenderNode], RenderContext) -> Void] = [:]
 }
 
-/// One level of a navigation stack while it renders: collects its title and
-/// the links it shows.
+/// One level of a navigation stack, or one column of a split view, while it
+/// renders: collects its title and the links it shows.
 final class NavigationLevel {
 
-    let path: StateBox<[RenderNode.ID]>
-
     let destinations: NavigationDestinations
-
-    let depth: Int
 
     var title: String?
 
     /// `ToolbarItem` nodes from `toolbar(content:)`, after the content.
     var toolbar: [RenderNode] = []
 
-    init(path: StateBox<[RenderNode.ID]>, destinations: NavigationDestinations, depth: Int) {
-        self.path = path
+    /// Shows a link's destination: on top of this level, replacing deeper
+    /// ones, or in the next column.
+    let push: (RenderNode.ID) -> Void
+
+    init(destinations: NavigationDestinations, push: @escaping (RenderNode.ID) -> Void) {
         self.destinations = destinations
-        self.depth = depth
+        self.push = push
     }
 
-    /// Shows `link`'s destination on top of this level, replacing deeper ones.
-    func push(_ link: RenderNode.ID) {
-        path.value = Array(path.value.prefix(depth)) + [link]
+    /// A stack's level at `depth`.
+    convenience init(path: StateBox<[RenderNode.ID]>, destinations: NavigationDestinations, depth: Int) {
+        self.init(destinations: destinations) { link in
+            path.value = Array(path.value.prefix(depth)) + [link]
+        }
     }
 }
 
@@ -65,6 +66,15 @@ public struct NavigationStack<Root: View>: View {
             let level = NavigationLevel(path: path, destinations: destinations, depth: depth)
             var levelContext = context
             levelContext.navigation = level
+            if depth > 0 {
+                let above = depth - 1
+                levelContext.values.dismiss = DismissAction {
+                    if path.value.count > above {
+                        path.value = Array(path.value.prefix(above))
+                    }
+                }
+                levelContext.values.isPresented = true
+            }
             var content: [RenderNode] = []
             if depth == 0 {
                 graph.scoped(identity: 0) {
