@@ -1,10 +1,13 @@
 # Formatting, dates and sorting
 
-**Status:** a draft for review, revised once. `LocaleInfo`,
-`NumberFormat` and `DateFormat` exist, with `RuntimeFormatting` behind
-them. Everything else here is new and nothing of it is implemented. Part
-of the work is in another package, swift-embedded-foundation
-([In swift-embedded-foundation](#in-swift-embedded-foundation)).
+**Status:** partly implemented. The eight contracts, the shared host
+behind them and the guest's `SystemClock` are in this repository, tested
+on macOS and Linux. Foundation's types for a guest are not: `Date.now`,
+`Calendar`, `TimeZone`, `Locale` and the comparing methods on `String`
+wait for a change to another package, swift-embedded-foundation
+([In swift-embedded-foundation](#in-swift-embedded-foundation)). Until
+then a guest reaches the new contracts through their proxies. No platform
+host has been changed.
 
 Module `DynamicFormatting`: what an app needs to work with dates and with
 the user's language. Foundation's place, for `Date`, `Calendar`,
@@ -220,7 +223,7 @@ after midnight.
 Code that isn't a view asks to be told:
 
 ```swift
-SystemClock.onChange = { changes in
+SystemClock.onChange { changes in
     if changes.contains(.day) { reload() }
 }
 
@@ -228,7 +231,12 @@ for await changes in SystemClock.changes { … }
 ```
 
 `SystemClock.Change` is a set of `.locale`, `.timeZone`, `.clock` and
-`.day`.
+`.day`. One listener at a time, as elsewhere: a new closure or a stream
+replaces the last.
+
+What reads the user's settings calls `SystemClock.noteAccess()`, and
+that is all a view's part in this is. The guest sets its delegate once,
+the first time anything listens or reads, and keeps it.
 
 `current` is a copy of the settings at the time it was asked for, as in
 Foundation. A view asks again each time it's evaluated, so it needs
@@ -502,14 +510,23 @@ own.
 
 - **`HostCalendarInfo`** over `Calendar`, **`HostTimeZoneInfo`** over
   `TimeZone`, **`HostCollator`** over `String.compare(_:options:range:locale:)`
-  and `folding(options:locale:)`. Calendars and collators are kept by
-  their settings in `FormatterCache`, as formatters are.
-- **`HostSystemClock`** has `now`, which a test replaces, and
-  `changed(_:)`, which a platform calls for what Foundation doesn't
-  report. On Apple platforms the shared host listens for Foundation's
-  notifications itself, as `FormatterCache` does today. On every
-  platform it keeps a timer for the next midnight and checks again when
-  the clock is set.
+  and `folding(options:locale:)`. A calendar none of whose settings is
+  the user's is made once; one that follows the user is made at each
+  call.
+- **`HostSystemClock`** has three settings a test or a host replaces:
+  `clock`, `userTimeZone` and `schedule`, which is its timer. The whole
+  module asks `userTimeZone` for the user's zone, `DateFormat` and
+  `LocaleInfo` included.
+- **A platform calls two things.** `changed(_:)`, for what Foundation
+  doesn't report, and `applicationWillEnterForeground()`, which compares
+  the zone, the locale and the day with what the guest was last told. On
+  Apple platforms the shared host listens for Foundation's notifications
+  itself.
+- **Midnight is a timer** on every platform, set for a second after the
+  next day begins in the user's zone, and set again when the zone or the
+  clock changes. `.day` is sent only when the day's number has changed
+  since the last one reported, so a platform's own notice and the timer
+  don't both count.
 - **`dayOfYear`** is a calendar component from macOS 15 and iOS 18. On
   earlier systems the host answers it with `ordinality(of: .day, in:
   .year, for:)`.
@@ -612,16 +629,16 @@ Planned:
   The night the clocks go forward and the night they go back, in Berlin
   and in a zone south of the equator; a month's end; a leap day; week
   numbers at a year's end; a non-Gregorian calendar; orders with digits,
-  case and accents, in English, Swedish and German.
+  case and accents, in English, Swedish and German. **These exist and
+  pass on both.** So do the contracts' signatures and the guest's
+  `SystemClock` in `DynamicFormattingTests`. The rest is still planned.
 
 ## To check while building
 
-- **Which of a repeated hour Foundation picks,** on macOS and on Linux,
-  and whether older Apple systems, which use ICU's calendar, agree. The
-  rule above is what the documentation says.
-- **Whether Linux Foundation orders as Apple's does** for
-  `.localizedStandard`. The formatting contracts already differ between
-  the two in three places.
+- **Checked:** Foundation picks the first of a repeated hour and moves
+  a missing one later, on macOS 26 and on Linux, and the two order
+  English, German and Swedish alike in the cases tested. Older Apple
+  systems, which use ICU's calendar, haven't been tried.
 - **`@c @implementation` against a header from another package,** on
   this toolchain. If it can't, the definitions are plain `@c` functions
   and a test compares the names.
