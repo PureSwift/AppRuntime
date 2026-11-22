@@ -32,6 +32,8 @@ let sample: Int64 = 1_709_571_967_250
         #expect(registrar.registered.map(\.name) == HostFormattingModule.contracts.map(\.name))
         #expect(Set(HostFormattingModule.contracts.map(\.name)) == [
             LocaleInfoProxy.descriptor.name, NumberFormatProxy.descriptor.name, DateFormatProxy.descriptor.name,
+            SystemClockInfoProxy.descriptor.name, SystemClockDelegateProxy.descriptor.name,
+            TimeZoneInfoProxy.descriptor.name, CalendarInfoProxy.descriptor.name, CollatorProxy.descriptor.name,
         ])
         #expect(HostFormattingModule.permissionProviders().isEmpty)
     }
