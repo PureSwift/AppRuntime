@@ -149,6 +149,8 @@ let package = Package(
         // Example transfers guest app: downloads the host moves, some of
         // them carried on while the app is closed.
         .library(name: "ExampleTransfers", type: .static, targets: ["ExampleTransfers"]),
+        // Example notes guest app: folders, notes and a note in a split view.
+        .library(name: "ExampleNotes", type: .static, targets: ["ExampleNotes"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
         .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
@@ -718,6 +720,11 @@ let package = Package(
             name: "ExampleTransfers",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicTransfers"],
             path: "examples/ExampleTransfers"
+        ),
+        .target(
+            name: "ExampleNotes",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI"],
+            path: "examples/ExampleNotes"
         ),
         .target(
             name: "ExampleClipboard",
