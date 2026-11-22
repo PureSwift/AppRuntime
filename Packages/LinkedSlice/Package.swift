@@ -17,6 +17,7 @@ import PackageDescription
 ///   `ExampleMedia`, whose players the test stands in for,
 ///   `ExampleText`, whose text views are texts the test types into,
 ///   `ExampleClipboard`, whose clipboard the test keeps,
+///   `ExampleTransfers`, whose server and system the test plays,
 ///   `ExampleSignIn`, whose browser the test plays, with its secrets in
 ///   memory,
 ///   `ExampleCalendar`, whose events are in a store in memory,
@@ -78,6 +79,8 @@ let package = Package(
                 .product(name: "DynamicText", package: "AppRuntime"),
                 .product(name: "RuntimeText", package: "AppRuntime"),
                 .product(name: "DynamicClipboard", package: "AppRuntime"),
+                .product(name: "DynamicTransfers", package: "AppRuntime"),
+                .product(name: "RuntimeTransfers", package: "AppRuntime"),
                 .product(name: "RuntimeClipboard", package: "AppRuntime"),
                 .product(name: "DynamicSecrets", package: "AppRuntime"),
                 .product(name: "RuntimeSecrets", package: "AppRuntime"),
