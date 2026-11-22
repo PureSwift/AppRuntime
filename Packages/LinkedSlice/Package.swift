@@ -18,6 +18,7 @@ import PackageDescription
 ///   `ExampleText`, whose text views are texts the test types into,
 ///   `ExampleClipboard`, whose clipboard the test keeps,
 ///   `ExampleTransfers`, whose server and system the test plays,
+///   `ExampleNotes`, whose window the test reports,
 ///   `ExampleSignIn`, whose browser the test plays, with its secrets in
 ///   memory,
 ///   `ExampleCalendar`, whose events are in a store in memory,
