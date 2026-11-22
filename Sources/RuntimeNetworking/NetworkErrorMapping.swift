@@ -18,7 +18,7 @@ extension NetworkError {
     /// `NSURLErrorSecureConnectionFailed` is Apple's
     /// `NSURLErrorServerCertificateHasBadDate`), and its URLSession reports
     /// those failures as `NSURLErrorUnknown` anyway.
-    init(urlSessionError error: Error) {
+    public init(urlSessionError error: Error) {
         let error = error as NSError
         guard error.domain == NSURLErrorDomain else {
             self = .unknown
