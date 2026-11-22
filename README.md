@@ -43,6 +43,8 @@ don't depend on WasmKit.
 | `RuntimeContacts` | `HostContacts`: the contacts contract over a host's own address book, and one in memory for tests | host |
 | `DynamicPhotos` | The photos and videos the system keeps for the user: PhotoKit's place. The `Photos` contract, the guest's `PhotoLibrary`, `PhotoAsset` and `PhotoFetchResult`, and the `PhotoView` that shows one | yes |
 | `RuntimePhotos` | `HostPhotos`: the photos contract over a host's own library, and one in memory for tests | host |
+| `DynamicTransfers` | Downloads to a file and uploads from one, which the host moves and the system can carry on after the app closes. The `Transfers` contract, the guest's `TransferManager` and observable `Transfer` | yes |
+| `RuntimeTransfers` | `HostTransfers`: the transfers contract over a host's engines, with one over `URLSession` and one in memory for tests | host |
 | `DynamicCamera` | The camera: a live preview, photos, and video with sound. The `CameraCapture` contract, the guest's `Camera`, and the `CameraPreview` view | yes |
 | `RuntimeCamera` | `HostCameraCapture`: the camera contract over a host's own cameras | host |
 | `DynamicCalendar` | The user's calendars and events, as the system keeps them: EventKit's place. The `Calendars` contract and the guest's `EventStore`, `Event` and `RecurrenceRule` | yes |
@@ -220,6 +222,13 @@ memory.
 people as a name is typed, and adds, changes and removes someone
 ([Contacts](Documentation/Contracts/Contacts.md)). No host has an address
 book behind it yet, so the tests keep the people in memory.
+
+`examples/ExampleTransfers` is a list of downloads: it starts them, pauses
+and resumes them, cancels and removes them, and finds at launch the ones
+that finished while it was closed ([Transfers](Documentation/Contracts/Transfers.md)).
+The host moves every byte and puts a download in place only when it's
+whole. No host carries one on after the app closes yet, so the tests play
+the system.
 
 `examples/ExamplePhotos` is a gallery: it shows the user's newest photos
 in a grid a page at a time, lists the albums, shows a photo large, opens
@@ -444,7 +453,8 @@ texts, `ExampleClipboard` the copying and pasting, with the test keeping
 the clipboard, `ExampleSignIn` the account, with the test playing the
 browser, `ExampleCalendar` the agenda, with its events in memory,
 `ExampleContacts` the address book, with its people in memory,
-`ExamplePhotos` the gallery, with its library in memory, `ExampleCamera`
+`ExampleTransfers` the downloads, with the test playing the server and the
+system, `ExamplePhotos` the gallery, with its library in memory, `ExampleCamera`
 the viewfinder, with the test standing in for the cameras, `ExampleDefaults` the settings screen, with a real settings
 file, `ExampleModel` the to-dos, with CoreModel's in-memory store,
 `ExampleWeb` the browser, with the test standing in for the
