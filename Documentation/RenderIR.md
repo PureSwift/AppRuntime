@@ -48,7 +48,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `ProgressView` | `total`; `value` (none: indeterminate); `title` | — | — |
 | `DatePicker` | `title`, `value` (seconds since 1970, UTC), `components` (`date`, `hourAndMinute`, or both comma-separated); `min`, `max` | — | `change` (double) |
 | `Picker` | `title`; `selection` (index); `style` (`menu`, `segmented`, `inline`, `wheel`) | options | `change` (int: index) |
-| `List` | `revision` when lazy | rows when eager | — |
+| `List` | `revision` when lazy; `selection` (int: the tag of the picked row) | rows when eager | `change` (int: the tag of the row the user picks; no value: none) |
 | `Section` | `header`, `footer` | rows | — |
 | `Form` | — | rows and sections | — |
 | `SwipeActions` | `edge` (`leading`, `trailing`), `allowsFullSwipe` | the row, then its `Button` actions | — |
@@ -60,6 +60,8 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `GridRow` | `alignment` (vertical) | its cells | — |
 | `NavStack` | — | one `NavLevel` per level, root first | `pop` (int) |
 | `NavLevel` | `title` | the level's content, then its `ToolbarItem`s | — |
+| `NavSplit` | `style` (`automatic`, `balanced`, `prominentDetail`), `visibility` (`automatic`, `all`, `doubleColumn`, `detailOnly`), `compactColumn` (`sidebar`, `content`, `detail`) | two or three `NavColumn`s, the sidebar first | `change` (string: the visibility the user chose), `pop` (int: columns left) |
+| `NavColumn` | `column` (`sidebar`, `content`, `detail`); `title`; `minWidth`, `idealWidth`, `maxWidth` | the column's content, then its `ToolbarItem`s | — |
 | `ToolbarItem` | `placement` (`automatic`, `primaryAction`, `cancellationAction`, `confirmationAction`, `navigation`, `principal`, `bottomBar`) | the item's views | — |
 | `NavigationLink` | — | label | `tap` |
 | `Link` | `url` | label; the host opens the URL | — |
@@ -111,6 +113,9 @@ own, like SwiftUI's environment.
 | `autocorrection` | `disabled` (bool) | yes |
 | `autocapitalization` | `mode` (`never`, `words`, `sentences`, `characters`); none: the platform's way | yes |
 | `focused` | `value` (bool); report `focus` | no |
+| `environment` | the window's values the subtree sets (see [The window](#the-window)) | yes |
+| `preferredColorScheme` | `scheme` (`light`, `dark`); none: the system's | no: it's the window's, or the sheet's it's in |
+| `tag` | `value` (int): a list row the list's `selection` can name | no |
 | `onTapGesture` | `count`; report `tap` | no |
 | `accessibilityLabel` | `text` | no |
 | `accessibilityIdentifier` | `identifier` | no |
@@ -132,6 +137,7 @@ props of the `Picker`, `TabView` and `Tab` nodes.
 | `pop` | 4 | `NavStack`: the number of levels left (int) |
 | `refresh` | 5 | — |
 | `focus` | 6 | whether the view now has the keyboard (bool) |
+| `environment` | 7 | node ID 0, the window: its values (see [The window](#the-window)) |
 
 **Control sync.** The guest's state is the source of truth, and its answer
 to an event arrives as an update before the event call returns. Set a control
@@ -234,6 +240,73 @@ A `NavStack`'s children are its levels; show the last. When the user goes
 back (a back button, a swipe, the system back gesture), report `pop` with the
 number of levels left and keep showing the stack as it was until the guest's
 update arrives.
+
+## Split views
+
+A `NavSplit` and its `NavColumn`s are version 2 of the `Renderer`
+contract: a renderer that answers `environment()` draws them.
+
+- **Expanded:** show the columns side by side, as `visibility` says.
+  `automatic` is your choice for the width; `doubleColumn` hides the
+  sidebar of three; `detailOnly` shows the detail alone. When the user
+  shows or hides a column, send `change` with the visibility they now see,
+  and keep it until the guest's update arrives.
+- **Collapsed** when the horizontal size class is compact, for the window
+  or from an `environment` modifier above the node: show the columns as a
+  stack, up to `compactColumn`. When the user goes back, send `pop` with
+  the number of columns left, and keep showing the stack as it was until
+  the update, as for a `NavStack`.
+- **A `NavStack` in a column**, collapsed, carries the stack on: its
+  levels come after the column. Going back inside it is that stack's own
+  `pop`.
+- **`style`:** `balanced` narrows the detail so the sidebar fits beside
+  it; `prominentDetail` keeps the detail's width and lays the sidebar over
+  it; `automatic` is your choice. Widths are in points; leave alone the
+  ones the platform can't set.
+
+## Lists
+
+A `List` with `selection` lets the user pick one row at a time: the rows
+with a `tag` modifier, eager or lazy, at any depth under the list (in a
+`Section`, say). Highlight the row whose `tag` is `selection`. When the
+user picks a row, send `change` with its tag, or with no value for none,
+and highlight it until the guest's update arrives. A row's tag follows its
+data, so the selection stays on its row as rows come and go.
+
+## The window
+
+`Renderer.environment()` answers with the window's values, before the
+guest's first tree; afterwards each change is an `environment` event to
+node ID 0, which no node has. The payload is one array: a key, then its
+value, then the next. Send every value you know; a key you leave out takes
+its default. `RenderEnvironment` in `DynamicUI` encodes and decodes it.
+
+| Key | Value |
+|---|---|
+| `horizontalSizeClass`, `verticalSizeClass` | `compact`, `regular` |
+| `colorScheme` | `light`, `dark` |
+| `colorSchemeContrast` | `standard`, `increased` |
+| `dynamicTypeSize` | `xSmall`, `small`, `medium`, `large`, `xLarge`, `xxLarge`, `xxxLarge`, `accessibility1` … `accessibility5` |
+| `layoutDirection` | `leftToRight`, `rightToLeft` |
+| `legibilityWeight` | `regular`, `bold` |
+| `displayScale` | double: pixels per point |
+| `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityDifferentiateWithoutColor` | bool |
+
+- One event for each change, carrying every value; values that change
+  together, such as both size classes in a rotation, are one event. Not
+  during a resize unless a size class changes.
+- Size classes are the platform's own where it has them. Elsewhere,
+  horizontally compact below 600 points wide, vertically below 480 high.
+- The text size is the one whose ratio to `large` is nearest the
+  platform's scale (`RenderEnvironment.TypeSize(scale:)`).
+- An `environment` modifier sets those values for its subtree: draw its
+  colors, text, direction and split views with them, as far as you can.
+- `preferredColorScheme` sets the window's scheme, or a sheet's for a node
+  in the sheet's content. Where several are set, the one nearest the root
+  wins, then the first.
+
+`Documentation/Environment.md` has the design, and where each platform
+finds these values.
 
 ## Updates
 
