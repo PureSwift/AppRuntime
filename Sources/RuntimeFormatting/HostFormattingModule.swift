@@ -3,8 +3,9 @@ import DynamicRuntime
 import RuntimeHost
 
 /// The formatting contracts (`DynamicFormatting`) over Swift Foundation,
-/// for any host written in Swift: `HostLocaleInfo`, `HostNumberFormat` and
-/// `HostDateFormat`.
+/// for any host written in Swift: `HostLocaleInfo`, `HostNumberFormat`,
+/// `HostDateFormat`, `HostSystemClock`, `HostTimeZoneInfo`,
+/// `HostCalendarInfo` and `HostCollator`.
 ///
 /// ```swift
 /// HostFormattingModule.register(in: runtime)
@@ -30,6 +31,11 @@ public enum HostFormattingModule: HostModule {
             LocaleInfoProxy.descriptor,
             NumberFormatProxy.descriptor,
             DateFormatProxy.descriptor,
+            SystemClockInfoProxy.descriptor,
+            SystemClockDelegateProxy.descriptor,
+            TimeZoneInfoProxy.descriptor,
+            CalendarInfoProxy.descriptor,
+            CollatorProxy.descriptor,
         ]
     }
 
@@ -37,5 +43,10 @@ public enum HostFormattingModule: HostModule {
         LocaleInfoProxy.register(HostLocaleInfo.self, in: registrar)
         NumberFormatProxy.register(HostNumberFormat.self, in: registrar)
         DateFormatProxy.register(HostDateFormat.self, in: registrar)
+        SystemClockInfoProxy.register(HostSystemClock.self, in: registrar)
+        SystemClockDelegateProxy.registerInterface(in: registrar)
+        TimeZoneInfoProxy.register(HostTimeZoneInfo.self, in: registrar)
+        CalendarInfoProxy.register(HostCalendarInfo.self, in: registrar)
+        CollatorProxy.register(HostCollator.self, in: registrar)
     }
 }
