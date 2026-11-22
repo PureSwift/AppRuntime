@@ -350,7 +350,7 @@ let package = Package(
         ),
         .target(
             name: "DynamicFormatting",
-            dependencies: ["DynamicRuntime"],
+            dependencies: ["DynamicRuntime", "DynamicObservation"],
             path: "Contracts/DynamicFormatting"
         ),
         .target(
@@ -586,7 +586,7 @@ let package = Package(
         ),
         .testTarget(
             name: "DynamicFormattingTests",
-            dependencies: ["DynamicFormatting", "RuntimeNative"]
+            dependencies: ["DynamicFormatting", "DynamicObservation", "RuntimeNative"]
         ),
         .target(
             name: "RuntimeFormatting",
