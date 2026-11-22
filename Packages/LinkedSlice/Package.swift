@@ -19,6 +19,7 @@ import PackageDescription
 ///   `ExampleClipboard`, whose clipboard the test keeps,
 ///   `ExampleTransfers`, whose server and system the test plays,
 ///   `ExampleNotes`, whose window the test reports,
+///   `ExampleMaps`, whose map the test stands in for,
 ///   `ExampleSignIn`, whose browser the test plays, with its secrets in
 ///   memory,
 ///   `ExampleCalendar`, whose events are in a store in memory,
@@ -97,6 +98,8 @@ let package = Package(
                 .product(name: "RuntimeCamera", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
+                .product(name: "DynamicMapKit", package: "AppRuntime"),
+                .product(name: "RuntimeMaps", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
