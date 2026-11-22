@@ -51,6 +51,8 @@ let package = Package(
                 .product(name: "DynamicText", package: "AppRuntime"),
                 .product(name: "RuntimeText", package: "AppRuntime"),
                 .product(name: "DynamicClipboard", package: "AppRuntime"),
+                .product(name: "DynamicTransfers", package: "AppRuntime"),
+                .product(name: "RuntimeTransfers", package: "AppRuntime"),
                 .product(name: "RuntimeClipboard", package: "AppRuntime"),
                 .product(name: "DynamicSecrets", package: "AppRuntime"),
                 .product(name: "RuntimeSecrets", package: "AppRuntime"),
