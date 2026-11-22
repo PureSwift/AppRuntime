@@ -68,6 +68,8 @@ let package = Package(
                 .product(name: "RuntimeCamera", package: "AppRuntime"),
                 .product(name: "DynamicMedia", package: "AppRuntime"),
                 .product(name: "RuntimeMedia", package: "AppRuntime"),
+                .product(name: "DynamicMapKit", package: "AppRuntime"),
+                .product(name: "RuntimeMaps", package: "AppRuntime"),
                 .product(name: "DynamicDefaults", package: "AppRuntime"),
                 .product(name: "DynamicCoreModel", package: "AppRuntime"),
                 .product(name: "RuntimeCoreModel", package: "AppRuntime"),
