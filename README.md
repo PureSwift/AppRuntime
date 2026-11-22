@@ -173,6 +173,14 @@ public func appMain() -> rt_status {
 `examples/ExampleUI` is a fuller app. The Darwin host's SwiftUI player
 renders the IR on iOS and macOS (DarwinAppRuntime's `DarwinUI`).
 
+`examples/ExampleNotes` is folders, their notes and a note in a
+`NavigationSplitView`, which the host collapses into a stack in a narrow
+window ([Environment values and split views](Documentation/Environment.md)).
+It reads the window's size class and color scheme with
+`@Environment(.colorScheme)`, and the text size in each row, and its sheet
+closes itself with `dismiss`. No host reports a window's values or draws a
+split view yet, so the tests report them.
+
 `examples/ExampleGL` draws with OpenGL ES 2.0 in a `Surface` placed by a
 `GLSurface` view, and takes pointer and key input
 ([Graphics](Documentation/Contracts/Graphics.md)). The Darwin host runs it
