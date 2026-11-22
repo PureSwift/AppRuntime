@@ -78,9 +78,69 @@ import RuntimeNative
         #expect(renderer.name == "org.pureswift.ui.Renderer")
         #expect(renderer.method(key: "apply:", kind: .instance)?.signature == Signature("(O)V"))
         #expect(renderer.method(key: "replaceSubtree:tree:", kind: .instance)?.signature == Signature("(OO)V"))
+        #expect(renderer.method(key: "environment", kind: .instance)?.signature == Signature("()O"))
+        #expect(renderer.version == 2)
         let delegate = RendererDelegateProxy.descriptor
         #expect(delegate.method(key: "event:kind:payload:", kind: .instance)?.signature == Signature("(OIO)V"))
         #expect(delegate.method(key: "rowCount:", kind: .instance)?.signature == Signature("(O)I"))
         #expect(delegate.method(key: "row:index:", kind: .instance)?.signature == Signature("(OI)O"))
+    }
+
+    // MARK: The window's values
+
+    @Test func environmentRoundTrips() throws {
+        let window = RenderEnvironment(
+            horizontalSizeClass: .compact, verticalSizeClass: .regular,
+            colorScheme: .dark, colorSchemeContrast: .increased,
+            dynamicTypeSize: .accessibility3, layoutDirection: .rightToLeft,
+            legibilityWeight: .bold, displayScale: 3,
+            reduceMotion: true, reduceTransparency: false, differentiateWithoutColor: true
+        )
+        #expect(RenderEnvironment(payload: window.payload) == window)
+        #expect(RenderEnvironment(bytes: window.bytes) == window)
+        #expect(RenderEnvironment(props: window.props) == window)
+        #expect(window.props.count == 11, "every value set")
+        #expect(window.props["accessibilityReduceMotion"] == true)
+        #expect(window.props["dynamicTypeSize"] == "accessibility3")
+
+        // Keys then values, in key order, so equal values encode alike.
+        guard case .array(let items) = window.payload else {
+            Issue.record("not an array")
+            return
+        }
+        #expect(items.count == 22)
+        #expect(items.first == "accessibilityDifferentiateWithoutColor")
+        #expect(items[1] == true)
+    }
+
+    @Test func environmentKeepsDefaultsAndSkipsWhatItDoesntKnow() {
+        let partial = RenderEnvironment(payload: .array(["colorScheme", "dark", "brightness", 0.5, "displayScale", "high", "horizontalSizeClass"]))
+        #expect(partial == RenderEnvironment(colorScheme: .dark), "an unknown key, a value of the wrong kind and a key without a value are skipped")
+        #expect(RenderEnvironment(payload: "dark").isEmpty)
+        #expect(RenderEnvironment(payload: nil).isEmpty)
+        #expect(RenderEnvironment(bytes: []) == nil, "a renderer from before version 2")
+        #expect(RenderEnvironment(bytes: [1, 2, 3]) == nil)
+        #expect(RenderEnvironment().payload == .array([]))
+        #expect(RenderEnvironment(bytes: RenderEnvironment().bytes) == RenderEnvironment(), "no values is still an answer")
+
+        let merged = RenderEnvironment(horizontalSizeClass: .regular, colorScheme: .light)
+            .merging(RenderEnvironment(colorScheme: .dark))
+        #expect(merged == RenderEnvironment(horizontalSizeClass: .regular, colorScheme: .dark))
+    }
+
+    @Test func textScalesMapToTheNearestSize() {
+        #expect(RenderEnvironment.TypeSize(scale: 1) == .large)
+        #expect(RenderEnvironment.TypeSize(scale: 0.85) == .small)
+        #expect(RenderEnvironment.TypeSize(scale: 1.15) == .xLarge)
+        #expect(RenderEnvironment.TypeSize(scale: 1.3) == .xxxLarge)
+        #expect(RenderEnvironment.TypeSize(scale: 2) == .accessibility2)
+        #expect(RenderEnvironment.TypeSize(scale: 10) == .accessibility5)
+        #expect(RenderEnvironment.TypeSize(scale: 0.1) == .xSmall)
+        #expect(RenderEnvironment.TypeSize.allCases.map(\.ratio) == RenderEnvironment.TypeSize.allCases.map(\.ratio).sorted())
+    }
+
+    @Test func theWindowIsNodeZero() {
+        #expect(RenderNode.windowID == 0)
+        #expect(RenderEventKind.environment.rawValue == 7)
     }
 }
