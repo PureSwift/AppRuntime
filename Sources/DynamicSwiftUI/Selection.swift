@@ -20,9 +20,13 @@ struct TagRecord {
 
     let box: AnyObject
 
+    /// The value's hash: a list row's `tag` in the IR.
+    let hash: Int
+
     init<Value: Hashable>(_ value: Value) {
         self.type = ObjectIdentifier(TagBox<Value>.self)
         self.box = TagBox(value)
+        self.hash = value.hashValue
     }
 
     /// The value, if it has type `Value`.
