@@ -35,6 +35,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `VideoPlayer` | `player` (int: a `MediaPlayback`'s `identifier()`), `scaling` (`fit`, `fill`, `stretch`), `controls` (`platform`, `none`) | — | none here: the player reports through its contract (`Contracts/MediaPlayer.md`) |
 | `TextEditor` | `buffer` (int: a `TextStorage`'s `identifier()`), `editable` (bool), `wraps` (bool) | — | none here: the text reports through its contract (`Contracts/TextEditor.md`) |
 | `Photo` | `asset` (string: an asset's identifier in the photo library), `scaling` (`fill`, `fit`) | — | — (`Contracts/Photos.md`) |
+| `Map` | `position`, `style`, `pointsOfInterest`, `interaction`, `controls`, `selection`, `cameraUpdates`, `taps`, `longPresses` (`Contracts/Maps.md`) | its content: `MapMarker`, `MapAnnotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `MapUserLocation` | `camera`, `change`, `tap` and `longPress` (`Contracts/Maps.md`) |
 | `CameraPreview` | `camera` (int: a `CameraCapture`'s `identifier()`), `scaling` (`fill`, `fit`) | — | none here: the camera reports through its contract (`Contracts/Camera.md`) |
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
@@ -138,6 +139,8 @@ props of the `Picker`, `TabView` and `Tab` nodes.
 | `refresh` | 5 | — |
 | `focus` | 6 | whether the view now has the keyboard (bool) |
 | `environment` | 7 | node ID 0, the window: its values (see [The window](#the-window)) |
+| `camera` | 8 | where a `Map` looks: `[lat, lon, distance, heading, pitch, latitudeDelta, longitudeDelta]` |
+| `longPress` | 9 | a `Map` held away from its content: `[lat, lon]` |
 
 **Control sync.** The guest's state is the source of truth, and its answer
 to an event arrives as an update before the event call returns. Set a control
