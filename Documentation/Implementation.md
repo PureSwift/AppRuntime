@@ -35,6 +35,7 @@ builds and the first provider contracts:
 | Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
 | Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
+| Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
@@ -491,6 +492,22 @@ which are each host's. TCP and UDP are not part of the spec.
   - **`MemoryContactDirectory` finds by the start of a word,** of any
     part of a name and of an email address, one word at a time, and lists
     by family name. A platform's own search does more.
+- **Transfers (`Contracts/Transfers.md`).**
+  - **A module of its own,** not methods on `HTTPSession`: a transfer
+    outlives the guest object that started it, two hosts implement
+    `HTTPSession` themselves, and naming a file in `DynamicNetworking`
+    would make every app that fetches a page link `Files`.
+  - **The host keeps the rules; an engine moves bytes.** A download goes
+    to a part file of the host's and is renamed into place, or copied
+    across volumes, when the server said yes. The records are a JSON file
+    at `HostTransfers.storagePath`.
+  - **Two engines:** `engine` for transfers that run while the app does,
+    `backgroundEngine` for those carried on. A host with no second one
+    refuses them; it doesn't run them in front.
+  - **The frontend's conditional views were fixed** on the way: an `if`,
+    `if`/`else`, builder loop and `.id(_:)` each have their position's
+    scope before their branch's, as `ForEach` has. Two side by side shared
+    node ids before.
 - **Photo library (`Contracts/Photos.md`).**
   - **Three ways to the user's photos, in two modules.** Adding and
     browsing are `DynamicPhotos`. Being given one is the photo picker,
@@ -1188,6 +1205,25 @@ Each of these needs a decision, or is verified only as far as noted:
   against `HostPhotos`, as `App.wasm`, a sealed macOS slice and wasm2c
   output, asking for the grid's cells as a host does. The suites also
   pass on Linux (Swift 6.4.2, arm64, in Docker).
+- `DynamicTransfersTests`: the transfers contract's keys and
+  signatures; codes, option bits, records and what a newer host sends;
+  and the guest's `TransferManager` and `Transfer` against a scripted
+  host: one object for each transfer, a view told of state and progress
+  apart, the end told once, `finished()` for each ending, `all()`, one
+  listener, and the async forms.
+- `RuntimeTransfersTests`: `HostTransfers` over `MemoryTransferEngine`
+  and real files: whole or absent, only a success is a file, pausing and
+  going on with a range, a changed file started again, uploads, every
+  refusal, where a transfer carried on may go, progress four times a
+  second, the next launch, thirty days, the app stopping and the
+  notification; and `URLSessionTransferEngine` against a `URLProtocol`
+  with no network. `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleTransfers`, as `App.wasm`, a sealed macOS slice and
+  wasm2c output, with the test playing the server and the system. The
+  suites also pass on Linux (Swift 6.4.2, arm64, in Docker), where an
+  upload's body can't be seen by a `URLProtocol`.
+  `DynamicSwiftUITests` has conditionals side by side, each with its own
+  node ids.
 - `DynamicCameraTests`: the camera contract's keys and signatures, and
   the guest's `Camera` against a scripted host: the device's cameras,
   access and its two questions, starting and failing, a zoom the host
@@ -1564,3 +1600,11 @@ Each of these needs a decision, or is verified only as far as noted:
    changing where Foundation gives none, and
    `HostSystemClock.applicationWillEnterForeground()`. The Android host
    serves none of the formatting contracts.
+21. Transfers in the hosts (`Documentation/Contracts/Transfers.md`): a
+   `backgroundEngine` over a background `URLSession` in the Darwin host,
+   matched to the records at launch; Android's own engines, OkHttp in
+   front and a user-initiated data transfer job carried on; the transfer
+   service in the Linux host. Each host gives `HostTransfers` a
+   `storagePath` and a `notifier`, tells it of the app's comings and
+   goings, and lists the contracts in its packager. Then starting the
+   guest when a transfer ends, and a web page's downloads.
