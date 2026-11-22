@@ -94,7 +94,9 @@ def evaluate(path, swiftc):
         raise ManifestError(f"no manifest at {path}")
     with tempfile.TemporaryDirectory(prefix="app-manifest-") as work:
         work = Path(work).resolve()
-        sources = sorted(LIBRARY.glob("*.swift"))
+        # Hidden files aren't sources, as SwiftPM has it: a copy from macOS
+        # can carry AppleDouble `._` files beside each one.
+        sources = sorted(p for p in LIBRARY.glob("*.swift") if not p.name.startswith("."))
         swiftc = [swiftc, *_sdk()]
         _run([*swiftc, "-parse-as-library", "-wmo", "-module-name", "AppManifest",
               "-emit-module", "-emit-module-path", work / "AppManifest.swiftmodule",
