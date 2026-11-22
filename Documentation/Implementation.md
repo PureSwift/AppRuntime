@@ -1023,6 +1023,15 @@ Each of these needs a decision, or is verified only as far as noted:
     returns a `String`. Not reported upstream yet, and not tried on a
     newer toolchain, since 6.4.2 is the newest here.
 
+    Decided on 2026-11-22 to keep `-Osize`, after trying the others:
+    - **`-O`** crashed every native slice tried, `ExampleNotes` and
+      `ExampleMaps` as sealed macOS slices, at launch, while encoding the
+      first tree. `App.wasm` was right, and about 3% larger
+      (`ExampleNotes`: 479 KB against 465 KB).
+    - **`-Onone`** ran `ExampleMaps` as a slice without the workaround,
+      at twice the size (4.36 MB against 2.03 MB) and without the
+      optimizer's speed. Only that app was tried.
+
 ## 5. Tests
 
 - `RuntimeABITests`: signatures, slots, keys, metadata encoding.
