@@ -93,7 +93,8 @@ Responses stream as chunks, so a guest can write large downloads to its
 container through WASI as they arrive.
 
 **Not included in v1:** background sessions (their lifecycle relaunches the
-app and isn't portable), download-to-file tasks, streamed request bodies,
+app and isn't portable) and download-to-file tasks, which are
+[Transfers](Transfers.md); streamed request bodies,
 suspending tasks, WebSockets, certificate pinning, and a reachability or
 network-path contract.
 
