@@ -156,6 +156,14 @@ public enum RenderEventKind: Int32, Sendable {
     /// The window's values changed, sent to node ID 0: the payload is
     /// `RenderEnvironment.payload`, with every value the host knows.
     case environment = 7
+
+    /// Where a `Map` looks, after the user moved it: the payload is
+    /// `[lat, lon, distance, heading, pitch, latitudeDelta, longitudeDelta]`.
+    case camera = 8
+
+    /// A long press on a `Map`, away from its content: the payload is the
+    /// coordinate, `[lat, lon]`.
+    case longPress = 9
 }
 
 extension RenderNode {
