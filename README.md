@@ -206,7 +206,9 @@ and pastes through the system's pasteboard (DarwinAppRuntime's
 `examples/ExampleSignIn` is an account with a provider: it shows the
 provider's page in the system's browser, checks the reply, and keeps the
 token in the keychain ([Secrets and sign-in](Documentation/Contracts/Secrets.md)).
-No host has a keychain or a browser behind it yet, so the tests play both.
+The Darwin host keeps it in the Keychain and shows the page with
+`ASWebAuthenticationSession` (DarwinAppRuntime's `DarwinSecrets` and
+`DarwinAuthentication`); in the tests, the test plays both.
 
 `examples/ExampleCalendar` is a month's agenda: it lists each occurrence
 of what's on, adds a weekly meeting, moves one occurrence and cancels the
