@@ -9,6 +9,10 @@ final class TestRenderer: Renderer {
 
     nonisolated(unsafe) static var last: TestRenderer?
 
+    /// What `environment()` answers: `nil` is a renderer from before
+    /// version 2, which answers no bytes.
+    nonisolated(unsafe) static var window: RenderEnvironment?
+
     let delegate: any RendererDelegate
 
     var trees: [RenderNode] = []
@@ -33,6 +37,15 @@ final class TestRenderer: Renderer {
         replacements.append((try! RenderCodec.decode(id: id), try! RenderCodec.decode(tree)))
     }
 
+    func environment() -> [UInt8] {
+        Self.window?.bytes ?? []
+    }
+
+    /// The window's values changed, as a player reports it.
+    func report(_ window: RenderEnvironment) {
+        send(RenderNode.windowID, .environment, window.payload)
+    }
+
     /// The user acts on a node, as a player reports it.
     func send(_ node: RenderNode.ID, _ kind: RenderEventKind, _ payload: PropValue? = nil) {
         delegate.event(RenderCodec.encode(id: node), kind: kind.rawValue,
@@ -51,6 +64,7 @@ extension ViewGraphTests {
         RendererProxy.register(TestRenderer.self, in: native)
         RendererDelegateProxy.registerInterface(in: native)
         TestRenderer.last = nil
+        TestRenderer.window = nil
     }
 
     @Test func hostRendererSendsTreesAndHandlesEvents() throws {
