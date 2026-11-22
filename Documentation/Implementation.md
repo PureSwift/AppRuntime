@@ -36,6 +36,7 @@ builds and the first provider contracts:
 | Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
+| Environment values and split views (`Environment.md`) | done on the guest side: version 2 of `Renderer`, with `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
@@ -508,6 +509,21 @@ which are each host's. TCP and UDP are not part of the spec.
     `if`/`else`, builder loop and `.id(_:)` each have their position's
     scope before their branch's, as `ForEach` has. Two side by side shared
     node ids before.
+- **Environment values and split views (`Environment.md`).**
+  - **`@Environment(.colorScheme)`:** Embedded Swift 6.4 still refuses
+    key paths, so a value is a static member of `EnvironmentValues.Key`.
+    A port changes `\.` to `.`.
+  - **Values are found where they're read,** since a view's properties
+    can't be listed: in the innermost body being evaluated, once per
+    update, or, in an event's handler, in the view whose body made the
+    handler. A handler now runs with that view's context.
+  - **The contract's new method tells the guest what the renderer
+    draws.** No answer from `environment()` (its default, for hosts that
+    conform to `Renderer` themselves) is a renderer from before version
+    2, and a split view is sent to it as a `NavStack`.
+  - **A list's selection is a row's tag,** the hash of its value, as a
+    `tag` modifier, not its node ID: a lazy row's ID isn't known until the
+    host asks for the row.
 - **Photo library (`Contracts/Photos.md`).**
   - **Three ways to the user's photos, in two modules.** Adding and
     browsing are `DynamicPhotos`. Being given one is the photo picker,
@@ -1224,6 +1240,20 @@ Each of these needs a decision, or is verified only as far as noted:
   upload's body can't be seen by a `URLProtocol`.
   `DynamicSwiftUITests` has conditionals side by side, each with its own
   node ids.
+- `DynamicUITests` has `RenderEnvironment`: every key both ways, a
+  missing key at its default, an unknown one skipped, no bytes as an
+  older renderer, and text scales to sizes. `DynamicSwiftUITests` has the
+  window's values in views, a change evaluating them again, a subtree's
+  values in the IR, an app's own key, `preferredColorScheme`, `dismiss`
+  in a sheet, a level and a column, `isPresented` and `isEnabled`; split
+  views expanded and collapsed, picking, going back and the selection
+  cleared, the columns shown, a link and a stack in a column, a bound
+  compact column, and the stack an older renderer gets; and, through the
+  native runtime, the values before the first tree and an event after
+  it. `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleNotes`
+  as `App.wasm`, a sealed macOS slice and wasm2c output, with the test's
+  renderer reporting the window and going back, and `RuntimeWasmTests`
+  again with a renderer from before version 2.
 - `DynamicCameraTests`: the camera contract's keys and signatures, and
   the guest's `Camera` against a scripted host: the device's cameras,
   access and its two questions, starting and failing, a zoom the host
@@ -1608,3 +1638,12 @@ Each of these needs a decision, or is verified only as far as noted:
    `storagePath` and a `notifier`, tells it of the app's comings and
    goings, and lists the contracts in its packager. Then starting the
    guest when a transfer ends, and a web page's downloads.
+22. Environment values and split views in the hosts
+   (`Documentation/Environment.md`): each renderer answers
+   `environment()`, sends `environment` when the window changes, applies
+   the `environment` and `preferredColorScheme` modifiers, and draws
+   `NavSplit` and a list's selection: SwiftUI's own environment,
+   `NavigationSplitView` and `List(selection:)` in the Darwin host;
+   `Configuration` and `ListDetailPaneScaffold` on Android; libadwaita's
+   settings and `AdwNavigationSplitView` on Linux. Then the size of a node,
+   value-based navigation, and choosing several rows.
