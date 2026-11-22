@@ -1,6 +1,10 @@
 # Environment values and split views
 
-**Status:** a draft for review. Nothing here is implemented.
+**Status:** implemented: the contract's version 2, `RenderEnvironment`,
+the frontend's values, `dismiss`, `NavigationSplitView` and
+`List(selection:)`, with `ExampleNotes` on three engines. No platform
+host reports the values or draws a split view yet. What changed while
+building is at the end.
 
 Second in the first wave's order (`PlannedApps.md`): every app at tablet
 and desktop width needs a sidebar, and a guest can't tell today how wide
@@ -172,7 +176,8 @@ struct NotesApp: View {
 - **`List(selection:)`** in a column: picking a row sets the binding and,
   collapsed, shows the next column. Going back clears it, as SwiftUI does.
   The selection is the row's identifier: the element's `id`, or its
-  `tag(_:)` in a list of views. One row at a time.
+  `tag(_:)` in a list of views. One row at a time. A row without one
+  can't be picked.
 - **`NavigationLink(destination:)`** in a column that has no stack of its
   own shows the destination in the next column, in place of that column's
   closure.
@@ -274,7 +279,7 @@ encoding and decoding, so a host written in Swift doesn't write its own.
 |---|---|---|---|
 | `NavSplit` | `style` (`automatic`, `balanced`, `prominentDetail`), `visibility` (`automatic`, `all`, `doubleColumn`, `detailOnly`), `compactColumn` (`sidebar`, `content`, `detail`) | two or three `NavColumn`s, the sidebar first | `change` (string: the visibility the user chose), `pop` (int: columns left) |
 | `NavColumn` | `column` (`sidebar`, `content`, `detail`); `title`; `minWidth`, `idealWidth`, `maxWidth` | the column's content, then its `ToolbarItem`s | — |
-| `List` | adds `selection` (int: the selected row's node ID; absent: none) | | `change` (int: the row the user picked; 0: none) |
+| `List` | adds `selection` (int: the picked row's `tag`; absent: none) | | `change` (int: the `tag` of the row the user picked; no value: none) |
 
 ### Modifiers
 
@@ -282,6 +287,7 @@ encoding and decoding, so a host written in Swift doesn't write its own.
 |---|---|---|
 | `environment` | the keys of the table above that the subtree sets | yes |
 | `preferredColorScheme` | `scheme` (`light`, `dark`); none: the system's | no: it's the window's, or the sheet's |
+| `tag` | `value` (int): a row a list's `selection` can name | no |
 
 ### Events
 
@@ -311,11 +317,12 @@ encoding and decoding, so a host written in Swift doesn't write its own.
 
 ### Lists
 
-A list with `selection` highlights the row whose node ID it names, eager
-or lazy. Row IDs follow the row's data, so the selection stays on its row
-as rows come and go. When the user picks a row, send `change` with its
-node ID, and highlight it until the guest's update arrives. Section
-headers and footers can't be picked.
+A list with `selection` highlights the row whose `tag` it names, eager or
+lazy, at any depth under the list (in a `Section`, say). A tag is the hash
+of the row's value, so it follows the row's data as rows come and go. When
+the user picks a row, send `change` with its tag, or with no value for
+none, and highlight it until the guest's update arrives. Rows without a
+tag, and section headers and footers, can't be picked.
 
 ## In the guest
 
@@ -331,6 +338,12 @@ headers and footers can't be picked.
   and, for each column, the link whose destination it shows. A `List` with
   a selection tells the column it's in, so going back can clear it.
 - `ViewGraph` never makes node ID 0.
+- Embedded Swift can't list a view's properties, so a value is found
+  where it's read. While views render, that's the innermost body being
+  evaluated, once per update, so a view kept across updates (the root, a
+  link's destination) sees each update's values. In an event's handler,
+  it's the view whose body made the handler: `dismiss()` in a button's
+  action is the button's view's. In a task, it's what was found last.
 
 ## Per host
 
@@ -391,10 +404,54 @@ and then regular, and going back.
 - The test renderers (`TestRenderer`, `WasmTestRenderer`) gain
   `environment()` and a way to send the event.
 
-## Questions for review
+## Changed while building
 
-1. `@Environment(.colorScheme)`, with `\.` changed to `.`, as the spelling.
-2. A split view drawn as a stack on a host without version 2, rather than
-   left to the placeholder an unknown node gets.
-3. Material's breakpoints, 600 and 480 points, wherever the platform has
-   no size classes of its own.
+- **A list's selection is a row's tag, not its node ID.** The guest can't
+  know a lazy row's node ID until the host has asked for the row, so it
+  couldn't say which row is picked before then. Each row a selection can
+  name has a `tag` modifier with the hash of its value, and `selection`
+  and `change` carry that. Darwin's renderer can hand it straight to
+  SwiftUI's `tag(_:)`.
+- **None is no value**, not 0: a hash can be 0.
+- **No bytes from `environment()` is a renderer from before version 2.**
+  The method has a default in a protocol extension, so hosts that conform
+  to `Renderer` themselves keep building; that default answers no bytes.
+  A renderer with nothing to report answers an empty array, which is
+  still version 2.
+- **An `environment` event whose payload doesn't decode is ignored,**
+  rather than taken as no values.
+- **A subtree's setting goes into the IR whenever it differs from what
+  the host reported,** including when the host didn't report that key:
+  the host may draw it otherwise.
+- **Halfway between two text sizes, the one nearer `large` wins,** so
+  Android's 0.85 is `small`.
+- **Values are found where they're read** (In the guest, above). The
+  design said a value is read when the view is made; that would miss a
+  window's change for the root view, and give `dismiss()` in an action
+  the do-nothing default.
+
+## Decided in review
+
+1. `@Environment(.colorScheme)`, with `\.` changed to `.`, is the
+   spelling.
+2. On a host without version 2, a split view is drawn as a stack.
+3. Material's breakpoints, 600 and 480 points, give the size classes
+   where a platform has none of its own.
+
+## What hosts still need
+
+- **Darwin** (SwiftUI): answer `environment()` from SwiftUI's own
+  environment in `RendererView`, and send `environment` on each change;
+  apply the `environment` modifier with SwiftUI's own values; draw
+  `NavSplit` as `NavigationSplitView` (iOS 16, macOS 13) with
+  `preferredCompactColumn` from iOS 17, and `NavigationView` before; map
+  a list's `selection` and its rows' `tag`s to `List(selection:)` and
+  `tag(_:)`; `preferredColorScheme` on the window or sheet.
+- **Android:** `Configuration` and the accessibility settings into the
+  payload; `ListDetailPaneScaffold` for `NavSplit`; list selection in the
+  Compose interpreter.
+- **Linux:** the window's size and libadwaita's settings into the
+  payload; `AdwNavigationSplitView`.
+- Each renderer's `environment()` is the sign that it draws `NavSplit`,
+  so a host implements both together.
+
