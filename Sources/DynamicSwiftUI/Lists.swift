@@ -62,12 +62,13 @@ func select<Value: Hashable>(
     list id: RenderNode.ID,
     props: inout [String: PropValue],
     context: RenderContext,
+    inColumn: Bool = true,
     find: @escaping (Int) -> Value?
 ) {
     if let value = selection.wrappedValue {
         props["selection"] = .int(value.hashValue)
     }
-    let column = context.column
+    let column = inColumn ? context.column : nil
     column?.lists.append { selection.wrappedValue = nil }
     context.graph.on(id, .change) { payload in
         guard let hash = payload?.int else {
