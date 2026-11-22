@@ -69,11 +69,11 @@ public final class HostLocaleInfo: LocaleInfo {
     }
 
     public func timeZoneIdentifier() -> String {
-        TimeZone.autoupdatingCurrent.identifier
+        HostSystemClock.userTimeZone().identifier
     }
 
     public func timeZoneOffset(_ milliseconds: Int64) -> Int32 {
-        Int32(TimeZone.autoupdatingCurrent.secondsFromGMT(for: HostDateFormat.date(milliseconds)))
+        Int32(HostSystemClock.userTimeZone().secondsFromGMT(for: HostDateFormat.date(milliseconds)))
     }
 }
 
