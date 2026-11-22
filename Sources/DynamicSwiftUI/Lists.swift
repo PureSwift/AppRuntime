@@ -7,7 +7,8 @@ func lazyNode<Data: RandomAccessCollection, Content: View>(
     _ type: String,
     props: [String: PropValue] = [:],
     _ forEach: ForEach<Data, Content>,
-    context: RenderContext
+    context: RenderContext,
+    tagged: Bool = false
 ) -> RenderNode {
     let graph = context.graph
     let id = graph.nextNodeID()
@@ -19,17 +20,64 @@ func lazyNode<Data: RandomAccessCollection, Content: View>(
         graph.rowScope(listScope: listScope, identity: forEach.identity(element)) {
             forEach.content(element)._render(into: &nodes, context: context)
         }
+        var row: RenderNode
         if nodes.count == 1 {
-            return nodes[0]
+            row = nodes[0]
+        } else {
+            let rowID = ViewGraph.mix(id ^ 0x524f_5700_0000_0000, forEach.identity(element))
+            row = RenderNode("VStack", id: rowID, props: [
+                "alignment": "leading", "spacing": .double(defaultSpacing),
+            ], children: nodes)
         }
-        let rowID = ViewGraph.mix(id ^ 0x524f_5700_0000_0000, forEach.identity(element))
-        return RenderNode("VStack", id: rowID, props: [
-            "alignment": "leading", "spacing": .double(defaultSpacing),
-        ], children: nodes)
+        if tagged {
+            row.modifiers.append(rowTag(forEach.tag(element).hash))
+        }
+        return row
     }
     var props = props
     props["revision"] = .int(graph.currentRevision)
     return RenderNode(type, id: id, props: props, count: count)
+}
+
+/// The `tag` modifier of a row a list's selection can name.
+func rowTag(_ hash: Int) -> ModifierNode {
+    ModifierNode("tag", ["value": .int(hash)])
+}
+
+/// Adds `tag` modifiers to the nodes `tags` names, in `node`'s subtree.
+func tagRows(_ node: inout RenderNode, _ tags: ItemTags) {
+    if let tag = tags.tags[node.id] {
+        node.modifiers.append(rowTag(tag.hash))
+    }
+    for index in node.children.indices {
+        tagRows(&node.children[index], tags)
+    }
+}
+
+/// A list's selection: the `selection` prop and the `change` handler, and,
+/// in a split view's column, picking moves the collapsed view on and going
+/// back clears it.
+func select<Value: Hashable>(
+    _ selection: Binding<Value?>,
+    list id: RenderNode.ID,
+    props: inout [String: PropValue],
+    context: RenderContext,
+    find: @escaping (Int) -> Value?
+) {
+    if let value = selection.wrappedValue {
+        props["selection"] = .int(value.hashValue)
+    }
+    let column = context.column
+    column?.lists.append { selection.wrappedValue = nil }
+    context.graph.on(id, .change) { payload in
+        guard let hash = payload?.int else {
+            selection.wrappedValue = nil
+            return
+        }
+        guard let value = find(hash) else { return }
+        selection.wrappedValue = value
+        column?.picked()
+    }
 }
 
 /// Rows in a platform list.
@@ -89,6 +137,77 @@ extension List {
     ) where Content == ForEach<Range<Int>, Row> {
         let forEach = ForEach(data, content: rowContent)
         self.storage = .lazy { context in lazyNode("List", forEach, context: context) }
+    }
+}
+
+// MARK: - Selection
+
+/// A list whose rows the user can pick, one at a time.
+///
+/// Each row it can name has a `tag` modifier with the hash of its value:
+/// the element's `id`, or its `tag(_:)` in a list of views. The `List`
+/// node's `selection` is the picked row's, absent for none; the host sends
+/// `change` with the row the user picks, or with no value for none.
+extension List {
+
+    public init<SelectionValue: Hashable>(selection: Binding<SelectionValue?>, @ViewBuilder content: () -> Content) {
+        let content = content()
+        self.storage = .lazy { context in
+            let id = context.graph.nextNodeID()
+            let tags = ItemTags()
+            var rowContext = context
+            rowContext.items = tags
+            var rows = rowContext.children(content)
+            for index in rows.indices {
+                tagRows(&rows[index], tags)
+            }
+            var props: [String: PropValue] = [:]
+            select(selection, list: id, props: &props, context: context) { hash in
+                for record in tags.tags.values where record.hash == hash {
+                    if let value = record.value(as: SelectionValue.self) {
+                        return value
+                    }
+                }
+                return nil
+            }
+            return RenderNode("List", id: id, props: props, children: rows)
+        }
+    }
+
+    public init<Data: RandomAccessCollection, Row: View>(
+        _ data: Data,
+        selection: Binding<Data.Element.ID?>,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> Row
+    ) where Content == ForEach<Data, Row>, Data.Element: Identifiable {
+        self.init(ForEach(data, content: rowContent), selection: selection)
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable, Row: View>(
+        _ data: Data,
+        id: @escaping (Data.Element) -> ID,
+        selection: Binding<ID?>,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> Row
+    ) where Content == ForEach<Data, Row> {
+        self.init(ForEach(data, id: id, content: rowContent), selection: selection)
+    }
+
+    init<Data: RandomAccessCollection, Row: View, SelectionValue: Hashable>(
+        _ forEach: ForEach<Data, Row>,
+        selection: Binding<SelectionValue?>
+    ) where Content == ForEach<Data, Row> {
+        self.storage = .lazy { context in
+            var list = lazyNode("List", forEach, context: context, tagged: true)
+            select(selection, list: list.id, props: &list.props, context: context) { hash in
+                for element in forEach.data {
+                    let record = forEach.tag(element)
+                    if record.hash == hash, let value = record.value(as: SelectionValue.self) {
+                        return value
+                    }
+                }
+                return nil
+            }
+            return list
+        }
     }
 }
 
