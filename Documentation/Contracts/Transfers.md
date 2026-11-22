@@ -1,6 +1,10 @@
 # Transfers
 
-**Status:** a draft for review. Nothing here is implemented.
+**Status:** implemented in this repository: the guest side, and the part
+of the host side every host written in Swift shares, with an engine that
+runs transfers in the host's process over `URLSession`. No platform host
+carries a transfer on after the app is closed yet, so nothing has been:
+the tests play that part.
 
 Module `DynamicTransfers`: downloading to a file and uploading from one,
 with the host moving the bytes. A transfer can be left to the system, which
@@ -334,27 +338,83 @@ From each platform's documentation. None of it has been tried.
 
 ## Example and tests
 
-Planned:
-
-- **`examples/ExampleTransfers`**: a list of downloads. Start one, watch
-  it, pause and resume it, cancel one, and find at the next launch one
-  that finished while the app was closed. Run as `App.wasm`, as a sealed
-  slice and through wasm2c, with a server the test scripts.
-- **`DynamicTransfersTests`**: the contract's names and signatures;
-  records to values and back; a transfer's state followed by a view;
-  `finished()` for each ending; a newer host's values.
+- **`examples/ExampleTransfers`**: downloads. It lists at launch what the
+  host has, one finished in the last launch and one the system carried
+  on included; sees the system finish that one; starts a download,
+  pauses it, resumes it from where it stopped, and sees it put in place
+  whole; cancels one and finds nothing written; removes one that ended.
+  `RuntimeWasmTests` runs it as `App.wasm`, and `LinkedSliceTests` as a
+  sealed macOS slice and through wasm2c, against `HostTransfers` over two
+  `MemoryTransferEngine`s: one for the app's transfers and one standing
+  in for the system's.
+- **`DynamicTransfersTests`**: the contract's names and signatures; the
+  error codes, the option bits and the request's method and headers;
+  records to values and back, and what a newer host sends; and the
+  guest's `TransferManager` and `Transfer` against a scripted host:
+  starting, a refusal and a late second answer, one object for each
+  transfer, a view told of the state and of progress apart, a word after
+  the end ignored, `finished()` for each ending and for a transfer the
+  host forgot, `all()`, one listener, and the async forms.
 - **`RuntimeTransfersTests`**, on macOS and Linux: each rule above over
-  `MemoryTransferEngine`; and `URLSessionTransferEngine` against a
-  `URLProtocol` that answers without a network: a whole file, a resumed
-  one, a server that ignores ranges, a changed file under the same URL,
-  an error status, a full disk, records read back at the next launch.
+  `MemoryTransferEngine` and real files. A download to the end; a file
+  there replaced only at the end; an error page never saved; a failure
+  and a cancel leaving nothing; waiting for a network; pausing, and going
+  on with a range from the version the part file holds; a server that
+  changed the file or ignores ranges; an upload paused and started again;
+  every refusal; where a transfer carried on may go; progress four times
+  a second; the next launch, with what was cut short paused and what the
+  system carries on handed back to it; thirty days; removing; the app
+  stopping; the notification. And `URLSessionTransferEngine` against a
+  `URLProtocol` with no network: a whole download with its headers and
+  file name, one that goes on with `Range` and `If-Range`, one whose file
+  changed, an error status, an upload from a file, a network that fails,
+  and a cancel in flight.
 
-## Questions for review
+## Changed while building
 
-1. **Is one contract with an option right,** or should what's carried on
-   be its own?
-2. **`completionMessage`:** the host posting the notification itself, so
-   that no guest need start. The alternative is nothing until the app
-   can be woken.
+- **A record has no headers and no completion message.** The host keeps
+  them to itself, so a transfer found in `all()` has a request with none
+  and options with no message.
+- **The record is the guest's `TransferRecord`,** with the sixteen
+  fields; `TransferError` carries the network error or the HTTP status
+  as a value, and its code beside it.
+- **The engine is told a part file and an offset.** `TransferEngine`
+  moves bytes and reports through a `TransferReporter`; `HostTransfers`
+  keeps everything else. A run it stopped can't report.
+- **A transfer cut short by the app closing is paused at the next
+  launch,** with its part file's length as how far it got. One the system
+  carries on is handed to its engine again.
+- **Linux's `URLSession` doesn't give an upload's file to a
+  `URLProtocol`,** so the body an upload sends is checked on Apple
+  platforms alone. The status and the headers are checked on both.
+- **A challenge isn't tested.** `URLProtocol` can't send one that
+  swift-corelibs-foundation answers as Apple's does.
+- **A fix in the frontend.** Two `if`s side by side shared one scope, and
+  the views in them one set of node ids, so a tap on one button could
+  reach the other. Each `if`, `if`/`else`, loop and `.id(_:)` now has its
+  position's scope first, as `ForEach` had. The example found it: "Pause"
+  and "Cancel" were the same button.
+
+## Decided in review
+
+1. **One contract with an option,** for transfers that run in front and
+   those carried on.
+2. **The host posts the completion notification itself,** so that no
+   guest need start.
 3. **Thirty days** for an ended transfer nobody removed.
-4. **The module's name:** `DynamicTransfers`.
+4. **`DynamicTransfers`** is the module.
+
+## What hosts still need
+
+- **iOS and macOS:** an engine over a background `URLSession` for
+  `backgroundEngine`, matching its tasks to records by identifier at
+  launch, and handling the system's relaunch itself. `notifier` over
+  `UNUserNotificationCenter`. `storagePath` in Application Support.
+  DarwinPackager's table of contracts.
+- **Android:** its own engine: OkHttp in front, a user-initiated data
+  transfer job carried on. The manifest's foreground service.
+- **Linux:** the transfer service, until which `backgroundEngine` stays
+  nil and transfers carried on are refused.
+- **Every host:** `HostTransfers.applicationDidEnterBackground()`,
+  `applicationWillEnterForeground()` and `applicationWillTerminate()`
+  from the app's comings and goings.
