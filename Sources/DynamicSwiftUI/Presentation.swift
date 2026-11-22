@@ -55,6 +55,9 @@ public struct _SheetView<Anchor: View, Content: View>: View {
             var contentContext = context
             contentContext.navigation = nil
             contentContext.items = nil
+            contentContext.column = nil
+            contentContext.values.dismiss = DismissAction(dismiss)
+            contentContext.values.isPresented = true
             var contentNodes: [RenderNode] = []
             content()._render(into: &contentNodes, context: contentContext)
             let root = singleNode(contentNodes, id: ViewGraph.mix(id, 2 &+ (identity ?? 0)))
