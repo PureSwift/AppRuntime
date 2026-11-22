@@ -277,7 +277,7 @@ func swift_embedded_timezone_offset(_ identifier: UnsafePointer<UInt8>?, _ lengt
 
 | Type | A function for | Without the trait |
 |---|---|---|
-| `Date` | now | no `Date()` and no `Date.now`, as today |
+| `Date` | now | C's `timespec_get`, which every hosted platform and WASI has |
 | `TimeZone` | `current`; whether a name is a zone; every name; the offset at a date; daylight saving's part of it; the next change; the abbreviation; the localized name | GMT; `GMT±HHMM` alone; the offset in the name; no daylight saving |
 | `Locale` | `current`; the preferred languages; each property | `en_US_POSIX`, and nothing known about it |
 | `Calendar` | `current`; each operation: the fields of a date, a date from fields, adding, the difference, where a unit starts and ends, a range, an ordinality, the next match, the weekend, the symbols | Gregorian arithmetic in a fixed offset |
@@ -304,7 +304,6 @@ can't add a stored property, so these are the package's to add.
 
 With the trait, since only a platform can answer for them:
 
-- `Date()` and `Date.now`.
 - `TimeZone` holds any identifier. `init?(identifier:)` asks the
   platform about a name it can't read as an offset.
 - `Calendar.Identifier` gets Foundation's other cases.
@@ -312,6 +311,8 @@ With the trait, since only a platform can answer for them:
 With or without it, since they are Foundation's and cost a bare-metal
 user a few words of storage:
 
+- `Date()` and `Date.now`. Without the trait they read `timespec_get`;
+  with it, the platform's clock (`FoundationPlatform.md`).
 - `Calendar` gets `firstWeekday` and `minimumDaysInFirstWeek`.
 - `DateComponents` gets `calendar`, `weekdayOrdinal`, `weekOfMonth`,
   `weekOfYear`, `yearForWeekOfYear`, `dayOfYear` and `isLeapMonth`, and
