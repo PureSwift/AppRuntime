@@ -152,4 +152,14 @@ public enum RenderEventKind: Int32, Sendable {
     /// The keyboard came to, or left, a view with a `focused` modifier:
     /// the payload is a bool, whether it has it now.
     case focus = 6
+
+    /// The window's values changed, sent to node ID 0: the payload is
+    /// `RenderEnvironment.payload`, with every value the host knows.
+    case environment = 7
+}
+
+extension RenderNode {
+
+    /// The window, for `environment` events. No node has this ID.
+    public static let windowID: ID = 0
 }
