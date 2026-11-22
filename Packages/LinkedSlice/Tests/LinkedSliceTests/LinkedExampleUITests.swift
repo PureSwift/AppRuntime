@@ -10,6 +10,10 @@ final class TestRenderer: Renderer {
 
     nonisolated(unsafe) static var last: TestRenderer?
 
+    /// What `environment()` answers: `nil` is a renderer from before
+    /// version 2, which answers no bytes.
+    nonisolated(unsafe) static var window: RenderEnvironment?
+
     let delegate: any RendererDelegate
 
     var screen: RenderNode?
@@ -43,6 +47,16 @@ final class TestRenderer: Renderer {
     func send(_ node: RenderNode, _ kind: RenderEventKind, _ payload: PropValue? = nil) {
         delegate.event(RenderCodec.encode(id: node.id), kind: kind.rawValue,
                        payload: payload.map { RenderCodec.encode(payload: $0) } ?? [])
+    }
+
+    func environment() -> [UInt8] {
+        Self.window?.bytes ?? []
+    }
+
+    /// The window's values changed, as a player reports it.
+    func report(_ window: RenderEnvironment) {
+        delegate.event(RenderCodec.encode(id: RenderNode.windowID), kind: RenderEventKind.environment.rawValue,
+                       payload: RenderCodec.encode(payload: window.payload))
     }
 }
 
