@@ -1,6 +1,8 @@
 # Maps
 
-**Status:** a draft for review. Nothing here is implemented.
+**Status:** implemented on the guest side, with the shared host side
+(`RuntimeMaps`) and `ExampleMaps` on three engines. No platform host draws
+a `Map` node yet. What changed while building is at the end.
 
 Module `DynamicMapKit`, which guest code imports as `MapKit`: a map the
 host draws, in a SwiftUI view, in the shape of MapKit for SwiftUI (iOS 17).
@@ -335,10 +337,43 @@ press as a host would.
 - **`RuntimeMaps`:** `HostMaps` from its settings, and no provider without
   them.
 
-## Questions for review
+## Changed while building
 
-1. MapKit for SwiftUI's shape, with CoreLocation's and MapKit's prefixes
-   dropped (`LocationCoordinate2D`, `CoordinateRegion`).
+- **A `Marker`'s monogram is a `String`.** SwiftUI's takes a `Text`,
+  whose string the frontend keeps to itself.
+- **The map's modifiers are environment values** (an app's own key), so
+  they work after other modifiers, as SwiftUI's do. That found a bug in
+  the environment: an app's own keys weren't told apart in an Embedded
+  guest. They are now (`Implementation.md`).
+- **The frontend gained `_RenderContainerView`,** a module's node with
+  children, picking and events, and `UnitPoint`, for an annotation's
+  anchor. `Color` says its IR value to a module (`_propValue`).
+- **A binding gets `cameraUpdates` `onEnd`** even with no
+  `onMapCameraChange`, so the user's moves come back to it.
+- **`positionedByUser`** is true on the position the guest makes from the
+  user's move.
+- **Swift 6.4.2's Embedded `-Osize` miscompiles an optional struct** of
+  the shape `ExampleMaps`' `Place` had (`Implementation.md`, guest build
+  findings), so the example reads a place's name with a loop.
+
+## Decided in review
+
+1. MapKit for SwiftUI's shape, with CoreLocation's and MapKit's
+   prefixes dropped.
 2. `onMapTap` and `onMapLongPress` for now, in place of `MapReader`.
-3. MapLibre on Android by default, rather than Google Maps, which needs
-   Play services and a key.
+3. MapLibre on Android by default, rather than Google Maps.
+
+## What hosts still need
+
+- **Darwin:** draw `Map` with SwiftUI's `Map` from iOS 17 and macOS 14,
+  and `MKMapView` before; its content from the child nodes, annotations
+  as `NodeView`s; report `camera` on `onMapCameraChange` and picks from
+  the selection; long presses with `MapReader`; register `HostMapsModule`
+  with Apple's name and every style.
+- **Android:** MapLibre Native in the Compose interpreter, with a style
+  URL set when the host app is built, annotations placed at their
+  projected points.
+- **Linux:** libshumate's `ShumateSimpleMap` over a tile source of the
+  host's own, markers and annotations as `ShumateMarker`s.
+- Each packager lists the `Maps` contract, and gives the network
+  entitlement or permission an app's `.network` asks for.
