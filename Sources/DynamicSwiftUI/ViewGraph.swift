@@ -128,6 +128,22 @@ public final class ViewGraph {
     /// Bumped every update, so lazy lists re-fetch their visible rows.
     private var revision = 0
 
+    // MARK: The window
+
+    /// The window's values, as the host last reported them. A change
+    /// evaluates every view again.
+    public var environment = RenderEnvironment() {
+        didSet {
+            if environment != oldValue {
+                setNeedsUpdate()
+            }
+        }
+    }
+
+    /// Whether the renderer draws `NavSplit` nodes (version 2). Without
+    /// them a split view is drawn as a stack.
+    public var supportsSplitViews = true
+
     // MARK: Lifecycle
 
     public init<Root: View>(_ root: Root, sink: RenderSink) {
@@ -181,7 +197,7 @@ public final class ViewGraph {
         isEvaluating = true
         let nodes = listener.track { () -> [RenderNode] in
             var nodes: [RenderNode] = []
-            renderRoot(&nodes, RenderContext())
+            renderRoot(&nodes, RenderContext(window: environment))
             return nodes
         }
         isEvaluating = false
@@ -354,11 +370,12 @@ public final class ViewGraph {
         return body()
     }
 
-    /// The ID of the next node rendered at this position.
+    /// The ID of the next node rendered at this position. Never 0, which is
+    /// the window's (`RenderNode.windowID`).
     func nextNodeID() -> RenderNode.ID {
         let id = Self.mix(scopeKey ^ 0x4e4f_4445_0000_0000, nodeIndex)
         nodeIndex += 1
-        return id
+        return id == RenderNode.windowID ? 1 : id
     }
 
     /// A key for something at this position that needs an identity across
@@ -385,8 +402,33 @@ public final class ViewGraph {
 
     // MARK: Registration during a pass
 
+    /// Registers `handler` for the node's events. It runs with the context
+    /// of the body that made it, so the environment values its view reads
+    /// are that view's.
     func on(_ node: RenderNode.ID, _ kind: RenderEventKind, _ handler: @escaping Handler) {
-        pendingHandlers[EventKey(node: node, kind: kind.rawValue)] = handler
+        guard let context = contexts.last else {
+            pendingHandlers[EventKey(node: node, kind: kind.rawValue)] = handler
+            return
+        }
+        pendingHandlers[EventKey(node: node, kind: kind.rawValue)] = { [unowned(unsafe) self] payload in
+            self.acting(in: context) { handler(payload) }
+        }
+    }
+
+    /// Runs an event's handler with `context` as the innermost, outside
+    /// rendering.
+    private func acting(in context: RenderContext, _ body: () -> Void) {
+        let previous = Self.current
+        Self.current = self
+        contexts.append(context)
+        body()
+        contexts.removeLast()
+        Self.current = previous
+    }
+
+    /// The update being evaluated, or the last.
+    var currentGeneration: UInt64 {
+        generation
     }
 
     func lazyList(_ node: RenderNode.ID, count: Int, row: @escaping (Int) -> RenderNode) {
