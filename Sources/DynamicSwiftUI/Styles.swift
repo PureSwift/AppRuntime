@@ -142,6 +142,12 @@ public struct Color: Equatable, Sendable {
         self.storage = storage
     }
 
+    /// The color as the IR has it, for a module that adds a node with a
+    /// color prop.
+    public var _propValue: PropValue {
+        propValue
+    }
+
     var propValue: PropValue {
         switch storage {
         case .named(let name, let opacity):
@@ -203,4 +209,33 @@ public struct Font: Equatable, Sendable {
         font.props["italic"] = .bool(true)
         return font
     }
+}
+
+/// A point in a view's bounds, 0 to 1 on each axis from the top leading
+/// corner: SwiftUI's `UnitPoint`.
+public struct UnitPoint: Equatable, Hashable, Sendable {
+
+    public var x: CGFloat
+
+    public var y: CGFloat
+
+    public init(x: CGFloat, y: CGFloat) {
+        self.x = x
+        self.y = y
+    }
+
+    public init() {
+        self.init(x: 0, y: 0)
+    }
+
+    public static let zero = UnitPoint(x: 0, y: 0)
+    public static let center = UnitPoint(x: 0.5, y: 0.5)
+    public static let leading = UnitPoint(x: 0, y: 0.5)
+    public static let trailing = UnitPoint(x: 1, y: 0.5)
+    public static let top = UnitPoint(x: 0.5, y: 0)
+    public static let bottom = UnitPoint(x: 0.5, y: 1)
+    public static let topLeading = UnitPoint(x: 0, y: 0)
+    public static let topTrailing = UnitPoint(x: 1, y: 0)
+    public static let bottomLeading = UnitPoint(x: 0, y: 1)
+    public static let bottomTrailing = UnitPoint(x: 1, y: 1)
 }
