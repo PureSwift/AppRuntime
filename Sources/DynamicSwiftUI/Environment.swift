@@ -112,12 +112,15 @@ public struct EnvironmentValues {
         /// }
         /// ```
         public init<K: EnvironmentKey>(_ key: K.Type) where K.Value == Value {
+            // A class's metatype: Embedded Swift keeps one for each
+            // specialization, which it doesn't for a struct's.
+            let id = ObjectIdentifier(EnvironmentKeyToken<K>.self)
             self.read = { values in
-                guard let box = values.custom[ObjectIdentifier(K.self)] else { return K.defaultValue }
+                guard let box = values.custom[id] else { return K.defaultValue }
                 return unsafeDowncast(box, to: EnvironmentBox<Value>.self).value
             }
             self.write = { values, value in
-                values.custom[ObjectIdentifier(K.self)] = EnvironmentBox(value)
+                values.custom[id] = EnvironmentBox(value)
             }
         }
     }
@@ -131,6 +134,9 @@ public struct EnvironmentValues {
         Key(read: { get($0.window) ?? value }, write: { set(&$0.window, $1) })
     }
 }
+
+/// Names an app's own key in `EnvironmentValues`.
+final class EnvironmentKeyToken<Key> { }
 
 final class EnvironmentBox<Value> {
 
