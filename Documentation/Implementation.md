@@ -19,7 +19,7 @@ builds and the first provider contracts:
 | Guest builds: sealed native slices, `App.wasm` reactor, universal bundle (§7.5) | done: `Scripts/guest.py` and wrappers. A Linux slice is `libapp.so`, which a runner loads as it is (§7.6) |
 | Provider contracts: Bluetooth, Location | declared: `DynamicBluetooth`, `DynamicLocation`; the platform hosts implement them |
 | URL and HTTP | declared: `DynamicNetworking`; `RuntimeNetworking` implements it over Swift Foundation's `URLSession` for any host written in Swift, on Apple platforms and on Linux, where `URLSession` is `FoundationNetworking` over libcurl. The Darwin host has its own `DarwinNetworking`, which it's a port of; the Linux host registers it, with `deliver` on its main loop. Callbacks arrive on a queue of each session's own and reach the guest on the main thread through `HostNetworkingModule.deliver`, which a host with a loop of its own points at that loop; what the contracts couldn't do as asked goes to `HostNetworkingModule.log` |
-| Number and date formatting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat` and `DateFormat` over Swift Foundation for any host written in Swift, on Apple platforms and Linux. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
+| Number and date formatting, dates and sorting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat`, `DateFormat`, `SystemClockInfo`, `TimeZoneInfo`, `CalendarInfo` and `Collator` over Swift Foundation for any host written in Swift, on Apple platforms and Linux (`Documentation/Contracts/Formatting.md`). The guest has `SystemClock`; Foundation's `Calendar`, `TimeZone` and `Locale` for a guest wait for swift-embedded-foundation's platform hooks. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
 | `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
@@ -1315,6 +1315,23 @@ Each of these needs a decision, or is verified only as far as noted:
   has no `RelativeDateTimeFormatter` (`Date.AnchoredRelativeFormatStyle`
   is used), its `NumberFormatter` loses integers past 2^53
   (`IntegerFormatStyle`), and it groups the POSIX locale's digits.
+  And the system's clock, calendars, time zones and string comparison
+  (`Documentation/Contracts/Formatting.md`), where the two agree in
+  everything tested: a date's fields and back; the hour that doesn't
+  exist and the one that happens twice, in Berlin and in Sydney; adding
+  across a month's end, a leap day and a change of offset, with the
+  fraction of a second kept; where a day, a week and a month start and
+  end; ranges and ordinals; ISO 8601's weeks at a year's end; every
+  calendar the contract names; the next match under each policy; names
+  of months, weekdays and zones; a calendar and a zone that follow the
+  user; orders with digits, case, width and accents in English, German
+  and Swedish, stable and in one call; searching and folding; the
+  midnight timer, the platform's notices and what the app missed in the
+  background; and what the contracts don't know answering as no result.
+- `DynamicFormattingTests`: the formatting contracts' names and
+  signatures, and the guest's `SystemClock` against a scripted host: what
+  changed told to the app's listener and to a stream, a view's reading
+  noted and the view told once, and one delegate set for all of it.
 - `RuntimeNetworkingTests`: the networking contracts over `URLSession`, on
   macOS and Linux (Debian 13 in Docker), against a `URLProtocol` that
   answers without a network: a round trip with headers, a body and the
@@ -1537,3 +1554,13 @@ Each of these needs a decision, or is verified only as far as noted:
    `HostCameraCapture`; and the packagers' entries for `.microphone`. A
    capture is written at a path from `HostFiles`, which Android's picked
    documents aren't.
+20. Dates for a guest (`Documentation/Contracts/Formatting.md`):
+   swift-embedded-foundation's `PlatformHooks` trait, its header and a
+   release; then the header's functions here, each a call to the host,
+   so that `Date.now`, `Calendar`, `TimeZone` and `Locale` are real in a
+   guest; the comparing methods on `String`; and `ExampleDates` on three
+   engines. In the hosts: DarwinPackager's table of contracts needs the
+   five new ones, a platform's own word of the zone and the clock
+   changing where Foundation gives none, and
+   `HostSystemClock.applicationWillEnterForeground()`. The Android host
+   serves none of the formatting contracts.
