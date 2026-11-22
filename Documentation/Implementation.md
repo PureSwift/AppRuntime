@@ -842,7 +842,7 @@ and `Scripts/build-bundle.sh`.
 | `linux-arm64`, `android-arm64-v8a` | `aarch64-none-none-elf`; `aarch64-unknown-linux-gnu` for concurrency | see finding 7 |
 | `linux-armv7` | `armv7-none-none-eabi`, `-mfloat-abi=hard` | armhf |
 | `android-armeabi-v7a` | `armv7-none-none-eabi`, `-mfloat-abi=softfp` | |
-| `linux-x86_64`, `android-x86_64` | `x86_64-unknown-none-elf`, CPU `nehalem` (x86-64-v2) | |
+| `linux-x86_64`, `android-x86_64` | `x86_64-unknown-none-elf`, CPU `nehalem` (x86-64-v2); `x86_64-unknown-linux-gnu` for concurrency on an x86_64 Linux toolchain | see finding 7 |
 
 Every native slice is one `ld -r` object: in `libapp.a`, or for Linux
 linked into `libapp.so` (below). Only `rt_main`,
@@ -967,9 +967,9 @@ Each of these needs a decision, or is verified only as far as noted:
    into `~/.cache/appruntime/swift-<version>/embedded`, or `RT_EMBEDDED_DIR`).
    The code is the same AAPCS64 code, compiled freestanding, with no TLS, but
    **`os(Linux)` is true** in these two slices and nowhere else. That runtime
-   was built for a hosted Linux, so `Scripts/support/aarch64-linux.c` seals
-   in what libgcc, libstdc++ and glibc would provide:
-   - outline atomics;
+   was built for a hosted Linux, so `Scripts/support/aarch64-linux.c` and
+   `linux-gnu.c` seal in what libgcc, libstdc++ and glibc would provide:
+   - outline atomics (`aarch64-linux.c`);
    - the red-black tree that task groups and task locals use. It was written
      from the textbook algorithm and tested against libstdc++'s `std::set` in
      the `swift` image.
@@ -983,6 +983,18 @@ Each of these needs a decision, or is verified only as far as noted:
    `EMBEDDED_NO_CONCURRENCY`, and `guest.py` says so. `canImport(_Concurrency)`
    returns true on `aarch64-none-none-elf`, because the module exists for
    other triples, so packages check the define.
+
+   **x86_64 ELF on Linux.** macOS toolchains ship the Embedded concurrency
+   module and runtime for `x86_64-unknown-none-elf`; x86_64 Linux toolchains
+   ship them only for `x86_64-unknown-linux-gnu`. There, `linux-x86_64` and
+   `android-x86_64` are compiled for that triple, as arm64 is: the same
+   System V code, with `os(Linux)` true, and `linux-gnu.c` sealed in for the
+   runtime's libstdc++ and glibc references (no atomics: x86_64 has them
+   inline). The metadata build that reads a product's contracts takes the
+   first ELF triple with the module: `x86_64-unknown-none-elf`, then
+   `x86_64-unknown-linux-gnu`, then `aarch64-unknown-linux-gnu`. A
+   calculator guest's `linux-x86_64` slice built and sealed this way with
+   Swift 6.4.1 on Debian 13.
 8. **iOS 6** still needs the host's stack realignment on calls into the
    slice, and the Thumb-bit fixup for the prebuilt concurrency runtime after
    the final link (Swift-iOS6's `objcrt_call_aligned` and `thumbfix.py`).
