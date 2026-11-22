@@ -141,7 +141,7 @@ public final class HostDateFormat: DateFormat {
     }
 
     static func timeZone(_ identifier: String?) -> TimeZone {
-        identifier.flatMap(TimeZone.init(identifier:)) ?? .autoupdatingCurrent
+        identifier.flatMap(TimeZone.init(identifier:)) ?? HostSystemClock.userTimeZone()
     }
 
     static func date(_ milliseconds: Int64) -> Date {
