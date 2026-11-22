@@ -31,7 +31,7 @@ builds and the first provider contracts:
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. The Darwin host holds texts in `UITextView` and `NSTextView`, with its own undo history, and shows them in `TextEditor` nodes (DarwinAppRuntime's `DarwinText`); no other host does yet |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
-| Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. No platform host has a keychain or a browser behind it, so no secret has been kept safely and no provider's page shown |
+| Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. The Darwin host keeps secrets in the Keychain and shows the provider's page with `ASWebAuthenticationSession` (DarwinAppRuntime's `DarwinSecrets` and `DarwinAuthentication`); no other host does yet |
 | Calendar events (`Contracts/Calendars.md`) | done on the guest side, with the shared host side: `DynamicCalendar` (the `Calendars` contract with its calendar and event records, and the guest's `EventStore`, `Event`, `EventCalendar`, `RecurrenceRule` and `CivilDate`), and `RuntimeCalendar` (`HostCalendars`, the contract over a host's `CalendarStore`, and `MemoryCalendarStore`); the `.calendars` capability with its two levels; `examples/ExampleCalendar`. No platform host has a calendar store behind it, so no real calendar has been read |
 | Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
@@ -1495,15 +1495,15 @@ Each of these needs a decision, or is verified only as far as noted:
    show the paste alert, so what iOS does when the user allows a read
    needs a device. Then a
    `PasteButton` node, which is the only way past that alert.
-15. Secrets and sign-in in the hosts
-   (`Documentation/Contracts/Secrets.md`): a `SecretStore` over Keychain
-   Services in the Darwin host, with the marker that empties it after a
-   reinstall; over the Secret Service in the Linux host, with the sandbox
-   keeping guests off the session bus; and Android's and the browser's
-   own host side. A `WebAuthenticationPresenter` over
-   `ASWebAuthenticationSession`, and the system's browser with a scheme
-   handler on Linux. Each host reads `RTAuthenticationSchemes`, which
-   `AppInfo` doesn't yet. Nothing here has met a real provider.
+15. Secrets and sign-in in the other hosts
+   (`Documentation/Contracts/Secrets.md`): a `SecretStore` over the
+   Secret Service in the Linux host, with the sandbox keeping guests off
+   the session bus, and Android's and the browser's own host side. The
+   system's browser with a scheme handler on Linux. Each host reads
+   `RTAuthenticationSchemes`, which `AppInfo` doesn't yet. The Darwin
+   host has both (DarwinAppRuntime's `DarwinSecrets` and
+   `DarwinAuthentication`), and showed a provider's page on the iOS
+   Simulator; nothing here has met a real provider.
 16. Calendars in the hosts (`Documentation/Contracts/Calendars.md`): a
    `CalendarStore` over `EKEventStore` in the Darwin host, with its two
    levels of access and `EKEventStoreChanged`, and Android's own host
