@@ -49,6 +49,30 @@ extension RenderNode {
 
 // MARK: - Views under test
 
+struct Siblings: View {
+
+    @State var tapped = ""
+
+    var body: some View {
+        VStack {
+            Text("Tapped \(tapped)")
+            HStack {
+                if true { Button("First") { tapped = "First" } }
+                if true { Button("Second") { tapped = "Second" } }
+                if tapped.isEmpty { Button("Third") { tapped = "Third" } } else { Button("Third again") { tapped = "Third" } }
+                if tapped.count >= 0 { Button("Fourth") { tapped = "Fourth" } } else { Text("Never") }
+            }
+            HStack {
+                for name in ["Fifth", "Sixth"] {
+                    Button(name) { tapped = name }
+                }
+                Text("A").id(1)
+                Text("B").id(1)
+            }
+        }
+    }
+}
+
 struct Counter: View {
 
     @State var count = 0
@@ -290,6 +314,37 @@ struct Appearing: View {
         graph.update()
         #expect(sink.screen?.texts.first == "Banner")
         #expect(sink.screen?.find("Text", text: "Content")?.id == content.id)
+    }
+
+    /// Two `if`s side by side, two `if`/`else`s, a loop and `.id`s: each has
+    /// a scope of its own, and their views their own node ids.
+    @Test func conditionalsSideBySideHaveTheirOwnIDs() throws {
+        let (graph, sink) = graph(Siblings())
+        let screen = try #require(sink.screen)
+        var ids: [RenderNode.ID] = []
+        func collect(_ node: RenderNode) {
+            ids.append(node.id)
+            node.children.forEach(collect)
+        }
+        collect(screen)
+        #expect(Set(ids).count == ids.count, "no two nodes share an id")
+        // A tap reaches the button tapped.
+        func button(_ title: String) -> RenderNode? {
+            func search(_ node: RenderNode) -> RenderNode? {
+                if node.type == "Button", node.children.first?.props["text"]?.string == title { return node }
+                for child in node.children {
+                    if let found = search(child) { return found }
+                }
+                return nil
+            }
+            return sink.screen.flatMap(search)
+        }
+        for title in ["Second", "Fourth", "First", "Sixth", "Fifth"] {
+            let node = try #require(button(title), "\(title)")
+            #expect(graph.handle(node.id, kind: .tap))
+            graph.update()
+            #expect(sink.screen?.find("Text", text: "Tapped \(title)") != nil, "\(title)")
+        }
     }
 
     @Test func forEachStateFollowsIdentity() throws {
