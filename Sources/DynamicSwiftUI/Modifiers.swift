@@ -151,9 +151,14 @@ extension View {
 
     // MARK: Interaction
 
-    /// Inherited by descendants.
-    public func disabled(_ disabled: Bool) -> _ModifierView<Self> {
-        modified("disabled", ["value": .bool(disabled)])
+    /// Inherited by descendants, which read `isEnabled` as `false` under
+    /// `disabled(true)`.
+    public func disabled(_ disabled: Bool) -> _EnvironmentView<_ModifierView<Self>> {
+        _EnvironmentView(content: modified("disabled", ["value": .bool(disabled)])) { context in
+            if disabled {
+                context.values.isEnabled = false
+            }
+        }
     }
 
     public func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> _ModifierView<Self> {
