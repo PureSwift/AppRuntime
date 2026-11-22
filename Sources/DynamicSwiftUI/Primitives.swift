@@ -355,3 +355,81 @@ public struct _RenderNodeView: PrimitiveView {
         RenderNode(type, id: id, props: props)
     }
 }
+
+/// A view that is one render node with children, for a module that adds a
+/// container to the vocabulary, as `MapKit`'s `Map` does: its content is
+/// rendered as the node's children, and it handles its own events.
+///
+/// With a selection, the children with a `tag(_:)` get a `tag` modifier,
+/// the node a `selection` prop, and a `change` event sets the binding, as
+/// `List(selection:)` does.
+public struct _RenderContainerView<Content: View, SelectionValue: Hashable>: View {
+
+    let type: String
+
+    let props: [String: PropValue]
+
+    let selection: Binding<SelectionValue?>?
+
+    let events: [RenderEventKind: (PropValue?) -> Void]
+
+    let content: Content
+
+    public init(
+        _ type: String,
+        props: [String: PropValue] = [:],
+        selection: Binding<SelectionValue?>?,
+        events: [RenderEventKind: (PropValue?) -> Void] = [:],
+        @ViewBuilder content: () -> Content
+    ) {
+        self.type = type
+        self.props = props
+        self.selection = selection
+        self.events = events
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        let graph = context.graph
+        let id = graph.nextNodeID()
+        var props = self.props
+        var childContext = context
+        let tags = ItemTags()
+        childContext.items = selection == nil ? nil : tags
+        var children = childContext.children(content)
+        if let selection {
+            for index in children.indices {
+                tagRows(&children[index], tags)
+            }
+            select(selection, list: id, props: &props, context: context, inColumn: false) { hash in
+                for record in tags.tags.values where record.hash == hash {
+                    if let value = record.value(as: SelectionValue.self) {
+                        return value
+                    }
+                }
+                return nil
+            }
+        }
+        for (kind, handler) in events {
+            graph.on(id, kind, handler)
+        }
+        nodes.append(RenderNode(type, id: id, props: props, children: children))
+    }
+}
+
+extension _RenderContainerView where SelectionValue == Int {
+
+    public init(
+        _ type: String,
+        props: [String: PropValue] = [:],
+        events: [RenderEventKind: (PropValue?) -> Void] = [:],
+        @ViewBuilder content: () -> Content
+    ) {
+        self.init(type, props: props, selection: nil, events: events, content: content)
+    }
+}
+
