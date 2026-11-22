@@ -1,10 +1,11 @@
 # Secrets and sign-in
 
 **Status:** implemented in this repository: the guest side of both, and
-the part of the host side every host written in Swift shares. No platform
-host has a keychain or a browser behind it yet, so no secret has been
-kept safely and no provider's page has been shown: the tests keep the
-secrets in memory and play the browser.
+the part of the host side every host written in Swift shares. The Darwin
+host keeps secrets in the Keychain and shows the provider's page with
+`ASWebAuthenticationSession` (DarwinAppRuntime's `DarwinSecrets` and
+`DarwinAuthentication`). Android, Linux and the browser need their own
+platform.
 
 Two things an app with an account needs, and uses together:
 
@@ -322,11 +323,12 @@ one listed twice.
 
 ## Per host
 
-From each platform's documentation. None of it has been tried.
+From each platform's documentation, except where the Darwin host's was
+tried, as said in its row.
 
 | | Secrets | Sign-in |
 |---|---|---|
-| iOS / macOS | `kSecClassGenericPassword`, with the app's identifier as the service and the key as the account. `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and `…AfterFirstUnlockThisDeviceOnly`. Keychain items outlive the app on iOS, so a marker in the app's container says whether to empty them. | `ASWebAuthenticationSession`, with `prefersEphemeralWebBrowserSession`. The system asks the user before it shares the browser's cookies, unless the session is ephemeral. |
+| iOS / macOS | `kSecClassGenericPassword`, with the app's identifier as the service and the key as the account. `kSecAttrAccessibleWhenUnlockedThisDeviceOnly` and `…AfterFirstUnlockThisDeviceOnly`. Keychain items outlive the app on iOS, so a marker in the app's container says whether to empty them. DarwinAppRuntime's `DarwinSecrets` does this. On macOS it uses the data protection keychain where the app is signed for it, and the user's login keychain otherwise, where accessibility doesn't apply. The iOS Simulator's keychain refuses an app without `application-identifier` and `keychain-access-groups`, so the packager links them into Simulator builds, as Xcode does. The tests use the real macOS keychain. | `ASWebAuthenticationSession`, with `prefersEphemeralWebBrowserSession`. The system asks the user before it shares the browser's cookies, unless the session is ephemeral. DarwinAppRuntime's `DarwinAuthentication` does this. On the iOS Simulator, `ExampleSignIn` showed the system's prompt and then the browser sheet at the provider's page, and closing the sheet came back as a cancel. Its provider isn't real, so no sign-in was completed. |
 | Android | An AES-GCM key in the Android Keystore, and each value encrypted in a file of the app's own, which is left out of backups. A Keystore key works while the device is locked, so both accessibilities read alike. | Custom Tabs for the page, and an activity that catches the redirect and hands it back. An ephemeral page where the browser has one. |
 | Linux | The Secret Service (`org.freedesktop.secrets`), each item with the app's identifier as an attribute. The keyring may ask the user to unlock it; a refusal is `notAllowed`. Any app on the session bus can read an unlocked keyring, so the sandbox must keep guests off it and leave the host's own access. | The system's browser through the launcher, and the scheme's handler, which the launcher registers and which passes the redirect to the running app. The plan's accounts service sits here. |
 | Browser | A key made with `crypto.subtle.generateKey` as not extractable, kept in IndexedDB with the values it encrypts. This stops a value being copied out of storage, and not a script on the page from using it. | A pop-up window, and a page of the app's own at the redirect that passes its address back with `postMessage`. Pop-ups need a user action. `ephemeral` is ignored. |
@@ -371,6 +373,12 @@ playing the browser.
   cancel, late and repeated answers, and a cancelled task.
 - `AppManifestTests` and `Scripts/test_manifest.py`: `.secrets` and
   `authenticationSchemes`.
+
+The Darwin host's platform is written (DarwinAppRuntime's `DarwinSecrets`
+and `DarwinAuthentication`), and was tried with `ExampleSignIn` on the iOS
+Simulator, as the iOS / macOS row says. A completed sign-in with a real
+provider, the ephemeral page, the macOS app, and a secret read while the
+device is locked are untried.
 
 ## Decided in review
 
