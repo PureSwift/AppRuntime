@@ -37,6 +37,7 @@ builds and the first provider contracts:
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
 | Environment values and split views (`Environment.md`) | done on the guest side: version 2 of `Renderer`, with `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
+| Maps (`Contracts/Maps.md`) | done on the guest side, with the shared host side: `DynamicMapKit` (`MapKit` in guest builds: the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with `Marker`, `Annotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `UserAnnotation`, camera positions, styles, controls, `onMapCameraChange`, `onMapTap` and `onMapLongPress`), and `RuntimeMaps` (`HostMaps`, the contract over the service a host is built with); `_RenderContainerView` in the frontend, for a module's node with children and events; `examples/ExampleMaps`. No platform host draws a `Map` node yet |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
@@ -524,6 +525,23 @@ which are each host's. TCP and UDP are not part of the spec.
   - **A list's selection is a row's tag,** the hash of its value, as a
     `tag` modifier, not its node ID: a lazy row's ID isn't known until the
     host asks for the row.
+- **Maps (`Contracts/Maps.md`).**
+  - **The map is a node, and the contract is small.** A `Map`'s camera,
+    content and selection go out in the IR, and the user's moves, picks
+    and presses come back as events. `Maps` only says whose maps they are,
+    and makes an app that links `MapKit` declare `.network`.
+  - **A module's own container.** `_RenderContainerView` renders a view's
+    content as a node's children, with tagged picking as
+    `List(selection:)` has and handlers for the node's events, so a module
+    outside the frontend can add one.
+  - **The modifiers are environment values,** an app's own key, so
+    `mapStyle`, `mapControls` and the rest can come after other modifiers,
+    as in SwiftUI.
+  - **An app's own environment keys are named by a class.** In an
+    Embedded guest, `ObjectIdentifier` of a struct key's metatype didn't
+    tell keys apart, so `MapKit`'s settings never reached the map. A key
+    is now named by `EnvironmentKeyToken<Key>`, a class, as tags are by
+    `TagBox<Value>`. This fixes keys from the environment values work.
 - **Photo library (`Contracts/Photos.md`).**
   - **Three ways to the user's photos, in two modules.** Adding and
     browsing are `DynamicPhotos`. Being given one is the photo picker,
@@ -991,6 +1009,19 @@ Each of these needs a decision, or is verified only as far as noted:
       `__aeabi_ldivmod`, the signed 64-bit division CoreModel's integer
       arithmetic and Foundation's dates need, and `floor`. Both agree with
       a 64-bit host on about 100 million inputs.
+11. **Swift 6.4.2's Embedded `-Osize` miscompiles an optional struct** on
+    arm64 macOS: one with an `Int`, a `String` and a struct of two
+    `Int`s, returned as `Optional`. Found by `ExampleMaps` as a sealed
+    slice, where `places.first { $0.id == id }?.name` read a string from
+    the wrong place and crashed the view graph's diff. A program of a
+    dozen lines does it with no AppRuntime code: a function returning
+    `Place?` from a loop, then `?.name ?? "…"`, prints nothing at all and
+    exits 0 at `-Osize`, and is right at `-Onone` and `-O`, and without
+    Embedded at `-Osize`. Without the inner struct it's right. `App.wasm`
+    (wasm32) and wasm2c are right. Guest slices are built at `-Osize`, so
+    any app can meet it; `ExampleMaps` reads the name with a loop that
+    returns a `String`. Not reported upstream yet, and not tried on a
+    newer toolchain, since 6.4.2 is the newest here.
 
 ## 5. Tests
 
@@ -1254,6 +1285,17 @@ Each of these needs a decision, or is verified only as far as noted:
   as `App.wasm`, a sealed macOS slice and wasm2c output, with the test's
   renderer reporting the window and going back, and `RuntimeWasmTests`
   again with a renderer from before version 2.
+- `DynamicMapKitTests`: the maps contract's keys and capability,
+  `MapProvider` from a host, positions and the camera's payload both ways,
+  regions in meters; and a `Map` in the view graph: each kind of content
+  and its props, the settings modifiers after others, the user's move
+  followed by the binding and echoed back, the app's move, picking a
+  marker or annotation and clearing it, taps and long presses only when
+  asked for, and content that comes and goes. `RuntimeMapsTests`:
+  `HostMaps` from its settings, and the module registering the contract.
+  `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleMaps` as
+  `App.wasm`, a sealed macOS slice and wasm2c output, with the test
+  standing in for the map.
 - `DynamicCameraTests`: the camera contract's keys and signatures, and
   the guest's `Camera` against a scripted host: the device's cameras,
   access and its two questions, starting and failing, a zoom the host
@@ -1647,3 +1689,11 @@ Each of these needs a decision, or is verified only as far as noted:
    `Configuration` and `ListDetailPaneScaffold` on Android; libadwaita's
    settings and `AdwNavigationSplitView` on Linux. Then the size of a node,
    value-based navigation, and choosing several rows.
+23. Maps in the hosts (`Documentation/Contracts/Maps.md`): each renderer
+   draws a `Map` node with the platform's map, its content, controls and
+   attribution, and reports `camera`, picks, taps and long presses;
+   registers `HostMapsModule` with its service. SwiftUI's `Map` (iOS 17,
+   macOS 14) or `MKMapView` in the Darwin host; MapLibre Native on
+   Android, with a style URL chosen when the host is built; libshumate on
+   Linux, over a tile source of the host's own. Then searching for places,
+   directions and offline maps, which depend on the service.
