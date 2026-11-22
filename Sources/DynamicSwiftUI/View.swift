@@ -56,11 +56,26 @@ public struct RenderContext {
     /// From `pickerStyle(_:)`: the `style` prop of the pickers inside.
     var pickerStyle: String?
 
+    /// The environment's values: the host's, and what ancestors set.
+    var values = EnvironmentValues()
+
+    /// The split view column being rendered, which the lists in it tell
+    /// when the user picks a row.
+    var column: SplitColumn?
+
+    /// From `navigationSplitViewStyle(_:)`: the `style` prop of the split
+    /// views inside.
+    var splitStyle: String?
+
     var graph: ViewGraph {
         ViewGraph.current!
     }
 
     init() { }
+
+    init(window: RenderEnvironment) {
+        values.window = window
+    }
 
     /// The innermost object of type `T` in the environment.
     func object<T: AnyObject>(_ type: T.Type) -> T? {
