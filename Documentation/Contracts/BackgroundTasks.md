@@ -450,7 +450,7 @@ The platforms' limits above are from their documentation.
   export, a backup. Android has foreground services for it; iOS has much
   less. It's a contract of its own if an app needs it.
 - **Transfers that outlive the app:** downloads and uploads the system
-  carries on. That's an addition to [HTTPClient](HTTPClient.md).
+  carries on. Those are [Transfers](Transfers.md).
 - **Playing on, and following location,** in the background. Those are
   [MediaPlayer](MediaPlayer.md)'s and [Location](Location.md)'s.
 - **Exact times.** A task can't be made to run at a moment.
