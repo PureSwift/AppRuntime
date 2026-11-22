@@ -102,6 +102,11 @@ public struct TupleView<First: View, Second: View>: View {
 
 /// An `if` without `else`. Its content has its own scope, so the views after
 /// it keep their identity whether or not it shows.
+///
+/// The scope is its position's, then its branch's, as `ForEach`'s is its
+/// position's, then each element's. An identity scope alone is keyed by its
+/// parent and its identity: two `if`s side by side would share one, and
+/// their views one set of node ids.
 public struct OptionalView<Wrapped: View>: View {
 
     let content: Wrapped?
@@ -111,13 +116,17 @@ public struct OptionalView<Wrapped: View>: View {
     }
 
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
-        context.graph.scoped(identity: 1) {
-            content?._render(into: &nodes, context: context)
+        let graph = context.graph
+        graph.scoped {
+            graph.scoped(identity: 1) {
+                content?._render(into: &nodes, context: context)
+            }
         }
     }
 }
 
-/// An `if`/`else`. Each branch has its own identity.
+/// An `if`/`else`. Each branch has its own identity, in its position's scope
+/// (see `OptionalView`).
 public struct ConditionalView<TrueContent: View, FalseContent: View>: View {
 
     enum Storage {
@@ -132,11 +141,14 @@ public struct ConditionalView<TrueContent: View, FalseContent: View>: View {
     }
 
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
-        switch storage {
-        case .first(let content):
-            context.graph.scoped(identity: 1) { content._render(into: &nodes, context: context) }
-        case .second(let content):
-            context.graph.scoped(identity: 2) { content._render(into: &nodes, context: context) }
+        let graph = context.graph
+        graph.scoped {
+            switch storage {
+            case .first(let content):
+                graph.scoped(identity: 1) { content._render(into: &nodes, context: context) }
+            case .second(let content):
+                graph.scoped(identity: 2) { content._render(into: &nodes, context: context) }
+            }
         }
     }
 }
@@ -150,10 +162,15 @@ public struct ArrayView<Element: View>: View {
         fatalError()
     }
 
+    /// Each element by its index, in the loop's position's scope (see
+    /// `OptionalView`).
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
-        for (index, element) in elements.enumerated() {
-            context.graph.scoped(identity: UInt64(index)) {
-                element._render(into: &nodes, context: context)
+        let graph = context.graph
+        graph.scoped {
+            for (index, element) in elements.enumerated() {
+                graph.scoped(identity: UInt64(index)) {
+                    element._render(into: &nodes, context: context)
+                }
             }
         }
     }
