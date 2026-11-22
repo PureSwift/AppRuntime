@@ -83,7 +83,15 @@ public final class HostRenderer: RenderSink, RendererDelegate {
         let connection = HostRenderer()
         let graph = ViewGraph(root, sink: connection)
         connection.graph = graph
-        connection.renderer = RendererProxy.make(connection)
+        let renderer = RendererProxy.make(connection)
+        connection.renderer = renderer
+        // The window's values before the first tree, so it's laid out for
+        // the window it's in. No answer: a renderer from before version 2.
+        if RendererProxy.Methods.environment.isAvailable, let values = RenderEnvironment(bytes: renderer.environment()) {
+            graph.environment = values
+        } else {
+            graph.supportsSplitViews = false
+        }
         running.append(graph)
         if GuestExecutor.isInHostCall {
             graph.setNeedsUpdate()
@@ -112,6 +120,13 @@ public final class HostRenderer: RenderSink, RendererDelegate {
             return
         }
         let value = payload.isEmpty ? nil : try? RenderCodec.decode(payload: payload)
+        if kind == .environment {
+            // The window's, and only a payload that decodes.
+            if id == RenderNode.windowID, let value {
+                graph.environment = RenderEnvironment(payload: value)
+            }
+            return
+        }
         graph.handle(id, kind: kind, payload: value)
     }
 
