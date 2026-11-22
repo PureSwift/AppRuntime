@@ -213,9 +213,13 @@ public struct _IdentityView<Content: View>: View {
         fatalError()
     }
 
+    /// In its position's scope, then its identity's (see `OptionalView`).
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
-        context.graph.scoped(identity: identity) {
-            content._render(into: &nodes, context: context)
+        let graph = context.graph
+        graph.scoped {
+            graph.scoped(identity: identity) {
+                content._render(into: &nodes, context: context)
+            }
         }
     }
 }
