@@ -47,6 +47,11 @@ let package = Package(
         // Shared: the photos and videos the system keeps for the user, as
         // PhotoKit has them, and the `PhotoView` that shows one.
         .library(name: "DynamicPhotos", targets: ["DynamicPhotos"]),
+        // Shared: downloads to a file and uploads from one, which the host
+        // moves, and the system can carry on.
+        .library(name: "DynamicTransfers", targets: ["DynamicTransfers"]),
+        // Host only: the transfers contract over a host's own engines.
+        .library(name: "RuntimeTransfers", targets: ["RuntimeTransfers"]),
         // Host only: the photos contract over a host's own library.
         .library(name: "RuntimePhotos", targets: ["RuntimePhotos"]),
         // Shared: the camera: a preview, photos, and video with sound.
@@ -141,6 +146,9 @@ let package = Package(
         .library(name: "ExampleCalendar", type: .static, targets: ["ExampleCalendar"]),
         // Example sign-in guest app: signs in with a provider and keeps the token.
         .library(name: "ExampleSignIn", type: .static, targets: ["ExampleSignIn"]),
+        // Example transfers guest app: downloads the host moves, some of
+        // them carried on while the app is closed.
+        .library(name: "ExampleTransfers", type: .static, targets: ["ExampleTransfers"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
         .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
@@ -397,6 +405,23 @@ let package = Package(
         .testTarget(
             name: "RuntimeContactsTests",
             dependencies: ["RuntimeContacts", "DynamicContacts", "RuntimeHost", "RuntimeNative", "RuntimeCore"]
+        ),
+        .target(
+            name: "DynamicTransfers",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicObservation"],
+            path: "Contracts/DynamicTransfers"
+        ),
+        .target(
+            name: "RuntimeTransfers",
+            dependencies: ["DynamicTransfers", "DynamicFiles", "DynamicNetworking", "DynamicRuntime", "RuntimeHost", "RuntimeNetworking"]
+        ),
+        .testTarget(
+            name: "DynamicTransfersTests",
+            dependencies: ["DynamicTransfers", "DynamicFiles", "DynamicObservation", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeTransfersTests",
+            dependencies: ["RuntimeTransfers", "DynamicTransfers", "DynamicFiles", "RuntimeHost", "RuntimeNative"]
         ),
         .target(
             name: "DynamicPhotos",
@@ -688,6 +713,11 @@ let package = Package(
             name: "ExampleSignIn",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicSecrets", "DynamicAuthentication"],
             path: "examples/ExampleSignIn"
+        ),
+        .target(
+            name: "ExampleTransfers",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicTransfers"],
+            path: "examples/ExampleTransfers"
         ),
         .target(
             name: "ExampleClipboard",
