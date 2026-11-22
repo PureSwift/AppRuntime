@@ -114,7 +114,8 @@ NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
 # (§5.3, §9).
 # The package can't name them that: on Apple hosts, Foundation would find
 # them instead of the SDK's.
-GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "SwiftUI", "DynamicWebKit": "WebKit"}
+GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "SwiftUI", "DynamicWebKit": "WebKit",
+                      "DynamicMapKit": "MapKit"}
 CONCURRENCY_SUPPORT = "concurrency.c"
 # For a Linux triple, the Clang importer looks for glibc headers to map, and
 # warns without a sysroot. Guest code never includes libc headers.
