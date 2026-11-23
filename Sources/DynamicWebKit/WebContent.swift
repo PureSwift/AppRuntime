@@ -19,25 +19,24 @@ import DynamicRuntime
 /// | Linux | WPE WebKit (`WebKitWebView`), drawn into the player's scene |
 /// | Browser | an `<iframe>` |
 ///
-/// Version 2 added what a browser and a mail reader need: data stores,
-/// pages without remote content or scripts, new windows, downloads, find,
-/// permissions, snapshots and removing data. Each has a default here that
-/// does nothing, and a host says which it honors in `features()`. Only a
-/// page made by `make(_:dataStore:options:)` has a delegate that takes
-/// version 2's events.
-@DynamicRuntime("org.pureswift.web.WebContent", version: 2)
+/// What a browser and a mail reader need beyond loading a page, such as
+/// data stores, pages without remote content or scripts, new windows,
+/// downloads, find, permissions, snapshots and removing data, has a default
+/// here that does nothing, and a host says which it honors in `features()`.
+@DynamicRuntime("org.pureswift.web.WebContent")
 public protocol WebContent: AnyObject {
 
-    /// A page whose delegate takes only version 1's events.
+    /// A page with the app's default store and no options.
     static func make(_ delegate: WebContentDelegate) -> Self
 
-    /// A `WebFeatures` bit set of what this host honors. Since version 2.
+    /// A `WebFeatures` bit set of what this host honors.
     static func features() -> Int32
 
-    /// A page whose delegate takes version 2's events too. `dataStore` 0 is
-    /// the app's default store; another number names a non-persistent
-    /// store, made when a page first names it and let go when none does.
-    /// `options` is `WebPageOptions` bits. Since version 2.
+    /// A page of a data store, made as `options` say. `dataStore` 0 is the
+    /// app's default store; another number names a non-persistent store,
+    /// made when a page first names it and let go when none does.
+    /// `options` is `WebPageOptions` bits. The guest makes every page with
+    /// this.
     static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32) -> Self
 
     /// What a `WebView` node carries to say which page it shows. Unique
@@ -73,7 +72,7 @@ public protocol WebContent: AnyObject {
     /// `didEvaluateJavaScript` with the same `request`.
     func evaluateJavaScript(_ script: String, request: Int32)
 
-    // MARK: Since version 2
+    // MARK: A browser's and a mail reader's
 
     /// Empty is the engine's own.
     func setCustomUserAgent(_ userAgent: String)
@@ -106,8 +105,9 @@ public protocol WebContent: AnyObject {
     func removeData(since: Double, request: Int32)
 }
 
-/// What a host built before version 2 does: nothing. A host that honors
-/// one of these says so in `features()`.
+/// What a host that hasn't implemented these does: nothing, and its
+/// pages are its default store's. A host that honors one says so in
+/// `features()`.
 public extension WebContent {
 
     static func features() -> Int32 { 0 }
