@@ -53,6 +53,74 @@ public protocol MediaEngine: AnyObject {
 
     /// How often to call `timeChanged` while playing.
     func setTimeUpdateInterval(_ seconds: Double)
+
+    /// Chooses one of the tracks it last reported in `tracksChanged`; `nil`
+    /// is the default audio, or no subtitles.
+    func selectTrack(_ kind: HostMediaTrack.Kind, index: Int?)
+}
+
+public extension MediaEngine {
+
+    /// An engine that doesn't list tracks has none to choose.
+    func selectTrack(_ kind: HostMediaTrack.Kind, index: Int?) { }
+}
+
+/// One of a loaded file's tracks, as an engine reports it.
+public struct HostMediaTrack: Equatable, Sendable {
+
+    public enum Kind: Int32, Sendable {
+        case audio = 0
+        case subtitles = 1
+    }
+
+    public var name: String
+
+    /// A BCP 47 tag, or `nil`.
+    public var language: String?
+
+    public init(name: String, language: String? = nil) {
+        self.name = name
+        self.language = language
+    }
+}
+
+/// A file's tags as the `MediaMetadata` contract names them, and its
+/// cover, read by a `MediaPlatform`.
+public struct HostMediaTags: Equatable, Sendable {
+
+    /// `title`, `artist`, `trackNumber` and the rest of the contract's
+    /// keys, with numbers in decimal; and any others the platform has.
+    public var values: [String: String]
+
+    public var artwork: (bytes: [UInt8], mimeType: String)? {
+        get { artworkBytes.map { ($0, artworkType) } }
+        set {
+            artworkBytes = newValue?.bytes
+            artworkType = newValue?.mimeType ?? ""
+        }
+    }
+
+    private var artworkBytes: [UInt8]?
+
+    private var artworkType = ""
+
+    public init(values: [String: String] = [:], artwork: (bytes: [UInt8], mimeType: String)? = nil) {
+        self.values = values
+        self.artwork = artwork
+    }
+
+    /// The contract's answer: keys and values in turn, sorted by key.
+    var list: [String] {
+        values.keys.sorted().flatMap { [$0, values[$0] ?? ""] }
+    }
+
+    /// An ID3 or MP4 `3/12`: the number, and the count after the slash.
+    public static func numberAndCount(_ text: String) -> (number: Int?, count: Int?) {
+        let parts = text.split(separator: "/", maxSplits: 1).map { String($0.filter { $0 != " " }) }
+        let number = parts.first.flatMap { Int($0) }
+        let count = parts.count > 1 ? Int(parts[1]) : nil
+        return (number, count)
+    }
 }
 
 /// A picture for what's playing, found.
@@ -117,12 +185,23 @@ public protocol MediaPlatform: AnyObject {
     /// when what the app said changes and at each change of state, not on
     /// a timer.
     func showNowPlaying(_ nowPlaying: HostNowPlaying?)
+
+    /// Reads a file's tags, and its cover with `artwork`, without playing
+    /// it. Called off the main thread, on `HostMediaMetadata.work`; may
+    /// answer on any thread. `path` is what `HostMediaPlayback.findFile`
+    /// gave.
+    func readTags(_ path: String, artwork: Bool, completion: @escaping (Result<HostMediaTags, MediaError>) -> Void)
 }
 
 public extension MediaPlatform {
 
     /// Nowhere to show it.
     func showNowPlaying(_ nowPlaying: HostNowPlaying?) { }
+
+    /// A platform that doesn't read tags.
+    func readTags(_ path: String, artwork: Bool, completion: @escaping (Result<HostMediaTags, MediaError>) -> Void) {
+        completion(.failure(MediaError(.unavailable, message: "this host doesn't read tags")))
+    }
 }
 
 /// The `MediaPlayback` contract over a host's `MediaPlatform`: what every
@@ -668,16 +747,125 @@ public final class HostMediaPlayback: MediaPlayback {
     public func setTimeUpdateInterval(_ seconds: Double) {
         engine?.setTimeUpdateInterval(max(seconds, 0.01))
     }
+
+    // MARK: Tracks
+
+    public func selectTrack(_ kind: Int32, index: Int32) {
+        guard let kind = HostMediaTrack.Kind(rawValue: kind), state != .empty, state != .loading else { return }
+        engine?.selectTrack(kind, index: index < 0 ? nil : Int(index))
+    }
+
+    /// What the loaded file has, and which are chosen: after `loaded`, and
+    /// whenever the choice changes, by the guest or the platform's
+    /// controls.
+    public func tracksChanged(audio: [HostMediaTrack], subtitles: [HostMediaTrack], selectedAudio: Int?, selectedSubtitle: Int?) {
+        guard state != .empty, state != .loading else { return }
+        func checked(_ index: Int?, _ count: Int) -> Int32 {
+            guard let index, index >= 0, index < count else { return -1 }
+            return Int32(index)
+        }
+        delegate.didChangeTracks(
+            audio.map(\.name), audioLanguages: audio.map { $0.language ?? "" },
+            subtitleNames: subtitles.map(\.name), subtitleLanguages: subtitles.map { $0.language ?? "" },
+            selectedAudio: checked(selectedAudio, audio.count),
+            selectedSubtitle: checked(selectedSubtitle, subtitles.count)
+        )
+    }
+}
+
+/// The `MediaMetadata` contract over the host's `MediaPlatform`: it finds
+/// the file as a player's is found, reads off the main thread, and answers
+/// on it.
+///
+/// Main thread only, but for the platform's read.
+public final class HostMediaMetadata: MediaMetadata {
+
+    /// Runs a read. A global queue by default.
+    nonisolated(unsafe) public static var work: (@escaping @Sendable () -> Void) -> Void = { job in
+        DispatchQueue.global(qos: .utility).async(execute: job)
+    }
+
+    /// Brings an answer back to the main thread. The main queue by default.
+    nonisolated(unsafe) public static var deliver: (@escaping @Sendable () -> Void) -> Void = { job in
+        DispatchQueue.main.async(execute: job)
+    }
+
+    nonisolated(unsafe) private static let instance = HostMediaMetadata()
+
+    public static func shared() -> HostMediaMetadata {
+        instance
+    }
+
+    public func read(_ directory: Int32, path: String, artwork: Bool, callback: any MediaMetadataCallback) {
+        let found: String
+        do throws(FileError) {
+            found = try HostMediaPlayback.findFile(directory, path)
+        } catch {
+            let code: MediaError.Code = error == .notPermitted ? .notPermitted : .notFound
+            callback.didFail(code.rawValue, message: "no such file")
+            return
+        }
+        guard let platform = HostMediaPlayback.platform else {
+            callback.didFail(MediaError.Code.unavailable.rawValue, message: "this host has no media players")
+            return
+        }
+        // The callback is the guest's: it stays here, on the main thread,
+        // and only its number goes to the read.
+        let number = Self.nextRead
+        Self.nextRead &+= 1
+        Self.waiting[number] = callback
+        let reader = UncheckedBox(platform)
+        Self.work {
+            reader.value.readTags(found, artwork: artwork) { result in
+                let result = UncheckedBox(result)
+                Self.deliver {
+                    guard let callback = Self.waiting.removeValue(forKey: number) else { return }
+                    switch result.value {
+                    case .success(let tags):
+                        let cover = tags.artwork
+                        callback.didRead(tags.list, artwork: cover?.bytes ?? [], artworkType: cover?.mimeType ?? "")
+                    case .failure(let error):
+                        callback.didFail(error.code.rawValue, message: error.message)
+                    }
+                }
+            }
+        }
+    }
+
+    nonisolated(unsafe) private static var waiting: [Int: any MediaMetadataCallback] = [:]
+
+    nonisolated(unsafe) private static var nextRead = 0
+
+    /// Reads the platform hasn't answered.
+    public static var pendingCount: Int {
+        waiting.count
+    }
+
+    /// Back to a read on a global queue and answers on the main one.
+    public static func reset() {
+        work = { DispatchQueue.global(qos: .utility).async(execute: $0) }
+        deliver = { DispatchQueue.main.async(execute: $0) }
+        waiting = [:]
+    }
+}
+
+/// Carries a value the main thread owns across a hop to another thread
+/// and back.
+struct UncheckedBox<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }
 
 /// The media module: the contract and its delegate.
 public enum HostMediaModule: HostModule {
 
     public static var contracts: [ContractDescriptor] {
-        [MediaPlaybackProxy.descriptor, MediaPlaybackDelegateProxy.descriptor]
+        [MediaPlaybackProxy.descriptor, MediaPlaybackDelegateProxy.descriptor, MediaMetadataProxy.descriptor, MediaMetadataCallbackProxy.descriptor]
     }
 
     public static func register(in registrar: some ContractRegistrar) {
+        MediaMetadataProxy.register(HostMediaMetadata.self, in: registrar)
+        MediaMetadataCallbackProxy.registerInterface(in: registrar)
         MediaPlaybackProxy.register(HostMediaPlayback.self, in: registrar)
         MediaPlaybackDelegateProxy.registerInterface(in: registrar)
     }
