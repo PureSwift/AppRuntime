@@ -88,6 +88,19 @@ public protocol MediaPlayback: AnyObject {
     /// Goes on playing when the app leaves the front. Ignored without the
     /// manifest's leave.
     func setPlaysInBackground(_ enabled: Bool)
+
+    // MARK: Tracks
+
+    /// Chooses a track of the loaded file. `kind`: 0 audio, 1 subtitles.
+    /// `index` into what `didChangeTracks` last listed; -1 is the file's
+    /// default for audio, and off for subtitles.
+    func selectTrack(_ kind: Int32, index: Int32)
+}
+
+/// What a host that hasn't implemented tracks does: nothing.
+public extension MediaPlayback {
+
+    func selectTrack(_ kind: Int32, index: Int32) { }
 }
 
 /// What a player does, from the host. Called on the main thread.
@@ -119,4 +132,17 @@ public protocol MediaPlaybackDelegate: AnyObject {
 
     /// A button the host can't answer itself: 1 next, 2 previous.
     func didReceiveCommand(_ command: Int32)
+
+    /// What the loaded file has, and which are chosen: after `didLoad`, and
+    /// whenever the choice changes, from the guest or the platform's
+    /// controls. Names and languages are in step; an empty language is
+    /// none. `selected…` is an index, or -1: the default audio, or no
+    /// subtitles.
+    func didChangeTracks(_ audioNames: [String], audioLanguages: [String], subtitleNames: [String], subtitleLanguages: [String], selectedAudio: Int32, selectedSubtitle: Int32)
+}
+
+/// What a delegate that doesn't follow tracks does: nothing.
+public extension MediaPlaybackDelegate {
+
+    func didChangeTracks(_ audioNames: [String], audioLanguages: [String], subtitleNames: [String], subtitleLanguages: [String], selectedAudio: Int32, selectedSubtitle: Int32) { }
 }
