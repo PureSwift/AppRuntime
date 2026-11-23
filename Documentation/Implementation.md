@@ -28,7 +28,7 @@ builds and the first provider contracts:
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
 | Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. `Documents` has the system's photo picker too, `open(from: .photoLibrary)` (`Contracts/Photos.md`), which falls back to the file picker for images and videos on a host without one. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`), and has no photo picker yet; no other host does yet |
-| Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
+| Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. A file's tags and artwork, read without playing it, and choosing a video's subtitle and audio tracks (`Contracts/MediaFiles.md`): the `MediaMetadata` contract, `MediaTags`, and `HostMediaMetadata` over the platform's `readTags`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet, and no host reads tags or lists tracks yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. The Darwin host holds texts in `UITextView` and `NSTextView`, with its own undo history, and shows them in `TextEditor` nodes (DarwinAppRuntime's `DarwinText`); no other host does yet |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
 | Secrets and sign-in (`Contracts/Secrets.md`) | done on the guest side, with the shared host side: `DynamicSecrets` (the `Secrets` contract and the guest's `Keychain`) with `RuntimeSecrets` (`HostSecrets`, over a host's `SecretStore`), and `DynamicAuthentication` (the `WebAuthentication` contract and the guest's `WebAuthenticationSession`) with `RuntimeAuthentication` (`HostWebAuthentication`, over a host's `WebAuthenticationPresenter`); the `.secrets` capability and the manifest's `authenticationSchemes`; `examples/ExampleSignIn`. The Darwin host keeps secrets in the Keychain and shows the provider's page with `ASWebAuthenticationSession` (DarwinAppRuntime's `DarwinSecrets` and `DarwinAuthentication`); no other host does yet |
@@ -375,6 +375,14 @@ which are each host's. TCP and UDP are not part of the spec.
     since it owns the media player they're set on.
   - **A pause is said once per reason.** An engine that reports the same
     state twice isn't passed on.
+  - **Tags are a contract of their own,** since a library reads them
+    without a player, registered by `HostMediaModule`, so a host that uses
+    the shared module has it and answers `unavailable` until its platform
+    reads tags. Tags travel as key and value strings in one array; the
+    guest keeps four reads with the host at a time.
+  - **Tracks are the player's.** Its delegate lists them after the file
+    loads and whenever the choice changes, whoever made it, and a new
+    load clears them.
 - **Text editing (`Contracts/TextEditor.md`).**
   - **`TextEditor` is in `DynamicText`, not the frontend,** which the
     design proposed. An app's `rt.contracts` lists every contract of the
@@ -1206,7 +1214,10 @@ Each of these needs a decision, or is verified only as far as noted:
   what's playing and its buttons, the `VideoPlayer` node and a view that
   keeps its own player, `AudioPlayer`'s loops and delegate, and the
   streams: events to every listener in order, an awaited seek, and ticks
-  while it plays.
+  while it plays. Tags and tracks: the metadata contract's keys,
+  `MediaTags` from a host's keys, errors, four reads at a time, a
+  cancelled read, durations as decimal text, and tracks listed, chosen
+  and cleared.
 - `RuntimeMediaTests`: `HostMediaPlayback` over players the test keeps in
   memory and real files, from the guest through `NativeRuntime`: a file
   found before the engine sees it, a picked document and one no longer
@@ -1215,7 +1226,9 @@ Each of these needs a decision, or is verified only as far as noted:
   the end as a pause, the background, a player that plays on and holds
   the app, interruptions and unplugged headphones, what's shown as playing
   and when, the player last described, the buttons the host answers and
-  the two it passes on, and a node finding its engine.
+  the two it passes on, and a node finding its engine. Tags read off the
+  main thread and answered on it, found as a player's file is, the
+  platform's default, and an engine's tracks both ways.
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleMedia`
   against `HostMediaPlayback`, as `App.wasm`, a sealed macOS slice and
   wasm2c output. Both suites also pass on Linux (Swift 6.4.2, arm64, in
@@ -1818,3 +1831,8 @@ Each of these needs a decision, or is verified only as far as noted:
    implements `openURL` and `setIdleTimerDisabled`; the Android and Linux
    hosts set `HostApplication.openURL` and `idleTimerDisabledChanged`;
    every renderer sends `tap` for a `Link` with `intercepts`.
+26. Tags and tracks in the hosts (`Documentation/Contracts/MediaFiles.md`):
+   each `MediaPlatform` reads tags (`AVURLAsset`, `MediaMetadataRetriever`,
+   `GstDiscoverer`), and each `MediaEngine` lists its tracks and chooses
+   them (`AVMediaSelectionGroup`, Media3's `Tracks`, `playbin`'s
+   `current-audio` and `current-text`).
