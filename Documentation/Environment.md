@@ -1,6 +1,6 @@
 # Environment values and split views
 
-**Status:** implemented: the contract's version 2, `RenderEnvironment`,
+**Status:** implemented: the contract's `environment()`, `RenderEnvironment`,
 the frontend's values, `dismiss`, `NavigationSplitView` and
 `List(selection:)`, with `ExampleNotes` on three engines. No platform
 host reports the values or draws a split view yet. What changed while
@@ -18,7 +18,7 @@ Swift 6.4 still refuses one: "cannot use key path in embedded Swift"
 | Where | What changes |
 |---|---|
 | `DynamicSwiftUI` | `@Environment(.colorScheme)` and the other values; `environment(_:_:)`; an app's own `EnvironmentKey`s; `dismiss`; `preferredColorScheme(_:)`; `NavigationSplitView`; `List(selection:)` |
-| `Renderer` contract | version 2: `environment()` |
+| `Renderer` contract | `environment()` |
 | Render IR | the `environment` event (7); `NavSplit` and `NavColumn` nodes; `List`'s `selection`; the `environment` and `preferredColorScheme` modifiers |
 | `DynamicUI` | `RenderEnvironment`: the values as the IR carries them, for hosts written in Swift |
 
@@ -201,7 +201,7 @@ names.
 ## The contract
 
 ```swift
-@DynamicRuntime("org.pureswift.ui.Renderer", version: 2)
+@DynamicRuntime("org.pureswift.ui.Renderer")
 public protocol Renderer: AnyObject {
 
     static func make(_ delegate: RendererDelegate) -> Self
@@ -210,7 +210,7 @@ public protocol Renderer: AnyObject {
 
     func replaceSubtree(_ id: [UInt8], tree: [UInt8])
 
-    /// Since version 2. The window's values, as an `environment` event's
+    /// The window's values, as an `environment` event's
     /// payload. The guest asks once, before its first tree.
     func environment() -> [UInt8]
 }
@@ -220,8 +220,8 @@ public protocol Renderer: AnyObject {
 `event(node, kind: 7, payload)` with node ID 0, which stands for the
 window. The guest never gives a node ID 0.
 
-Whether `environment()` is there also tells the guest whether the host
-knows the version 2 nodes, `NavSplit` and `NavColumn`.
+Whether `environment()` answers also tells the guest whether the host
+draws `NavSplit` and `NavColumn`.
 
 ### The values on the wire
 
@@ -413,11 +413,12 @@ and then regular, and going back.
   and `change` carry that. Darwin's renderer can hand it straight to
   SwiftUI's `tag(_:)`.
 - **None is no value**, not 0: a hash can be 0.
-- **No bytes from `environment()` is a renderer from before version 2.**
+- **No bytes from `environment()` is a renderer without split views.**
   The method has a default in a protocol extension, so hosts that conform
   to `Renderer` themselves keep building; that default answers no bytes.
-  A renderer with nothing to report answers an empty array, which is
-  still version 2.
+  A renderer with nothing to report answers an empty array, which still
+  means split views. The contract was version 2 until 2026-11-23, when
+  every contract went back to version 1, since none is public yet.
 - **An `environment` event whose payload doesn't decode is ignored,**
   rather than taken as no values.
 - **A subtree's setting goes into the IR whenever it differs from what
@@ -434,7 +435,8 @@ and then regular, and going back.
 
 1. `@Environment(.colorScheme)`, with `\.` changed to `.`, is the
    spelling.
-2. On a host without version 2, a split view is drawn as a stack.
+2. On a host without split views (its `environment()` answers no bytes),
+   a split view is drawn as a stack.
 3. Material's breakpoints, 600 and 480 points, give the size classes
    where a platform has none of its own.
 
