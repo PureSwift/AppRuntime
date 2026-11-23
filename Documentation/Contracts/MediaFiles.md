@@ -1,6 +1,11 @@
 # What's in a media file: tags, artwork and tracks
 
-**Status:** a draft, not reviewed. Nothing in this document is built.
+**Status:** reviewed and built on the guest side, with the shared host
+side: the `MediaMetadata` contract and `MediaTags`, track choice in
+`MediaPlayback` and `MediaPlayer`, `HostMediaMetadata` and the platform's
+`readTags`, the engine's tracks, and `ExampleMedia` reading its songs'
+tags and offering its video's subtitles on the three engines. No platform
+host reads tags or lists tracks yet; "What hosts still need" is the list.
 
 Two things the [media player](MediaPlayer.md) design left out, which the
 music and video players need (`PlannedApps.md`):
@@ -219,6 +224,36 @@ selectedSubtitle:)` to its `HostMediaPlayback`.
   their tags, where it had them written into its code, and gains a
   subtitle picker for its video. On the three engines, against the test's
   stand-in.
+
+## Changed while building
+
+- **`MediaError.Code.cancelled`, 7,** is new: what a read's waiting task
+  throws when it's cancelled. Hosts never send it.
+- **The guest parses durations itself:** Embedded Swift can't make a
+  `Double` from text. `562` and `562.25` read; signs and exponents don't.
+- **A song is described before its tags are read,** by its file's name,
+  and again when they arrive. `ExampleMedia` loads first: what's playing
+  said before a source is loaded isn't shown, and the same said again
+  isn't sent again.
+- **`HostMediaMetadata` keeps each guest callback on the main thread,**
+  and only a number goes to the read, so the guest's object is never
+  released off it.
+- **`HostMediaTags.numberAndCount`** splits an ID3 or MP4 `3/12` for a
+  platform that reads it whole, and the tags go to the guest sorted by
+  key.
+- **The draft's questions, as built:** four reads at a time in the guest;
+  no separate subtitle files; the type is `MediaTags`.
+
+## What hosts still need
+
+- **A platform's `readTags`:** `AVURLAsset` in the Darwin host,
+  `MediaMetadataRetriever` on Android, `GstDiscoverer` on Linux, with the
+  contract's keys and the cover's bytes. Without it, every read answers
+  `unavailable`.
+- **An engine's tracks:** report `tracksChanged` after `loaded` and when
+  the platform's controls change the choice, and implement `selectTrack`.
+- **Checking the table at the top** against each platform's
+  documentation, which hasn't been done.
 
 ## Not in this design
 
