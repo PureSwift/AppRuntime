@@ -20,9 +20,7 @@ import DynamicRuntime
 /// | Android | the Storage Access Framework |
 /// | Linux | the picker service the file manager owns |
 /// | Browser | `showOpenFilePicker`, or `<input type="file">` |
-///
-/// Version 2 added `pickPhotos`.
-@DynamicRuntime("org.pureswift.documents.Documents", version: 2, requires: .userFiles)
+@DynamicRuntime("org.pureswift.documents.Documents", requires: .userFiles)
 public protocol Documents: AnyObject {
 
     static func shared() -> Self
@@ -39,7 +37,7 @@ public protocol Documents: AnyObject {
     /// `didPick`, with nothing if the user cancelled. Each pick is
     /// read-only, a copy the host holds while the guest holds the grant,
     /// and can't be bookmarked. A host with no photo picker shows its
-    /// document picker, for images and videos. Since version 2.
+    /// document picker, for images and videos.
     func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)
 
     /// Asks the user for a folder. Answers `didPick` with it, or with
