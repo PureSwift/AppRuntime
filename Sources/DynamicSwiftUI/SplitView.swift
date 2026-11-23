@@ -197,7 +197,8 @@ final class SplitState {
 /// column's own content. Going back clears the selection of the column it
 /// goes back to.
 ///
-/// On a renderer from before version 2 it's a `NavStack`: the sidebar is
+/// On a renderer that doesn't report the window's values, and so doesn't
+/// draw split views, it's a `NavStack`: the sidebar is
 /// its root, and each column up to the compact one a level.
 public struct NavigationSplitView<Sidebar: View, Content: View, Detail: View>: View {
 
