@@ -37,7 +37,7 @@ public struct WebView: View {
 
     /// Whether the platform's gestures for a page are on.
     public enum GestureBehavior: Equatable, Sendable {
-        /// The host's choice: off, as in version 1.
+        /// The host's choice: off.
         case automatic
         case enabled
         case disabled
