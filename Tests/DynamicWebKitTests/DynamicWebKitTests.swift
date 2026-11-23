@@ -31,8 +31,8 @@ final class TestWebContent: WebContent {
 
     var calls: [String] = []
 
-    /// How it was made: "make" for version 1, else the version 2
-    /// constructor's store and options.
+    /// How it was made: "make" for the plain constructor, else the store
+    /// and options it was made with.
     var made = "make"
 
     /// Answers scripts as they arrive, with this JSON.
@@ -201,7 +201,7 @@ struct Viewer: View {
         #expect(method(content, "loadResource:")?.signature == Signature("(O)V"))
         #expect(method(content, "evaluateJavaScript:request:")?.signature == Signature("(OI)V"))
         #expect(["reload", "stopLoading", "goBack", "goForward"].allSatisfy { method(content, $0)?.signature == Signature("()V") })
-        #expect(content.methods.count == 20, "version 1's ten and version 2's ten")
+        #expect(content.methods.count == 20, "ten for a page, and ten for a browser and a mail reader")
     }
 
     @Test func delegateAnswersNavigationsSynchronously() {
@@ -211,7 +211,7 @@ struct Viewer: View {
         #expect(method(delegate, "shouldNavigate:url:kind:isMainFrame:")?.signature == Signature("(OOIZ)Z"))
         #expect(method(delegate, "didChangeLoading:isLoading:progress:")?.signature == Signature("(OZD)V"), "no objects per progress step")
         #expect(method(delegate, "didEvaluateJavaScript:request:result:error:")?.signature == Signature("(OIOO)V"))
-        #expect(delegate.methods.count == 19, "version 1's eight and version 2's eleven")
+        #expect(delegate.methods.count == 19, "eight for a page, and eleven for a browser and a mail reader")
         let descriptors = [WebContentProxy.descriptor, delegate]
         #expect(ContractMetadata.decode(descriptors.flatMap(ContractMetadata.encode)) == descriptors)
     }
