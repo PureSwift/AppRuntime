@@ -270,7 +270,7 @@ The frontend adds `typealias UTType = ContentType`.
 ## The contract
 
 ```swift
-@DynamicRuntime("org.pureswift.documents.Documents", version: 2, requires: .userFiles)
+@DynamicRuntime("org.pureswift.documents.Documents", requires: .userFiles)
 protocol Documents {
     static func shared() -> Self
 
@@ -278,8 +278,8 @@ protocol Documents {
     /// `access`: 0 read, 1 read and write.
     func pick(_ types: [String], multiple: Bool, access: Int32, callback: DocumentCallback)     // didPick
     /// The system's photo picker. `kinds`: bits, 1 images, 2 videos; none
-    /// means both. Since version 2: a guest on an older host asks `pick`
-    /// for `image/*` and `video/*` instead.
+    /// means both. A host with no photo picker shows its document picker,
+    /// for `image/*` and `video/*`.
     func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)                 // didPick
     func pickFolder(_ access: Int32, callback: DocumentCallback)                                // didPick
     /// Copies the file to where the user says. `name` is the suggestion.
