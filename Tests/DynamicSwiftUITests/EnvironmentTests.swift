@@ -388,7 +388,7 @@ extension ViewGraphTests {
         #expect(!graph.needsUpdate)
     }
 
-    @Test func onAnOlderRendererASplitViewIsAStack() throws {
+    @Test func withoutSplitViewsASplitViewIsAStack() throws {
         let sink = TestSink()
         let graph = ViewGraph(Notes(picks: Picks()), sink: sink)
         graph.supportsSplitViews = false
@@ -454,7 +454,7 @@ extension ViewGraphTests {
         #expect(host.replacements.count == 1, "bytes that don't decode change nothing")
     }
 
-    @Test func anOlderRendererGetsAStack() throws {
+    @Test func aRendererWithoutSplitViewsGetsAStack() throws {
         registerRenderer()
         _ = GuestExecutor.enter { HostRenderer.start(Notes(picks: Picks())) }
         let host = try #require(TestRenderer.last)
@@ -464,7 +464,7 @@ extension ViewGraphTests {
         TestRenderer.window = RenderEnvironment()
         _ = GuestExecutor.enter { HostRenderer.start(Notes(picks: Picks())) }
         let current = try #require(TestRenderer.last)
-        #expect(current.trees.first?.find("NavSplit") != nil, "no values is still version 2")
+        #expect(current.trees.first?.find("NavSplit") != nil, "empty values still mean split views")
     }
 
     @Test func noNodeIsTheWindow() throws {
