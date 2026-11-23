@@ -48,9 +48,7 @@ public final class WebDownload: Observable {
     /// Stops it, if it isn't done.
     public func cancel() {
         guard let content else { return }
-        if WebContentProxy.Methods.cancelDownload.isAvailable {
-            content.cancelDownload(identifier)
-        }
+        content.cancelDownload(identifier)
         failed(WebError(.cancelled))
     }
 
@@ -130,9 +128,7 @@ public final class WebPermissionRequest {
     public func answer(_ granted: Bool) {
         guard let content else { return }
         self.content = nil
-        if WebContentProxy.Methods.answerPermission.isAvailable {
-            content.answerPermission(identifier, granted: granted)
-        }
+        content.answerPermission(identifier, granted: granted)
     }
 
     init(_ identifier: Int32, origin: String, kinds: WebPermissionKinds, content: any WebContent) {
