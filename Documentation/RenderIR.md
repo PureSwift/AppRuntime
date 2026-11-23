@@ -24,7 +24,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | Type | Props | Children | Events |
 |---|---|---|---|
 | `Text` | `text` | — | — |
-| `Image` | `systemName` or `name`; `resizable` | — | — |
+| `Image` | `systemName`, `name`, or `image` (int: a `DrawingImage`'s `identifier()`); `resizable` | — | — (`Contracts/Drawing.md`) |
 | `Label` | `title`, `systemImage` | — | — |
 | `Spacer` | `minLength` | — | — |
 | `Divider` | — | — | — |
@@ -40,7 +40,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `VStack` | `alignment` (`leading`, `center`, `trailing`), `spacing` | content | — |
 | `HStack` | `alignment` (`top`, `center`, `bottom`), `spacing` | content | — |
 | `ZStack` | `horizontal`, `vertical` (alignment) | content, back to front | — |
-| `ScrollView` | `axes` (`vertical`, `horizontal`, `both`), `showsIndicators` | content | — |
+| `ScrollView` | `axes` (`vertical`, `horizontal`, `both`), `showsIndicators`; `minZoom`, `maxZoom`, `zoom` (doubles) when it zooms | content | `change` (double: the scale, when a zoom ends) |
 | `Button` | `role` (`destructive`, `cancel`) | label | `tap` |
 | `Toggle` | `isOn` | label | `change` (bool) |
 | `TextField` | `text`, `placeholder`; `secure` | — | `change` (string), `submit` |
@@ -103,6 +103,8 @@ own, like SwiftUI's environment.
 | `opacity` | `value` | no |
 | `cornerRadius` | `radius` | no |
 | `border` | `color`, `width` | no |
+| `aspectRatio` | `ratio` (width over height; none: the content's own), `contentMode` (`fit`, `fill`) | no |
+| `clipped` | — | no |
 | `shadow` | `color`, `radius`, `x`, `y` | no |
 | `font` | `style` (`largeTitle`, `title`, `title2`, `title3`, `headline`, `subheadline`, `body`, `callout`, `footnote`, `caption`, `caption2`), or `size`, `weight`, `design`; `italic` | yes |
 | `fontWeight` | `weight` (`ultraLight` … `black`) | yes |
@@ -188,6 +190,35 @@ front camera's picture. A tap inside the node focuses and sets the
 exposure there, and a pinch zooms, which the host reports to the guest
 through the camera's contract; neither is a render event. Show nothing
 while the camera is off. When the node goes the camera stays on.
+
+## Images and zooming
+
+An `Image` with `image` shows a picture the host holds and decodes
+(`HostImages.image(identifier)` in a host written in Swift). Lay it out
+from its header, which the host reads before decoding: until the size
+arrives the node is empty. Without `resizable` it's the image's size in
+points; with it, it fills its frame, and an `aspectRatio` keeps the
+image's ratio. Ask for a decode for the pixels the node covers, and show
+the last decode scaled until a sharper one arrives. An image that can't be
+read, or one the guest let go of, draws nothing.
+
+A `ScrollView` with `minZoom` and `maxZoom` zooms its content, the way the
+platform's scroll views do:
+
+- Lay the content out in the scroll view's own size, as if it didn't
+  scroll, and center it. Zooming scales it, and the scroll view scrolls
+  what zooming makes larger than itself.
+- A pinch zooms around the fingers, and a trackpad's too. A double tap
+  zooms in to twice `minZoom` at the point tapped, or back out to
+  `minZoom`.
+- When a gesture ends, send `change` with the scale. While the fingers
+  move, scale what's drawn; when they lift, draw it sharp at its size.
+- Sync `zoom` like a control: zoom, around the center, only to a scale
+  that differs from the one you last rendered. Without `zoom`, keep your
+  own scale.
+
+A host that doesn't know these props shows a scroll view that doesn't
+zoom.
 
 ## Selection
 
