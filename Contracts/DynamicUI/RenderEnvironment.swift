@@ -225,7 +225,7 @@ public struct RenderEnvironment: Equatable, Sendable {
     }
 
     /// The values in `Renderer.environment()`'s answer; `nil` for no bytes,
-    /// a renderer from before version 2, or bytes that don't decode.
+    /// a renderer that doesn't report them, or bytes that don't decode.
     public init?(bytes: [UInt8]) {
         guard !bytes.isEmpty, let payload = try? RenderCodec.decode(payload: bytes) else { return nil }
         self.init(payload: payload)
