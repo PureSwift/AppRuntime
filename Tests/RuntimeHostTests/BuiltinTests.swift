@@ -104,6 +104,66 @@ import Testing
         #expect(applications[1].state() == ApplicationState.background.rawValue)
     }
 
+    /// Implements only what `Application` had first, and gets the defaults.
+    final class Plain: Application {
+        static func make(_ delegate: any ApplicationDelegate) -> Plain { Plain() }
+        func state() -> Int32 { 0 }
+    }
+
+    @Test func theDefaultsOpenNothing() throws {
+        let plain = Plain()
+        #expect(try !plain.openURL("https://swift.org"))
+        try plain.setIdleTimerDisabled(true)
+        let keys = BuiltinContracts.application.methods.map(\.key)
+        #expect(keys.contains("openURL:") && keys.contains("setIdleTimerDisabled:"))
+        #expect(BuiltinContracts.application.version == 1)
+    }
+
+    @Test func opensURLsThroughThePlatform() {
+        HostApplication.reset()
+        defer { HostApplication.reset() }
+        let application = HostApplication.make(Recorder())
+        #expect(!application.openURL("https://swift.org"), "no platform hook: nothing opens")
+
+        var asked: [String] = []
+        HostApplication.openURL = { url in
+            asked.append(url)
+            return !url.hasPrefix("nope:")
+        }
+        #expect(application.openURL("https://swift.org"))
+        #expect(!application.openURL("nope:x"))
+        #expect(!application.openURL("file:///etc/passwd"))
+        #expect(!application.openURL("FILE:relative"))
+        #expect(application.openURL("profile:me"), "a scheme that only ends in file")
+        #expect(asked == ["https://swift.org", "nope:x", "profile:me"], "a file isn't the platform's to open")
+    }
+
+    @Test func keepsTheScreenAwakeWhileAnyApplicationAsks() {
+        HostApplication.reset()
+        defer { HostApplication.reset() }
+        var changes: [Bool] = []
+        HostApplication.idleTimerDisabledChanged = { changes.append($0) }
+        let first = HostApplication.make(Recorder())
+        var second: HostApplication? = HostApplication.make(Recorder())
+
+        first.setIdleTimerDisabled(true)
+        second?.setIdleTimerDisabled(true)
+        first.setIdleTimerDisabled(false)
+        #expect(changes == [true], "the second still asks")
+        #expect(HostApplication.isIdleTimerDisabled)
+
+        // In the background the screen may sleep; back in front it's kept
+        // awake again.
+        HostApplication.setState(.background)
+        HostApplication.setState(.inactive)
+        #expect(changes == [true, false, true])
+
+        // Released while it asked.
+        second = nil
+        #expect(changes == [true, false, true, false])
+        #expect(!HostApplication.isIdleTimerDisabled)
+    }
+
     @Test func forgetsReleasedApplications() {
         HostApplication.reset()
         defer { HostApplication.reset() }
