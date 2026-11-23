@@ -104,6 +104,7 @@ public final class ViewGraph {
         let row: (Int) -> RenderNode
         var rowHandlers: [Int: [EventKey: Handler]] = [:]
         var rowListeners: [Int: ObservationTracking.Listener] = [:]
+        var rowRetained: [Int: [AnyObject]] = [:]
 
         init(count: Int, row: @escaping (Int) -> RenderNode) {
             self.count = count
@@ -124,6 +125,12 @@ public final class ViewGraph {
     private var appearances: [Appearance] = []
 
     private var pendingAppearances: [Appearance] = []
+
+    /// Host objects the last tree sent shows, such as a decoded image: held
+    /// so a view made in `body` keeps its object while the host draws it.
+    private var retained: [AnyObject] = []
+
+    private var pendingRetained: [AnyObject] = []
 
     /// Bumped every update, so lazy lists re-fetch their visible rows.
     private var revision = 0
@@ -191,6 +198,7 @@ public final class ViewGraph {
         pendingHandlers = [:]
         pendingLists = [:]
         pendingAppearances = []
+        pendingRetained = []
 
         let previous = Self.current
         Self.current = self
@@ -209,12 +217,21 @@ public final class ViewGraph {
 
         handlers = pendingHandlers
         pendingHandlers = [:]
+        // A lazy row's host objects stay until the host fetches the row again.
+        for (id, list) in pendingLists {
+            if let old = lists[id] {
+                list.rowRetained = old.rowRetained
+            }
+        }
         lists = pendingLists
         pendingLists = [:]
         slots.removeAll { slot in
             slot.owner == 0 ? slot.lastUsed != generation : lists[slot.owner] == nil
         }
         send(root)
+        // What the last tree showed goes only once the host has the new one.
+        retained = pendingRetained
+        pendingRetained = []
 
         // Handlers may change state, which schedules another update.
         let before = appearances
@@ -293,8 +310,10 @@ public final class ViewGraph {
     public func row(_ list: RenderNode.ID, index: Int) -> RenderNode? {
         guard let lazy = lists[list], index >= 0, index < lazy.count else { return nil }
         let savedHandlers = pendingHandlers
+        let savedRetained = pendingRetained
         let savedOwner = rowOwner
         pendingHandlers = [:]
+        pendingRetained = []
         rowOwner = list
         let previous = Self.current
         Self.current = self
@@ -308,6 +327,8 @@ public final class ViewGraph {
         Self.current = previous
         lazy.rowHandlers[index] = pendingHandlers
         lazy.rowListeners[index] = listener
+        lazy.rowRetained[index] = pendingRetained
+        pendingRetained = savedRetained
         pendingHandlers = savedHandlers
         rowOwner = savedOwner
         return row
@@ -413,6 +434,13 @@ public final class ViewGraph {
         pendingHandlers[EventKey(node: node, kind: kind.rawValue)] = { [unowned(unsafe) self] payload in
             self.acting(in: context) { handler(payload) }
         }
+    }
+
+    /// Holds a host object while the tree being built shows it, and until a
+    /// tree sent after doesn't. In a lazy row, while the row is the one
+    /// fetched.
+    func retain(_ object: AnyObject) {
+        pendingRetained.append(object)
     }
 
     /// Runs an event's handler with `context` as the innermost, outside
