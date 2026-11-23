@@ -373,6 +373,150 @@ Three of the reviewed decisions, and the text that followed from them:
   a picked image instead. The tests check the tree, the size, and a zoom
   reported by a test renderer.
 
+## The canvas, built next
+
+**Status:** a draft, not reviewed. Nothing in this section is built.
+
+The rest of this design, built the way the image part was: the guest's
+side whole, the shared host's player tested against a recorder, and the
+platform renderers left to the hosts. It answers the four questions left
+from the first review with what it proposes, and asks one more.
+
+| Built now | Left to the hosts, and to Silica |
+|---|---|
+| `Point`, `Vector`, `Rect`, `AffineTransform` in the frontend | Replaying into a platform's context (`SilicaCoreGraphics`, `SilicaCairo`, `SilicaAndroid`, `SilicaWeb`) |
+| `Path`, `GraphicsContext`, `BitmapContext`, `Gradient`, `StrokeStyle` and the rest of the names | `SilicaGL` |
+| The drawing format, written by the guest and read by the host | Fonts and text layout, from the platform |
+| `DrawingCanvas`, `DrawingBitmap`, `DrawingFont` and their callbacks | Gradients, blend modes and text from a string in Silica |
+| `Canvas`, `Shape.path(in:)`, `Image` from a bitmap | |
+| `RuntimeDrawing`'s player, over a host's renderer, with a recorder for tests | |
+
+### The questions, answered
+
+1. **A stateful context in `Canvas`:** yes, CoreGraphics' model, with
+   SwiftUI's spellings that cost nothing on the same class, as designed.
+   Code written for SwiftUI's value-type context needs `saveGState()` or
+   `drawLayer` where it copied the context.
+2. **Asynchronous reads:** yes. `pixels()`, `png()` and an image's `size`
+   are `async`, and answer at once on a host that can.
+3. **`SilicaGL` on GLES 2.0, or Metal on Apple:** not decided by this
+   build. Nothing here depends on it: the player replays into whatever
+   renderer a host gives it. It's decided when `SilicaGL` is designed.
+4. **What comes first:** the guest API, the format and the player now; the
+   hosts on the CPU backends Silica has; the GPU backends later. A CPU
+   backend is a correct host, only a slower one.
+
+### What shapes it
+
+- **The player doesn't import Silica.** Silica's package brings Cairo,
+  FontConfig, swift-java and JavaScriptKit for its backends, and every
+  host of this package would fetch them all. So `RuntimeDrawing` replays
+  into `DrawingRenderer`, a protocol of its own with CoreGraphics'
+  operations, and a host adapts it to the `CGContext` it draws with. The
+  adapter to Silica is a few dozen lines, one per call, and lives with
+  the host until Silica's package can be depended on for its core alone.
+- **Text and images are the host's,** named in a drawing by identifier,
+  as designed. `DrawingRenderer` takes a font and an image as the host's
+  own objects, found by the player.
+- **The frontend gets the geometry,** since SwiftUI's API is spelled with
+  it: `Point`, `Vector`, `Rect` and `AffineTransform`, with `CGPoint`,
+  `CGRect`, `CGVector` and `CGAffineTransform` as aliases, beside the
+  `Size` the image part added. `Rect` has SwiftUI's and CoreGraphics'
+  `midX`, `insetBy`, `union`, `contains` and the rest a drawing uses.
+- **A `Canvas` asks once per size.** The host's `draw` call is answered
+  with the bytes at once: the closure runs inside it, reading what it
+  reads under observation, as a body does. A change to what it read calls
+  `setNeedsDisplay()`, not the closure.
+- **A `Shape` with `path(in:)` is a canvas** whose drawing is its path,
+  filled or stroked with the shape's style. The five built-in shapes stay
+  the nodes they are.
+
+### For a host
+
+`RuntimeDrawing` gains, beside the image half:
+
+```swift
+/// What a drawing is replayed into: a view's context, or a bitmap's.
+/// CoreGraphics' operations, top-left origin, in points.
+public protocol DrawingRenderer: AnyObject {
+    func save()
+    func restore()
+    func concatenate(_ transform: AffineTransform)
+    func setAlpha(_ alpha: Double)
+    func setBlendMode(_ mode: BlendMode)
+    func setAntialias(_ on: Bool)
+    func setFill(_ color: DrawingColor)
+    func setStroke(_ color: DrawingColor, style: StrokeStyle)
+    func setShadow(_ shadow: DrawingShadow?)
+    func fill(_ path: Path, rule: FillRule)
+    func stroke(_ path: Path)
+    func clip(_ path: Path, rule: FillRule)
+    func clear(_ rect: Rect)
+    func draw(_ image: AnyObject, in rect: Rect)
+    func draw(_ text: String, font: AnyObject, at point: Point, anchor: UnitPoint)
+    func draw(_ text: String, font: AnyObject, in rect: Rect, alignment: TextAlignment)
+    func drawLinearGradient(_ gradient: DrawingGradient, start: Point, end: Point, options: GradientOptions)
+    func drawRadialGradient(_ gradient: DrawingGradient, startCenter: Point, startRadius: Double, endCenter: Point, endRadius: Double, options: GradientOptions)
+    func beginLayer()
+    func endLayer()
+}
+
+/// What a host supplies: bitmaps, fonts, and named colors.
+public protocol DrawingBackend: AnyObject {
+    /// A render target off screen, `nil` for a size it refuses.
+    func makeBitmap(width: Int, height: Int, opaque: Bool) -> (any DrawingBitmapTarget)?
+    /// A font at a size, its metrics, and what a string occupies in it.
+    func makeFont(_ description: DrawingFontDescription) -> any DrawingFontHandle
+    /// A named color for an appearance.
+    func color(named name: String, dark: Bool) -> DrawingColor
+}
+```
+
+- **`DrawingPlayer.play(_:into:)`** reads a drawing and replays it,
+  skipping commands it doesn't know by their length, and stopping at a
+  malformed one, with what was drawn before kept.
+- **`HostCanvas`** is the `DrawingCanvas` contract: a host's view asks it
+  for a drawing at a size and scale, and is told when it's needed again.
+- **`HostBitmap`** and **`HostFont`** are the other two contracts, over
+  the backend. A bitmap's pixels and PNG are read through its target.
+- **`RecordingRenderer`** writes down each call, for a host's tests and
+  this package's.
+
+### For a guest
+
+As designed ([For a guest](#for-a-guest), [The context](#the-context)),
+with one thing added: `Canvas` takes `opaque` and `rendersAsynchronously`
+as SwiftUI's does, and ignores them. Its closure gets a `GraphicsContext`
+and a `Size`.
+
+### The render IR
+
+A new node, `Canvas`, with `canvas`, the `DrawingCanvas`'s identifier. A
+player that doesn't know it shows a placeholder (§9.2).
+
+### Tests and an example
+
+- **Frontend:** the geometry's arithmetic; a `Shape`'s path as a canvas.
+- **`DynamicDrawing`:** `Path` (building, bounds, `contains` with both
+  rules, transforms, arcs as curves); the context's state and its
+  recording, command by command, against the format; a `Canvas` drawn at
+  the host's size and redrawn when what it read changes; a bitmap's
+  pixels and PNG through a test host; fonts measured.
+- **`RuntimeDrawing`:** the player against `RecordingRenderer`, for every
+  command, an unknown one skipped, a malformed one stopping it; a canvas,
+  a bitmap and a font over a test backend.
+- **`ExampleDrawing`:** a gauge, a bar chart with labels measured to fit,
+  a custom shape, and a button that draws a badge into a bitmap and saves
+  its PNG to the app's documents. On the three engines, against a
+  recording host.
+
+### Questions
+
+1. **The player's own renderer protocol,** instead of Silica's
+   `CGContext`, so this package doesn't fetch Silica's backends'
+   dependencies. The adapter to Silica is then each host's. Or should
+   Silica's package be split first, and the player use its `CGContext`?
+
 ## What shapes it
 
 - **The guest can't rasterize.** A slice may leave undefined only `rt.h`,
