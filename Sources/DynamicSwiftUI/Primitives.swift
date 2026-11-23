@@ -100,6 +100,12 @@ public struct Image: PrimitiveView {
         host
     }
 
+    /// The host image's identifier, for a module that draws it.
+    public var _hostImageIdentifier: Int32? {
+        if case .int(let identifier)? = props["image"] { return Int32(clamping: identifier) }
+        return nil
+    }
+
     /// Scales to fill its frame instead of keeping its natural size.
     public func resizable() -> Image {
         var image = self
