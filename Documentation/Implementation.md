@@ -38,6 +38,7 @@ builds and the first provider contracts:
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
 | Environment values and split views (`Environment.md`) | done on the guest side: version 2 of `Renderer`, with `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
 | Maps (`Contracts/Maps.md`) | done on the guest side, with the shared host side: `DynamicMapKit` (`MapKit` in guest builds: the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with `Marker`, `Annotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `UserAnnotation`, camera positions, styles, controls, `onMapCameraChange`, `onMapTap` and `onMapLongPress`), and `RuntimeMaps` (`HostMaps`, the contract over the service a host is built with); `_RenderContainerView` in the frontend, for a module's node with children and events; `examples/ExampleMaps`. No platform host draws a `Map` node yet |
+| Images (`Contracts/Drawing.md`, its image part) | done on the guest side, with the shared host side: `DynamicDrawing` (the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)`, `Image(pixels:width:height:scale:)`, `size` and `decodableTypes` on the frontend's `Image`), and `RuntimeDrawing`'s image half (`HostImages` and `HostImage`, the contract over a host's `ImageDecoder`, with `MemoryImageDecoder`); in the frontend, an `image` prop on the `Image` node, `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped`, `Size`, and `ScrollView.zoomable`; `examples/ExampleImages`. No platform host decodes or draws an image yet. The canvas, bitmaps and fonts aren't built |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
@@ -542,6 +543,32 @@ which are each host's. TCP and UDP are not part of the spec.
     tell keys apart, so `MapKit`'s settings never reached the map. A key
     is now named by `EnvironmentKeyToken<Key>`, a class, as tags are by
     `TagBox<Value>`. This fixes keys from the environment values work.
+- **Images (`Contracts/Drawing.md`).**
+  - **The image part of `Drawing` came first, alone.** An image viewer
+    needs an image the host decodes, from a file the user picked, drawn at
+    the size it's shown, in a view that zooms, and nothing else of the
+    design.
+  - **`Image` stays in the frontend,** and `DynamicDrawing` adds its
+    sources. With `Image` in `DynamicDrawing`, every SwiftUI app would
+    have declared the drawing contracts, as `TextEditor` would have the
+    text ones. This reverses a decision of the first review; the second
+    approved it.
+  - **No pixel crosses.** The host reads the file through `HostFiles`, so
+    a document's access is the image's, and decodes for the size the node
+    covers, rounded up to a power of two and capped by the image's own
+    size, its `maxPixelSize` and the host's `maximumSide`.
+  - **Embedded Swift can't cast an object back to its class.** `Image`
+    held its host image as `AnyObject`, and `DynamicDrawing` read it back
+    with `as?`. It compiled for the guest and failed there at run time;
+    the macOS tests, which aren't Embedded, passed. `Image` now holds an
+    `any _HostImageOwner`, a protocol of the frontend's, and calls it.
+  - **The frontend holds what a tree shows.** An `Image` made in `body`
+    is released when `body` returns, so `ViewGraph.retain` keeps each
+    host object the last tree sent names, and a lazy row's until the row
+    is fetched again or its list goes.
+  - **Zooming stays in the host.** `ScrollView.zoomable(_:scale:)` sends
+    the range and the scale, and the host reports the scale when a
+    gesture ends.
 - **Photo library (`Contracts/Photos.md`).**
   - **Three ways to the user's photos, in two modules.** Adding and
     browsing are `DynamicPhotos`. Being given one is the photo picker,
@@ -1317,6 +1344,21 @@ Each of these needs a decision, or is verified only as far as noted:
   `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleMaps` as
   `App.wasm`, a sealed macOS slice and wasm2c output, with the test
   standing in for the map.
+- `DynamicDrawingTests`: the image contract's keys and capability, and
+  the guest's `Image` sources through the native runtime over
+  `RuntimeDrawing` and real files: nothing read until asked, a size from
+  the header, a thumbnail's cap, bytes and pixels, the host's failures, a
+  document read through its access and refused once it's let go, and a
+  tree that names an image and holds it until a tree no longer does.
+  `RuntimeDrawingTests`: sizes rounded and capped, the test decoder's PNG
+  and JPEG headers, a header read once, one decode at a time and the
+  largest kept, a capped image, `trim()`, a released image's decode
+  dropped, and `notPermitted` after a grant is revoked. In
+  `DynamicSwiftUITests`, the `image` prop and the images a tree or a lazy
+  row holds, `aspectRatio` and `clipped`, and the zooming scroll view's
+  props and scale. `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleImages` as `App.wasm`, a sealed macOS slice and wasm2c
+  output, with the test's decoder over real files and its picker.
 - `DynamicCameraTests`: the camera contract's keys and signatures, and
   the guest's `Camera` against a scripted host: the device's cameras,
   access and its two questions, starting and failing, a zoom the host
@@ -1718,3 +1760,12 @@ Each of these needs a decision, or is verified only as far as noted:
    Android, with a style URL chosen when the host is built; libshumate on
    Linux, over a tile source of the host's own. Then searching for places,
    directions and offline maps, which depend on the service.
+24. Images in the hosts (`Documentation/Contracts/Drawing.md`): each host
+   sets `HostImages.decoder` to the platform's (ImageIO in the Darwin
+   host, `ImageDecoder` on Android, gdk-pixbuf on Linux, `createImageBitmap`
+   in the browser), registers `HostDrawingModule`, and calls
+   `HostImages.trim()` on a memory warning; each renderer draws an `Image`
+   with `image` at the size it covers, applies `aspectRatio` and
+   `clipped`, and zooms a `ScrollView` with `minZoom`, reporting `change`
+   when a gesture ends. Then the rest of `Drawing`: the canvas, bitmaps and
+   fonts.
