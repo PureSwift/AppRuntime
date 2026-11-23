@@ -73,7 +73,8 @@ extension DynamicWebKitTests {
         let secondHost = try #require(TestWebContent.last)
         #expect(firstHost.made == "store \(store.identifier) options 7")
         #expect(secondHost.made == firstHost.made, "pages with one store share it")
-        #expect(first.configuration == configuration)
+        #expect(first.configuration.options == configuration.options)
+        #expect(first.configuration.websiteDataStore == store)
     }
 
     @Test func theUserAgentAndZoomGoToTheHost() throws {

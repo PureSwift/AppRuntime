@@ -63,6 +63,14 @@ final class TestWebContent: WebContent {
         return content
     }
 
+    static func make(_ delegate: any WebContentDelegate, dataStore: Int32, options: Int32, schemes: [String]) -> TestWebContent {
+        let content = make(delegate, dataStore: dataStore, options: options)
+        if !schemes.isEmpty {
+            content.made += " schemes \(schemes.joined(separator: ","))"
+        }
+        return content
+    }
+
     static func features() -> Int32 { honored.rawValue }
 
     static func reset() {
@@ -111,6 +119,26 @@ final class TestWebContent: WebContent {
     func snapshot(_ width: Double, request: Int32) { calls.append("snapshot \(request) \(width)") }
 
     func removeData(since: Double, request: Int32) { calls.append("remove data \(request) \(since)") }
+
+    func addUserScript(_ source: String, atDocumentStart: Bool, mainFrameOnly: Bool) {
+        calls.append("user script \(source)\(atDocumentStart ? " start" : " end")\(mainFrameOnly ? "" : " all frames")")
+    }
+
+    func removeAllUserScripts() { calls.append("remove user scripts") }
+
+    func addMessageHandler(_ name: String, replies: Bool) { calls.append("handler \(name)\(replies ? " replies" : "")") }
+
+    func removeMessageHandler(_ name: String) { calls.append("remove handler \(name)") }
+
+    func replyToMessage(_ reply: Int32, result: String?, error: String?) {
+        calls.append("reply \(reply) \(result ?? "-") \(error ?? "-")")
+    }
+
+    func finishURLSchemeTask(_ task: Int32, status: Int32, contentType: String?, headers: [String], body: [UInt8]) {
+        calls.append("finish task \(task) \(status) \(contentType ?? "-") [\(headers.joined(separator: ","))] \(body.count) bytes")
+    }
+
+    func failURLSchemeTask(_ task: Int32, error: Int32, message: String) { calls.append("fail task \(task) \(error) \(message)") }
 
     /// A page load, as an engine reports one.
     func finishLoading(_ url: String, title: String) {
@@ -201,7 +229,7 @@ struct Viewer: View {
         #expect(method(content, "loadResource:")?.signature == Signature("(O)V"))
         #expect(method(content, "evaluateJavaScript:request:")?.signature == Signature("(OI)V"))
         #expect(["reload", "stopLoading", "goBack", "goForward"].allSatisfy { method(content, $0)?.signature == Signature("()V") })
-        #expect(content.methods.count == 20, "ten for a page, and ten for a browser and a mail reader")
+        #expect(content.methods.count == 28, "ten for a page, ten for a browser and a mail reader, and eight for scripts and schemes")
     }
 
     @Test func delegateAnswersNavigationsSynchronously() {
@@ -211,7 +239,7 @@ struct Viewer: View {
         #expect(method(delegate, "shouldNavigate:url:kind:isMainFrame:")?.signature == Signature("(OOIZ)Z"))
         #expect(method(delegate, "didChangeLoading:isLoading:progress:")?.signature == Signature("(OZD)V"), "no objects per progress step")
         #expect(method(delegate, "didEvaluateJavaScript:request:result:error:")?.signature == Signature("(OIOO)V"))
-        #expect(delegate.methods.count == 19, "eight for a page, and eleven for a browser and a mail reader")
+        #expect(delegate.methods.count == 22, "eight for a page, eleven for a browser and a mail reader, and three for scripts and schemes")
         let descriptors = [WebContentProxy.descriptor, delegate]
         #expect(ContractMetadata.decode(descriptors.flatMap(ContractMetadata.encode)) == descriptors)
     }
