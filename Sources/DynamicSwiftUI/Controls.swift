@@ -421,7 +421,15 @@ public struct Link<Label: View>: View {
 
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
         let id = context.graph.nextNodeID()
-        nodes.append(RenderNode("Link", id: id, props: ["url": .string(destination)], children: context.children(label)))
+        var props: [String: PropValue] = ["url": .string(destination)]
+        let action = context.values.openURL
+        if action.isCustom {
+            // The host sends a tap, and the app's action decides.
+            props["intercepts"] = .bool(true)
+            let destination = destination
+            context.graph.on(id, .tap) { _ in action(destination) }
+        }
+        nodes.append(RenderNode("Link", id: id, props: props, children: context.children(label)))
     }
 }
 
