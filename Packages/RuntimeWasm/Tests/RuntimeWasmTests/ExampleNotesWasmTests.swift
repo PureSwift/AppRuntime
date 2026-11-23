@@ -115,9 +115,10 @@ extension WasmShimTests {
         #expect(try split().children[1].first { $0.type == "List" }?.children.count == 3)
     }
 
-    /// A renderer from before version 2 gets a stack.
+    /// A renderer that reports no values, and draws no split views, gets a
+    /// stack.
     @Test(.enabled(if: FileManager.default.fileExists(atPath: WasmShimTests.exampleNotesURL.path), "Build the wasm slice first: Scripts/build-wasm.sh ExampleNotes"))
-    func exampleNotesOnAnOlderRenderer() throws {
+    func exampleNotesWithoutSplitViews() throws {
         let renderer = try startExampleNotes(window: nil)
         #expect(renderer.screen?.first { $0.type == "NavSplit" } == nil)
         let stack = try #require(renderer.screen?.first { $0.type == "NavStack" })
