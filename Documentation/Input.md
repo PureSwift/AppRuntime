@@ -1,6 +1,11 @@
 # Gestures, keyboard shortcuts, menu commands and sheet detents
 
-**Status:** a draft, not reviewed. Nothing in this document is built.
+**Status:** reviewed and built in the frontend: the gestures and
+`@GestureState`, keyboard shortcuts, commands, sheet detents, the render
+IR's modifiers, nodes and events, and `ExampleUI`'s card, menu,
+shortcuts and detents on the three engines. No platform host recognizes a
+gesture, presses a shortcut, shows a menu or rests a sheet at a detent
+yet ("What hosts still need", below).
 
 What the plan's list of SwiftUI additions still lacks (`PlannedApps.md`,
 "The SwiftUI frontend and the render IR"), after environment values,
@@ -188,7 +193,7 @@ WindowGroup {
 | `dragGesture` | `minimumDistance`, `coordinateSpace` (`local`, `global`); report `drag` | no |
 | `longPressGesture` | `minimumDuration`, `maximumDistance`; `pressing` (bool: report `pressing`); report `longPress` | no |
 | `keyboardShortcut` | `key` (a character, or `return`, `escape`, `delete`, `deleteForward`, `tab`, `space`, `upArrow`, `downArrow`, `leftArrow`, `rightArrow`, `home`, `end`, `pageUp`, `pageDown`), `modifiers` (array of `command`, `shift`, `option`, `control`) | yes: to buttons without one |
-| `presentationDetents` | `detents` (array: `medium`, `large`, `fraction:0.3`, `height:200`), `selection` (index) | no: it's the sheet's |
+| `presentationDetents` | `detents` (array: `medium`, `large`, `[fraction, 0.3]`, `[height, 200]`), `selection` (index) | no: it's the sheet's |
 | `presentationDragIndicator` | `visibility` (`automatic`, `visible`, `hidden`) | no: it's the sheet's |
 | `interactiveDismissDisabled` | `value` | no: it's the sheet's |
 
@@ -249,6 +254,40 @@ doesn't know it shows its first child.
 - **`ExampleUI`** gains a card the user drags and long-presses, shortcuts
   on its buttons, an app menu with a command, and detents on its sheet.
   On the three engines, against a test renderer that sends the events.
+
+## Changed while building
+
+- **A fraction or a height is `[kind, value]`,** not `fraction:0.3`:
+  Embedded Swift can neither write a `Double` as text nor read one.
+- **`presentationDetents` takes an array, which keeps its order, or a
+  set,** SwiftUI's, which goes smallest first.
+- **Commands are views.** `Commands` refines `View`, and
+  `CommandsBuilder` is the view builder, so a type of the app's own with
+  `var body: some Commands` works, with no new builder. `commands` is on
+  `WindowGroup`, the one scene there is. The commands are evaluated with
+  each update, so a command's title follows what it reads.
+- **`KeyEquivalent` is text,** not a `Character`: a character or a key's
+  name.
+- **`keyboardShortcut(nil)`** is a modifier with no key: no shortcut,
+  over one further out.
+- **A long press asks for `pressing` only when something listens:**
+  `onPressingChanged`, or `updating`.
+- **`CoordinateSpace` is `local` and `global`;** `Transaction` carries
+  nothing, and is there for `updating`'s signature.
+- **The draft's questions, as built:** a drag crosses once a frame;
+  `Commands` wraps the content; `.command` is Ctrl off Apple's
+  platforms.
+
+## What hosts still need
+
+- **Every renderer:** the `dragGesture` and `longPressGesture`
+  modifiers, with `drag`, `longPress` and `pressing`; `keyboardShortcut`
+  on buttons and the views around them; the `Commands`, `CommandMenu` and
+  `CommandGroup` nodes, in the platform's menus where it has them; and a
+  sheet's `presentationDetents`, `presentationDragIndicator` and
+  `interactiveDismissDisabled`, with `detent`.
+- **Checking the table at the top** against each platform's
+  documentation, which hasn't been done.
 
 ## Not in this design
 
