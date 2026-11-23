@@ -149,8 +149,8 @@ extension WasmShimTests {
         let host = try #require(WasmTestRenderer.last)
         var screen = try #require(host.screen)
         #expect(host.applies == 1)
-        #expect(screen.type == "NavStack")
-        #expect(screen.children.map { $0.props["title"] } == ["Example"])
+        #expect(screen.type == "Commands" && screen.children.first?.type == "NavStack", "the app's menus around its window")
+        #expect(screen.children[0].children.map { $0.props["title"] } == ["Example"])
         #expect(screen.identified("greeting")?.props["text"] == "Hello, World!")
         #expect(screen.identified("count")?.props["text"] == "0")
 
@@ -185,14 +185,14 @@ extension WasmShimTests {
         // Following a row's link pushes its detail screen.
         host.send(row, .tap)
         screen = try #require(host.screen)
-        #expect(screen.children.map { $0.props["title"] } == ["Example", "Banana"])
-        host.send(try #require(screen.children[1].button("Like (0)")), .tap)
+        #expect(screen.children[0].children.map { $0.props["title"] } == ["Example", "Banana"])
+        host.send(try #require(screen.children[0].children[1].button("Like (0)")), .tap)
         screen = try #require(host.screen)
-        #expect(screen.children[1].button("Like (1)") != nil)
+        #expect(screen.children[0].children[1].button("Like (1)") != nil)
 
         // Back.
-        host.send(screen, .pop, 1)
-        #expect(host.screen?.children.count == 1)
+        host.send(screen.children[0], .pop, 1)
+        #expect(host.screen?.children.first?.children.count == 1)
         // The app's own `Application`: a URL it's opened with reaches its
         // `onOpenURL`.
         let application = try #require(WasmTestApplication.last)
@@ -225,5 +225,36 @@ extension WasmShimTests {
         // Closing the sheet takes the view that kept the screen awake.
         host.send(try #require(host.screen?.identified("done")), .tap)
         #expect(application.idle == [true, false])
+
+        // The app's menu: a command, with its shortcut, that adds a fruit.
+        let root = try #require(host.screen)
+        let fruitMenu = try #require(root.children.last)
+        #expect(fruitMenu.type == "CommandMenu" && fruitMenu.props["title"] == "Fruit")
+        let add = try #require(fruitMenu.button("Add Fruit"))
+        #expect(add.modifiers.first { $0.kind == "keyboardShortcut" }?.args == ["key": "n", "modifiers": PropValue.array(["command"])])
+        let rows = try #require(root.first { $0.type == "List" }?.count)
+        host.send(add, .tap)
+        #expect(host.screen?.first { $0.type == "List" }?.count == rows + 1)
+        #expect(root.button("About")?.modifiers.first { $0.kind == "keyboardShortcut" }?.args["key"] == "i")
+
+        // The sheet's detents, and a card dragged and pinned in its Card tab.
+        host.send(try #require(host.screen?.button("About")), .tap)
+        let sheet = try #require(host.screen?.first { $0.type == "Sheet" })
+        let content = sheet.children[1]
+        #expect(content.modifiers.first { $0.kind == "presentationDetents" }?.args == ["detents": PropValue.array(["medium", "large"])])
+        #expect(content.modifiers.first { $0.kind == "presentationDragIndicator" }?.args == ["visibility": "visible"])
+        #expect(content.button("Done")?.modifiers.first { $0.kind == "keyboardShortcut" }?.args == ["key": "return", "modifiers": PropValue.array([])])
+        let card = try #require(host.screen?.identified("card"))
+        #expect(card.modifiers.map { $0.kind }.contains("dragGesture") && card.modifiers.map { $0.kind }.contains("longPressGesture"))
+        host.send(card, .drag, .array([0, 5, 5, 35, 45, 35, 45].map { .double($0) }))
+        #expect(host.screen?.identified("cardPosition")?.props["text"] == "30, 40, dragging")
+        host.send(card, .drag, .array([1, 5, 5, 35, 45, 35, 45].map { .double($0) }))
+        #expect(host.screen?.identified("cardPosition")?.props["text"] == "30, 40")
+        host.send(card, .longPress)
+        host.send(card, .drag, .array([0, 0, 0, 90, 90, 90, 90].map { .double($0) }))
+        #expect(host.screen?.identified("cardPosition")?.props["text"] == "30, 40, pinned, dragging", "a pinned card stays")
+        host.send(card, .drag, .array([2, 0, 0, 90, 90, 90, 90].map { .double($0) }))
+        #expect(host.screen?.identified("cardPosition")?.props["text"] == "30, 40, pinned", "cancelled: no longer dragging")
+        host.send(try #require(host.screen?.identified("done")), .tap)
     }
 }
