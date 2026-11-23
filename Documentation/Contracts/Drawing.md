@@ -5,7 +5,9 @@ image part is implemented in this repository: the contract, the guest's
 `Image` sources, the image node, the zooming scroll view and the shared
 host ([Images, built first](#images-built-first)). No platform host
 decodes or draws an image yet ([What hosts still need](#what-hosts-still-need)).
-The canvas, bitmaps and fonts aren't built.
+The canvas, bitmaps and fonts are built on the guest side too, with the
+shared host's player ([The canvas, built next](#the-canvas-built-next));
+no platform host draws a canvas yet.
 
 Module `DynamicDrawing`: 2D vector graphics, drawn by the host's GPU. It
 has CoreGraphics' model and method names, and none of its `CG` prefixes.
@@ -375,7 +377,13 @@ Three of the reviewed decisions, and the text that followed from them:
 
 ## The canvas, built next
 
-**Status:** a draft, not reviewed. Nothing in this section is built.
+**Status:** reviewed and built on the guest side, with the shared host's
+player: the frontend's geometry, `Path`, `GraphicsContext`,
+`BitmapContext`, the format, the three contracts, `Canvas` and shapes of
+an app's own, and `RuntimeDrawing`'s `DrawingPlayer`, `HostCanvas`,
+`HostBitmap` and `HostFont` with `RecordingRenderer` and
+`MemoryDrawingBackend`; `ExampleDrawing` on the three engines. No platform
+host draws a canvas yet ("What the hosts still need", below).
 
 The rest of this design, built the way the image part was: the guest's
 side whole, the shared host's player tested against a recorder, and the
@@ -509,6 +517,52 @@ player that doesn't know it shows a placeholder (§9.2).
   a custom shape, and a button that draws a badge into a bitmap and saves
   its PNG to the app's documents. On the three engines, against a
   recording host.
+
+### Changed while building
+
+- **A shape of the app's own reaches the canvas through an associated
+  type.** The frontend's `Shape` gains `_Path`, which a shape's
+  `path(in:)` gives: `DynamicDrawing`'s `Path`, which renders the shape as
+  a canvas. The frontend can't name `DynamicDrawing`, and nothing in it
+  runs before a shape is rendered to register a hook. The built-in shapes
+  have no path here, and stay nodes.
+- **Sine, cosine and arctangent are the frontend's own,** `_Math`: a
+  slice may not call libm (§7.5). Rounding in drawing code goes through
+  integers for the same reason.
+- **A bitmap's drawings carry on from one another.** The guest sends what
+  it drew since the last read, and the host's player keeps the state, so
+  a fill color set before a read still fills after it.
+- **The renderer's calls are one per command:** `setFillColor`,
+  `setStrokeColor` and `setStrokeStyle` apart, and an image arrives as the
+  `HostImage`, which the renderer asks for the pixels it covers.
+  `DrawingBackend.makeBitmap` takes pixels; `color(named:dark:)` answers
+  `nil` for a name it doesn't know, which draws black.
+- **`DrawingFont.make` takes `italic`,** and a text style by its place in
+  the frontend's list. A font by name is SwiftUI's `Font.custom(_:size:)`.
+- **`boundingRect` holds the control points,** as CoreGraphics'
+  `boundingBox` does; `contains` follows curves in short lines.
+- **An image by name or symbol draws nothing in a context yet,** only one
+  `DynamicDrawing` made. `Image` holds its host image by the contract's
+  protocol, since Embedded Swift can't cast the object to its class.
+- **`Canvas` ignores `opaque` and `rendersAsynchronously`,** as planned;
+  its closure gets a `GraphicsContext` and a `Size`.
+- **The question, as built:** the player's own renderer protocol, so this
+  package doesn't fetch Silica's backends' dependencies.
+
+### What the hosts still need
+
+- **A `DrawingBackend`:** bitmaps that draw and read back their pixels
+  and a PNG, the platform's fonts with their metrics and measuring, and
+  the frontend's named colors in light and dark.
+- **A `DrawingRenderer`** over the context the host draws with: Silica's
+  `CGContext` (CoreGraphics, Cairo, Android's `Canvas`), or the
+  platform's own.
+- **The `Canvas` node:** a view that asks `HostCanvas.play` at its size
+  with its scale applied, draws again when `HostDrawing.canvasNeedsDisplay`
+  names it, and replays `lastDrawing` with `dark` when only the
+  appearance changes.
+- **In Silica:** gradients, blend modes and text from a string, and
+  `SilicaGL` after.
 
 ### Questions
 
