@@ -80,14 +80,17 @@ public final class HostRenderer: RenderSink, RendererDelegate {
     /// to the host.
     public static func start<Root: View>(_ root: Root) -> RuntimeStatus {
         guard RendererProxy.isAvailable else { return .notFound }
+        // The app's own `Application`, before the first tree: a URL the app
+        // was opened with waits for its `onOpenURL`.
+        AppLifecycle.shared.start()
         let connection = HostRenderer()
         let graph = ViewGraph(root, sink: connection)
         connection.graph = graph
         let renderer = RendererProxy.make(connection)
         connection.renderer = renderer
         // The window's values before the first tree, so it's laid out for
-        // the window it's in. No answer: a renderer from before version 2.
-        if RendererProxy.Methods.environment.isAvailable, let values = RenderEnvironment(bytes: renderer.environment()) {
+        // the window it's in. No answer: a renderer without split views.
+        if let values = RenderEnvironment(bytes: renderer.environment()) {
             graph.environment = values
         } else {
             graph.supportsSplitViews = false
