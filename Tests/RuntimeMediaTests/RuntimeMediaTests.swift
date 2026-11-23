@@ -73,6 +73,7 @@ final class TestEngine: MediaEngine {
     func setMuted(_ muted: Bool) { calls.append("setMuted \(muted)") }
     func setLooping(_ looping: Bool) { calls.append("setLooping \(looping)") }
     func setTimeUpdateInterval(_ seconds: Double) { calls.append("setTimeUpdateInterval \(seconds)") }
+    func selectTrack(_ kind: HostMediaTrack.Kind, index: Int?) { calls.append("selectTrack \(kind) \(index.map(String.init) ?? "default")") }
 
     /// The source turned out to be playable.
     func finishLoading(duration: Double? = 200) {
@@ -103,6 +104,22 @@ final class TestPlatform: MediaPlatform {
     func showNowPlaying(_ nowPlaying: HostNowPlaying?) {
         shown = nowPlaying
         updates += 1
+    }
+
+    /// What `readTags` answers, by the path's last component.
+    var tags: [String: HostMediaTags] = [:]
+
+    var readPaths: [String] = []
+
+    func readTags(_ path: String, artwork: Bool, completion: @escaping (Result<HostMediaTags, MediaError>) -> Void) {
+        readPaths.append(path)
+        guard let found = tags[String(path.split(separator: "/").last ?? "")] else {
+            completion(.failure(MediaError(.unsupportedFormat, message: "not media")))
+            return
+        }
+        var answer = found
+        if !artwork { answer.artwork = nil }
+        completion(.success(answer))
     }
 }
 
@@ -170,7 +187,7 @@ final class QuietPlatform: MediaPlatform {
     // MARK: The module
 
     @Test func moduleListsItsContracts() {
-        #expect(HostMediaModule.contracts.map(\.name) == ["org.pureswift.media.Playback", "org.pureswift.media.PlaybackDelegate"])
+        #expect(HostMediaModule.contracts.map(\.name) == ["org.pureswift.media.Playback", "org.pureswift.media.PlaybackDelegate", "org.pureswift.media.Metadata", "org.pureswift.media.MetadataCallback"])
         #expect(HostMediaModule.permissionProviders()[.audio]?.status() == .granted, "nothing asks before an app plays sound")
         #expect(MediaPlayer.canPlay("audio/mpeg") == .probably && MediaPlayer.canPlay("video/webm") == .no)
         HostMediaPlayback.platform = nil
