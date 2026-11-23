@@ -11,15 +11,16 @@ content, and the view that shows it.
 The Darwin host implements them on iOS and macOS over `WKWebView`
 (DarwinAppRuntime's `DarwinWebKit`). Android, Linux and the browser have no
 host yet. The guest side and an example (`examples/ExampleWeb`, a small
-browser) exist, tested against a stand-in for the engine. Version 2 (below)
-is built on the guest side; no host implements it yet.
+browser) exist, tested against a stand-in for the engine. What a browser
+and a mail reader need (below) is built on the guest side; no host
+implements it yet.
 
 Guest-side Swift: `WebPage`, the observable page app code uses; `WebView`,
 the SwiftUI view; `WebNavigation`, `WebNavigationKind` and `WebError`.
 
 The render IR gains one node, `WebView`, whose `page` prop is the host
-page's `identifier()`. In version 1 it has no events: everything about a
-page goes through the contract. Version 2 adds the find bar's `change`.
+page's `identifier()`. Its one event is the find bar's `change`:
+everything else about a page goes through the contract.
 
 ## For a guest
 
@@ -85,40 +86,38 @@ own, and loads again when the URL it's given changes.
 - Camera, microphone and location for pages: requests are refused.
 
 All but the first are drafted below, for review:
-[Version 2: a browser and a mail reader](#version-2-a-browser-and-a-mail-reader).
+[A browser and a mail reader](#a-browser-and-a-mail-reader).
 
-## Version 2: a browser and a mail reader
+## A browser and a mail reader
 
 **Status:** reviewed and built on the guest side: the contract, `WebPage`,
 `WebView`'s modifiers, tests against a stand-in engine, and
-`ExampleWeb` on the three engines. No host implements version 2 yet;
-"What hosts still need" is the list.
+`ExampleWeb` on the three engines. No host implements it yet; "What
+hosts still need" is the list.
 
-A browser needs more of a page than version 1 gives: tabs a link opens,
+A browser needs more of a page than loading it: tabs a link opens,
 private windows, downloads, find, zoom, the lock icon, a page's request
 for the camera, and a picture of each tab. A mail reader needs one thing
 the other way: a page that loads nothing remote and runs no scripts,
-though the app has `.network`. This is all one contract's second
-version.
+though the app has `.network`. This is all added to the two contracts.
 
 ### What shapes it
 
 - **Methods, not contracts.** An app declares every contract and callback
   of the modules it links, and a host refuses one that declares an
   interface it lacks. A new contract in `DynamicWebKit` would make every
-  app with a web view fail on every host until each had it. A method a
-  host lacks is only absent (`Methods.x.isAvailable`), and a contract at
-  a lower version is a warning. So `WebContent` and `WebContentDelegate`
-  become version 2, and nothing is added beside them.
-- **A host must know which delegates have the new methods.** It calls the
-  delegate, and a method a version 1 guest's delegate lacks would trap.
-  So version 2 pages are made by a new constructor, `make(_:dataStore:
-  options:)`, and only a page made by it is told version 2 events. A
-  version 1 guest never calls it.
+  app with a web view fail on every host until each registered it. So
+  `WebContent` and `WebContentDelegate` gain methods, and nothing is
+  added beside them. Every page's delegate takes every event, and the
+  guest makes every page with `make(_:dataStore:options:)`.
+- **Still version 1.** This was designed as version 2, with the new
+  constructor marking the pages whose delegates had the new methods. On
+  2026-11-23 every contract went back to version 1: none is public yet,
+  so no app or host depends on an older one.
 - **A default isn't the same as support.** Host repos conform to
   `WebContent` themselves, so every new method gets a default that does
   nothing, and a host built against this compiles unchanged. A guest can't
-  then tell an honored method from a default by `isAvailable`. So a host
+  then tell an honored method from a default. So a host
   says what it honors in `features()`, which is 0 by default, and the
   guest offers only that. What would be a privacy failure if ignored,
   such as a private page that kept its cookies or a mail page that loaded
@@ -203,12 +202,12 @@ WebView(page)
   It returns a page to load there, made with `page.configuration`,
   whatever it asks: the engine makes the new window's view with the
   opener's settings. `nil`, or no handler, loads it in the same page, as
-  version 1 does. The new page keeps `window.opener` where the engine
+  a page without a handler does. The new page keeps `window.opener` where the engine
   allows it.
 - **Downloads.** A response the engine can't show, a link with
   `download`, or `Content-Disposition: attachment` is a download.
   `downloadDecider` is asked with the URL, suggested name, MIME type and
-  expected length; without one, downloads are refused as in version 1.
+  expected length; without one, downloads are refused.
   An accepted `WebDownload` is observable: `bytesReceived`,
   `expectedLength`, `file`, a `FilePath` in `.caches` under `Downloads/`
   once it's done, and `error`. `cancel()` stops it. The file is the
@@ -226,7 +225,7 @@ WebView(page)
 - **Security.** `hasOnlySecureContent` is true when the page and all it
   loaded came over a trusted connection; `certificateSummary` names who
   the certificate was issued to. A certificate that isn't trusted fails
-  the navigation with `security`, as in version 1: there's no "visit
+  the navigation with `security`: there's no "visit
   anyway".
 - **Script dialogs and sign-in** (`alert`, `confirm`, `prompt`, and an
   HTTP sign-in challenge) are the platform's dialogs, over the page. A
@@ -237,7 +236,7 @@ WebView(page)
   the app calls `grant()` or `deny()`; one let go unanswered is denied. The app's manifest must declare
   the capability for it, or the request is refused without asking; the
   platform then asks the user for the app as it does for any of the app's
-  own uses. Without a decider, requests are refused, as in version 1.
+  own uses. Without a decider, requests are refused.
   The app remembers per site if it wants to; the engine doesn't.
 - **`snapshot(width:)`** is the page as it's drawn now, as PNG bytes
   `width` points wide, for `Image(data:)` where the app links
@@ -250,23 +249,23 @@ WebView(page)
 - **Gestures.** `webViewBackForwardNavigationGestures` turns on the
   platform's swipe between history entries, and
   `webViewMagnificationGestures` pinch to zoom where the engine has it.
-  Both are off by default, as in version 1. The names are Apple's.
+  Both are off by default. The names are Apple's.
 
-### The contract, version 2
+### The contract
 
 Added to `WebContent`, each with a default in a protocol extension that
 does nothing:
 
 ```swift
-@DynamicRuntime("org.pureswift.web.WebContent", version: 2)
+@DynamicRuntime("org.pureswift.web.WebContent")
 public protocol WebContent: AnyObject {
 
-    // … version 1 …
+    // … loading, history and scripts …
 
     /// A `WebFeatures` bit set of what this host honors. Default 0.
     static func features() -> Int32
 
-    /// A page whose delegate takes version 2's events. `dataStore` 0 is
+    /// A page of a data store, made as `options` say. `dataStore` 0 is
     /// the app's default store; another number names a non-persistent
     /// store, kept while a page uses it. `options` is `WebPageOptions`
     /// bits: 1 no remote content, 2 no page scripts, 4 no uploads.
@@ -298,14 +297,13 @@ public protocol WebContent: AnyObject {
 }
 ```
 
-Added to `WebContentDelegate`, called only for a page made by
-`make(_:dataStore:options:)`:
+Added to `WebContentDelegate`, for every page:
 
 ```swift
-@DynamicCallback("org.pureswift.web.WebContentDelegate", version: 2)
+@DynamicCallback("org.pureswift.web.WebContentDelegate")
 public protocol WebContentDelegate: AnyObject {
 
-    // … version 1 …
+    // … loading, history and scripts …
 
     /// A page to load a new window in, made by this call with the engine's
     /// settings for it, or nil for this page.
@@ -366,8 +364,8 @@ A host without them shows none, and a page without its find bar.
 - **`features()`** says what this host does. Say a bit only when it's
   done in full: a guest relies on remote content off to keep a mail
   message private.
-- **A page made by `make(_:dataStore:options:)`** has a version 2
-  delegate. Call version 2 methods on no other page's delegate.
+- **Every page's delegate takes every event,** whichever constructor
+  made it. The guest uses `make(_:dataStore:options:)`.
 - **Data stores:** 0 is the app's persistent store. Each other number is
   a non-persistent store, made when a page first names it and let go
   when no page does.
@@ -407,8 +405,7 @@ haven't been checked against its documentation yet:
 - **`DynamicWebKit`:** the new methods' keys, `WebPage(configuration:)`
   nil when the host lacks a feature, and each feature through a stand-in
   engine: new pages, downloads, find, permissions, snapshots, removing
-  data, security, the find bar's prop and event, and that a version 1
-  page's delegate is never told version 2 events.
+  data, security, and the find bar's prop and event.
 - **`ExampleWeb`** gains tabs (a link that opens a window opens one), a
   private tab, find, a download list, a camera permission it asks the
   user about, tab pictures, and a message page with remote content off.
@@ -435,7 +432,7 @@ haven't been checked against its documentation yet:
 - **`WebPage.hostFeatures` and `WebFeatures` are public,** so an app can
   leave out a Find button or private tabs where the host lacks them.
 - **Gestures left `.automatic` send no prop,** and the host's default is
-  off, as in version 1.
+  off.
 - **`newPage`'s answer reaches the host as a proxy** of the host's own
   page, as any contract object a guest hands back does. The host finds
   its page behind it as it does for other methods given its own objects
@@ -456,8 +453,7 @@ haven't been checked against its documentation yet:
 - **`features()`:** say each bit only when it's done in full.
 - **`make(_:dataStore:options:)`:** a non-persistent store per number,
   made when a page first names it and let go when none does; the options'
-  remote content, page scripts and uploads off. Call version 2 delegate
-  methods only on pages it made.
+  remote content, page scripts and uploads off.
 - **New windows:** call `newPage` when the engine asks for a window's
   view, make a page asked for during the call with the engine's settings
   for it, and load the window in the page behind the proxy it returns.
