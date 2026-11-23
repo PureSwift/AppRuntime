@@ -174,8 +174,12 @@ public func appMain() -> rt_status {
 }
 ```
 
-`examples/ExampleUI` is a fuller app. The Darwin host's SwiftUI player
-renders the IR on iOS and macOS (DarwinAppRuntime's `DarwinUI`).
+`examples/ExampleUI` is a fuller app. Its sheet's System tab opens a URL,
+has a link the app handles itself, shows the URL the app was opened with
+and its scene phase, and keeps the screen awake
+([Application](Documentation/Contracts/Application.md)). The Darwin host's
+SwiftUI player renders the IR on iOS and macOS (DarwinAppRuntime's
+`DarwinUI`).
 
 `examples/ExampleNotes` is folders, their notes and a note in a
 `NavigationSplitView`, which the host collapses into a stack in a narrow
@@ -306,11 +310,12 @@ keeps them in Core Data (DarwinAppRuntime's `DarwinModelStore`).
 `examples/ExampleWeb` is a small browser around a `WebView`: guest code
 says `import WebKit`, shows a `WebPage`, follows its title and progress,
 decides its navigations and runs scripts in it
-([Web views](Documentation/Contracts/WebKit.md)). With `WebContent`
-version 2 it has tabs, a private tab, find and the find bar, downloads, a
-camera prompt, tab pictures and a message page that loads nothing remote.
-The Darwin host runs version 1 over `WKWebView` on iOS and macOS
-(DarwinAppRuntime's `DarwinWebKit`).
+([Web views](Documentation/Contracts/WebKit.md)). It also has tabs, a
+private tab, find and the find bar, downloads, a camera prompt, tab
+pictures and a message page that loads nothing remote. The Darwin host
+runs the page and its navigation over `WKWebView` on iOS and macOS
+(DarwinAppRuntime's `DarwinWebKit`), and none of the browser features
+yet.
 
 ## Building
 
