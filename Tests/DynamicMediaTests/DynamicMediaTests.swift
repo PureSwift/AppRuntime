@@ -73,6 +73,7 @@ final class ScriptedPlayback: MediaPlayback {
         calls.append("setRemoteCommands \(commands) \(skipBackward) \(skipForward)")
     }
     func setPlaysInBackground(_ enabled: Bool) { calls.append("setPlaysInBackground \(enabled)") }
+    func selectTrack(_ kind: Int32, index: Int32) { calls.append("selectTrack \(kind) \(index)") }
 
     /// A source that loaded: two minutes, with a picture.
     func load(duration: Double = 120) {
@@ -183,7 +184,7 @@ final class Listener: AudioPlayerDelegate {
         #expect(method(playback, "setRate:")?.signature == Signature("(F)V"))
         #expect(method(playback, "setNowPlaying:artist:album:")?.signature == Signature("(OOO)V"))
         #expect(method(playback, "setRemoteCommands:skipBackward:skipForward:")?.signature == Signature("(IDD)V"))
-        #expect(playback.methods.count == 21)
+        #expect(playback.methods.count == 22, "with choosing a track")
 
         let delegate = MediaPlaybackDelegateProxy.descriptor
         #expect(delegate.name == "org.pureswift.media.PlaybackDelegate" && delegate.kind == .callback)
