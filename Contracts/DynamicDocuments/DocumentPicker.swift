@@ -69,16 +69,9 @@ public final class DocumentPicker: @unchecked Sendable {
         case .files:
             documents.pick(ContentType.wireForms(types), multiple: allowsMultiple, access: access.rawValue, callback: receiver)
         case .photoLibrary:
-            let kinds = Self.photoKinds(types)
-            // Resolved once the host's documents are made.
-            let documents = self.documents
-            if DocumentsProxy.Methods.pickPhotos.isAvailable {
-                documents.pickPhotos(kinds, multiple: allowsMultiple, callback: receiver)
-            } else {
-                // A host from before the photo picker: its document
-                // picker, for images and videos.
-                documents.pick(Self.photoForms(kinds), multiple: allowsMultiple, access: DocumentAccess.read.rawValue, callback: receiver)
-            }
+            // A host with no photo picker shows its document picker, for
+            // images and videos: `pickPhotos`' default.
+            documents.pickPhotos(Self.photoKinds(types), multiple: allowsMultiple, callback: receiver)
         }
     }
 
