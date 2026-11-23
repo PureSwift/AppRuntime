@@ -83,6 +83,10 @@ let package = Package(
         .library(name: "DynamicMapKit", targets: ["DynamicMapKit"]),
         // Host only: the maps contract over the service a host is built with.
         .library(name: "RuntimeMaps", targets: ["RuntimeMaps"]),
+        // Shared: images the host decodes and draws, and later the canvas.
+        .library(name: "DynamicDrawing", targets: ["DynamicDrawing"]),
+        // Host only: the drawing contracts over a host's decoder.
+        .library(name: "RuntimeDrawing", targets: ["RuntimeDrawing"]),
         // Shared: running while the app isn't in front: tasks the system
         // starts, and time to finish.
         .library(name: "DynamicBackgroundTasks", targets: ["DynamicBackgroundTasks"]),
@@ -157,6 +161,8 @@ let package = Package(
         .library(name: "ExampleNotes", type: .static, targets: ["ExampleNotes"]),
         // Example maps guest app: places on a map and in a list.
         .library(name: "ExampleMaps", type: .static, targets: ["ExampleMaps"]),
+        // Example images guest app: a picture fitted in a scroll view that zooms.
+        .library(name: "ExampleImages", type: .static, targets: ["ExampleImages"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
         .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
@@ -556,6 +562,23 @@ let package = Package(
             dependencies: ["RuntimeMaps", "DynamicMapKit", "RuntimeHost", "RuntimeNative"]
         ),
         .target(
+            name: "DynamicDrawing",
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"],
+            path: "Contracts/DynamicDrawing"
+        ),
+        .target(
+            name: "RuntimeDrawing",
+            dependencies: ["DynamicDrawing", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
+        ),
+        .testTarget(
+            name: "DynamicDrawingTests",
+            dependencies: ["DynamicDrawing", "DynamicFiles", "DynamicSwiftUI", "DynamicUI", "RuntimeDrawing", "RuntimeHost", "RuntimeNative"]
+        ),
+        .testTarget(
+            name: "RuntimeDrawingTests",
+            dependencies: ["RuntimeDrawing", "DynamicDrawing", "DynamicFiles", "RuntimeHost", "RuntimeNative"]
+        ),
+        .target(
             name: "RuntimeMedia",
             dependencies: ["DynamicMedia", "DynamicFiles", "DynamicRuntime", "RuntimeCore", "RuntimeHost"]
         ),
@@ -753,6 +776,11 @@ let package = Package(
             name: "ExampleMaps",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicMapKit"],
             path: "examples/ExampleMaps"
+        ),
+        .target(
+            name: "ExampleImages",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicDocuments", "DynamicDrawing"],
+            path: "examples/ExampleImages"
         ),
         .target(
             name: "ExampleClipboard",
