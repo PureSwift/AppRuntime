@@ -108,7 +108,8 @@ public enum BuiltinContracts {
         ]
     )
 
-    /// `Application`: the app's lifecycle and incoming URLs.
+    /// `Application`: the app's lifecycle and incoming URLs, opening URLs, and
+    /// keeping the screen awake.
     public static let applicationName = "org.pureswift.runtime.Application"
 
     /// `ApplicationDelegate`: lifecycle events and URLs, from the host.
@@ -122,6 +123,9 @@ public enum BuiltinContracts {
             MethodDescriptor("make:", "(O)O", .constructor),
             // An `ApplicationState` raw value.
             MethodDescriptor("state", "()I"),
+            // Whether the platform could open the URL.
+            MethodDescriptor("openURL:", "(O)Z"),
+            MethodDescriptor("setIdleTimerDisabled:", "(Z)V"),
         ]
     )
 
