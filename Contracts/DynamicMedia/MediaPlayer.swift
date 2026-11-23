@@ -157,6 +157,51 @@ public final class MediaPlayer: Observable {
         return values.error
     }
 
+    // MARK: Tracks
+
+    /// The loaded file's audio tracks. Empty before a file is loaded, and
+    /// for a file with only one.
+    public var audioTracks: [MediaTrack] {
+        registrar.access(self, propertyIndex: 14)
+        return values.audioTracks
+    }
+
+    /// The loaded file's subtitles and captions.
+    public var subtitleTracks: [MediaTrack] {
+        registrar.access(self, propertyIndex: 14)
+        return values.subtitleTracks
+    }
+
+    /// The audio being played: `nil` is the file's default. A choice made
+    /// in the platform's controls shows here too. A track that isn't one
+    /// of `audioTracks` is ignored. Loading another file goes back to its
+    /// default.
+    public var selectedAudioTrack: MediaTrack? {
+        get {
+            registrar.access(self, propertyIndex: 15)
+            return values.selectedAudio
+        }
+        set {
+            guard newValue != values.selectedAudio, newValue.map(values.audioTracks.contains) ?? true else { return }
+            mutate(15) { values.selectedAudio = newValue }
+            playback.selectTrack(0, index: newValue?.index ?? -1)
+        }
+    }
+
+    /// The subtitles shown, drawn by the host over the picture: `nil` is
+    /// none. As `selectedAudioTrack`.
+    public var selectedSubtitleTrack: MediaTrack? {
+        get {
+            registrar.access(self, propertyIndex: 16)
+            return values.selectedSubtitle
+        }
+        set {
+            guard newValue != values.selectedSubtitle, newValue.map(values.subtitleTracks.contains) ?? true else { return }
+            mutate(16) { values.selectedSubtitle = newValue }
+            playback.selectTrack(1, index: newValue?.index ?? -1)
+        }
+    }
+
     // MARK: Now playing
 
     /// What this player is playing, for the system to show where it shows
@@ -367,6 +412,10 @@ public final class MediaPlayer: Observable {
         var isLooping = false
         var error: MediaError?
         var nowPlaying: NowPlayingInfo?
+        var audioTracks: [MediaTrack] = []
+        var subtitleTracks: [MediaTrack] = []
+        var selectedAudio: MediaTrack?
+        var selectedSubtitle: MediaTrack?
     }
 
     private let registrar = ObservationRegistrar()
@@ -504,6 +553,7 @@ public final class MediaPlayer: Observable {
         switch state {
         case .empty:
             set(playing: false, buffering: false)
+            changed(tracks: [], [], selectedAudio: nil, selectedSubtitle: nil)
             mutate(5) { values.duration = nil }
             mutate(7) {
                 values.videoSize = .zero
@@ -519,6 +569,8 @@ public final class MediaPlayer: Observable {
             if values.error != nil {
                 mutate(12) { values.error = nil }
             }
+            // Another file: its tracks come once it's loaded.
+            changed(tracks: [], [], selectedAudio: nil, selectedSubtitle: nil)
             set(.loading)
         case .paused:
             let reason = MediaPauseReason(rawValue: reason) ?? .requested
@@ -585,6 +637,21 @@ public final class MediaPlayer: Observable {
         emit(.failed(error))
     }
 
+    fileprivate func changed(tracks audio: [MediaTrack], _ subtitles: [MediaTrack], selectedAudio: MediaTrack?, selectedSubtitle: MediaTrack?) {
+        if audio != values.audioTracks || subtitles != values.subtitleTracks {
+            mutate(14) {
+                values.audioTracks = audio
+                values.subtitleTracks = subtitles
+            }
+        }
+        if selectedAudio != values.selectedAudio {
+            mutate(15) { values.selectedAudio = selectedAudio }
+        }
+        if selectedSubtitle != values.selectedSubtitle {
+            mutate(16) { values.selectedSubtitle = selectedSubtitle }
+        }
+    }
+
     fileprivate func command(_ command: Int32) {
         switch command {
         case 1:
@@ -645,6 +712,23 @@ private final class Receiver: MediaPlaybackDelegate {
 
     func didReceiveCommand(_ command: Int32) {
         current?.command(command)
+    }
+
+    func didChangeTracks(_ audioNames: [String], audioLanguages: [String], subtitleNames: [String], subtitleLanguages: [String], selectedAudio: Int32, selectedSubtitle: Int32) {
+        func tracks(_ names: [String], _ languages: [String]) -> [MediaTrack] {
+            var tracks: [MediaTrack] = []
+            for index in names.indices {
+                let language = index < languages.count ? languages[index] : ""
+                tracks.append(MediaTrack(name: names[index], language: language.isEmpty ? nil : language, index: Int32(index)))
+            }
+            return tracks
+        }
+        let audio = tracks(audioNames, audioLanguages)
+        let subtitles = tracks(subtitleNames, subtitleLanguages)
+        func pick(_ tracks: [MediaTrack], _ index: Int32) -> MediaTrack? {
+            index >= 0 && Int(index) < tracks.count ? tracks[Int(index)] : nil
+        }
+        current?.changed(tracks: audio, subtitles, selectedAudio: pick(audio, selectedAudio), selectedSubtitle: pick(subtitles, selectedSubtitle))
     }
 }
 
