@@ -9,8 +9,8 @@ final class TestRenderer: Renderer {
 
     nonisolated(unsafe) static var last: TestRenderer?
 
-    /// What `environment()` answers: `nil` is a renderer from before
-    /// version 2, which answers no bytes.
+    /// What `environment()` answers: `nil` is a renderer that reports no
+    /// values, and draws no split views.
     nonisolated(unsafe) static var window: RenderEnvironment?
 
     let delegate: any RendererDelegate
