@@ -441,11 +441,19 @@ public final class HostImage: DrawingImage {
 public enum HostDrawingModule: HostModule {
 
     public static var contracts: [ContractDescriptor] {
-        [DrawingImageProxy.descriptor, DrawingCallbackProxy.descriptor]
+        [
+            DrawingImageProxy.descriptor, DrawingCallbackProxy.descriptor,
+            DrawingCanvasProxy.descriptor, DrawingCanvasDelegateProxy.descriptor,
+            DrawingBitmapProxy.descriptor, DrawingFontProxy.descriptor,
+        ]
     }
 
     public static func register(in registrar: some ContractRegistrar) {
         DrawingImageProxy.register(HostImage.self, in: registrar)
         DrawingCallbackProxy.registerInterface(in: registrar)
+        DrawingCanvasProxy.register(HostCanvas.self, in: registrar)
+        DrawingCanvasDelegateProxy.registerInterface(in: registrar)
+        DrawingBitmapProxy.register(HostBitmap.self, in: registrar)
+        DrawingFontProxy.register(HostFont.self, in: registrar)
     }
 }
