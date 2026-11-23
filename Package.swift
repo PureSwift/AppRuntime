@@ -163,6 +163,8 @@ let package = Package(
         .library(name: "ExampleMaps", type: .static, targets: ["ExampleMaps"]),
         // Example images guest app: a picture fitted in a scroll view that zooms.
         .library(name: "ExampleImages", type: .static, targets: ["ExampleImages"]),
+        // Example drawing guest app: a gauge, a chart, a star and a badge.
+        .library(name: "ExampleDrawing", type: .static, targets: ["ExampleDrawing"]),
         // Example clipboard guest app: copies and pastes text, a link and an image.
         .library(name: "ExampleClipboard", type: .static, targets: ["ExampleClipboard"]),
         // Example media guest app: a music player that says what's playing.
@@ -568,7 +570,7 @@ let package = Package(
         ),
         .target(
             name: "RuntimeDrawing",
-            dependencies: ["DynamicDrawing", "DynamicFiles", "DynamicRuntime", "RuntimeHost"]
+            dependencies: ["DynamicDrawing", "DynamicFiles", "DynamicRuntime", "DynamicSwiftUI", "RuntimeHost"]
         ),
         .testTarget(
             name: "DynamicDrawingTests",
@@ -576,7 +578,7 @@ let package = Package(
         ),
         .testTarget(
             name: "RuntimeDrawingTests",
-            dependencies: ["RuntimeDrawing", "DynamicDrawing", "DynamicFiles", "RuntimeHost", "RuntimeNative"]
+            dependencies: ["RuntimeDrawing", "DynamicDrawing", "DynamicFiles", "DynamicSwiftUI", "RuntimeHost", "RuntimeNative"]
         ),
         .target(
             name: "RuntimeMedia",
@@ -781,6 +783,11 @@ let package = Package(
             name: "ExampleImages",
             dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicDocuments", "DynamicDrawing"],
             path: "examples/ExampleImages"
+        ),
+        .target(
+            name: "ExampleDrawing",
+            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicFiles", "DynamicDrawing"],
+            path: "examples/ExampleDrawing"
         ),
         .target(
             name: "ExampleClipboard",
