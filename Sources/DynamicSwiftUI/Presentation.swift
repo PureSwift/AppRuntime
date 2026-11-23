@@ -58,6 +58,7 @@ public struct _SheetView<Anchor: View, Content: View>: View {
             contentContext.column = nil
             contentContext.values.dismiss = DismissAction(dismiss)
             contentContext.values.isPresented = true
+            contentContext.sheet = id
             var contentNodes: [RenderNode] = []
             content()._render(into: &contentNodes, context: contentContext)
             let root = singleNode(contentNodes, id: ViewGraph.mix(id, 2 &+ (identity ?? 0)))
@@ -277,5 +278,117 @@ extension View {
     /// Items shown in a menu when this view is long-pressed.
     public func contextMenu<Items: View>(@ViewBuilder menuItems: () -> Items) -> _ContextMenuView<Self, Items> {
         _ContextMenuView(content: self, items: menuItems())
+    }
+}
+
+// MARK: - Sheet detents
+
+/// A height a sheet can rest at: SwiftUI's `PresentationDetent`.
+public struct PresentationDetent: Equatable, Hashable, Sendable {
+
+    /// `medium`, `large`, `fraction` or `height`.
+    let kind: String
+
+    /// The fraction, or the points.
+    let value: Double
+
+    /// About half the screen.
+    public static let medium = PresentationDetent(kind: "medium", value: 0.5)
+
+    /// The full height a sheet takes.
+    public static let large = PresentationDetent(kind: "large", value: 1)
+
+    /// A fraction of the screen's height.
+    public static func fraction(_ fraction: Double) -> PresentationDetent {
+        PresentationDetent(kind: "fraction", value: fraction)
+    }
+
+    /// A height in points.
+    public static func height(_ height: Double) -> PresentationDetent {
+        PresentationDetent(kind: "height", value: height)
+    }
+
+    /// As the IR has it: `medium` or `large`, or `[fraction, 0.3]` and
+    /// `[height, 200]`. Embedded Swift can't write a `Double` as text.
+    var propValue: PropValue {
+        kind == "medium" || kind == "large" ? .string(kind) : .array([.string(kind), .double(value)])
+    }
+
+    /// Against the screen's height, about 800 points, for ordering a set.
+    var rank: Double {
+        kind == "height" ? value / 800 : value
+    }
+}
+
+/// A sheet's content with its detents: a `presentationDetents` modifier on
+/// its root, and the user's choice reported to the `Sheet` node.
+public struct _DetentsView<Content: View>: View {
+
+    let content: Content
+
+    let detents: [PresentationDetent]
+
+    let selection: Binding<PresentationDetent>?
+
+    public var body: Never {
+        fatalError()
+    }
+
+    public func _render(into nodes: inout [RenderNode], context: RenderContext) {
+        var produced: [RenderNode] = []
+        content._render(into: &produced, context: context)
+        var args: [String: PropValue] = ["detents": .array(detents.map { $0.propValue })]
+        if let selection, let index = detents.firstIndex(of: selection.wrappedValue) {
+            args["selection"] = .int(index)
+        }
+        for index in produced.indices {
+            produced[index].modifiers.append(ModifierNode("presentationDetents", args))
+        }
+        nodes.append(contentsOf: produced)
+        guard let sheet = context.sheet, let selection else { return }
+        let detents = self.detents
+        context.graph.on(sheet, .detent) { payload in
+            guard let index = payload?.int, index >= 0, index < detents.count else { return }
+            if selection.wrappedValue != detents[index] {
+                selection.wrappedValue = detents[index]
+            }
+        }
+    }
+}
+
+extension View {
+
+    /// The heights the sheet this view is the content of can rest at, the
+    /// first to start. Where the host has none, the sheet is its
+    /// platform's size.
+    public func presentationDetents(_ detents: Set<PresentationDetent>) -> _DetentsView<Self> {
+        // A set has no order: from smallest to largest, as SwiftUI shows
+        // them.
+        _DetentsView(content: self, detents: Self.ordered(detents), selection: nil)
+    }
+
+    /// The same, with the one it's at: set it to move the sheet, and it
+    /// follows the user's drag.
+    public func presentationDetents(_ detents: Set<PresentationDetent>, selection: Binding<PresentationDetent>) -> _DetentsView<Self> {
+        _DetentsView(content: self, detents: Self.ordered(detents), selection: selection)
+    }
+
+    /// An array keeps its order: the first is where the sheet starts.
+    public func presentationDetents(_ detents: [PresentationDetent], selection: Binding<PresentationDetent>? = nil) -> _DetentsView<Self> {
+        _DetentsView(content: self, detents: detents, selection: selection)
+    }
+
+    /// Whether the sheet shows the bar it's dragged by.
+    public func presentationDragIndicator(_ visibility: Visibility) -> _ModifierView<Self> {
+        modified("presentationDragIndicator", ["visibility": .string(visibility.rawValue)])
+    }
+
+    /// True: the user can't swipe the sheet away; the app closes it.
+    public func interactiveDismissDisabled(_ isDisabled: Bool = true) -> _ModifierView<Self> {
+        modified("interactiveDismissDisabled", ["value": .bool(isDisabled)])
+    }
+
+    static func ordered(_ detents: Set<PresentationDetent>) -> [PresentationDetent] {
+        detents.sorted { $0.rank < $1.rank || ($0.rank == $1.rank && $0.kind < $1.kind) }
     }
 }
