@@ -67,6 +67,10 @@ public struct RenderContext {
     /// views inside.
     var splitStyle: String?
 
+    /// The `Sheet` node whose content is being rendered, which its
+    /// detents report to.
+    var sheet: RenderNode.ID?
+
     var graph: ViewGraph {
         ViewGraph.current!
     }
