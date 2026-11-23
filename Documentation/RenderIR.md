@@ -31,7 +31,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Color` | `color` | — | — |
 | `Shape` | `shape` (`rectangle`, `roundedRectangle`, `circle`, `ellipse`, `capsule`); `cornerRadius`; `fill` (color), or `stroke` (color) and `lineWidth`; neither: filled with the foreground color | — | — |
 | `GLSurface` | `surface` (int: a `Surface`'s `identifier()`) | — | none here: frames and input go to the surface's delegate (§8.2) |
-| `WebView` | `page` (int: a `WebContent`'s `identifier()`); since `WebContent` version 2, `findNavigator` (bool: the platform's find bar shows), `backForwardGestures` (bool), `magnificationGestures` (bool), each only when the app set it | `change` (bool `false`: the user closed the find bar) | the page reports the rest through its contract (`Contracts/WebKit.md`) |
+| `WebView` | `page` (int: a `WebContent`'s `identifier()`); `findNavigator` (bool: the platform's find bar shows), `backForwardGestures` (bool), `magnificationGestures` (bool), each only when the app set it | `change` (bool `false`: the user closed the find bar) | the page reports the rest through its contract (`Contracts/WebKit.md`) |
 | `VideoPlayer` | `player` (int: a `MediaPlayback`'s `identifier()`), `scaling` (`fit`, `fill`, `stretch`), `controls` (`platform`, `none`) | — | none here: the player reports through its contract (`Contracts/MediaPlayer.md`) |
 | `TextEditor` | `buffer` (int: a `TextStorage`'s `identifier()`), `editable` (bool), `wraps` (bool) | — | none here: the text reports through its contract (`Contracts/TextEditor.md`) |
 | `Photo` | `asset` (string: an asset's identifier in the photo library), `scaling` (`fill`, `fit`) | — | — (`Contracts/Photos.md`) |
@@ -65,7 +65,7 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `NavColumn` | `column` (`sidebar`, `content`, `detail`); `title`; `minWidth`, `idealWidth`, `maxWidth` | the column's content, then its `ToolbarItem`s | — |
 | `ToolbarItem` | `placement` (`automatic`, `primaryAction`, `cancellationAction`, `confirmationAction`, `navigation`, `principal`, `bottomBar`) | the item's views | — |
 | `NavigationLink` | — | label | `tap` |
-| `Link` | `url` | label; the host opens the URL | — |
+| `Link` | `url`; `intercepts` (bool: the app's `OpenURLAction` decides, `Contracts/Application.md`) | label; the host opens the URL, unless `intercepts` | `tap`, only with `intercepts` |
 | `Searchable` | `text`; `prompt` | the view with the search field | `change` (string), `submit` |
 | `TabView` | `selection` (index) | one `Tab` per tab | `change` (int: index) |
 | `Tab` | `title`, `systemImage` | the tab's content | — |
@@ -277,8 +277,8 @@ update arrives.
 
 ## Split views
 
-A `NavSplit` and its `NavColumn`s are version 2 of the `Renderer`
-contract: a renderer that answers `environment()` draws them.
+A renderer that answers `environment()` draws a `NavSplit` and its
+`NavColumn`s.
 
 - **Expanded:** show the columns side by side, as `visibility` says.
   `automatic` is your choice for the width; `doubleColumn` hides the
