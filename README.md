@@ -68,7 +68,7 @@ don't depend on WasmKit.
 | `RuntimeCoreModel` | `HostModelStore`: the model store's contracts over any CoreModel backend, for hosts written in Swift | host |
 | `RuntimeFormatting` | `HostFormattingModule`: the formatting contracts (`LocaleInfo`, `NumberFormat`, `DateFormat`), the system's clock, calendars, time zones and string comparison over Swift Foundation, for hosts written in Swift on Apple platforms and Linux | host |
 | `RuntimeNetworking` | `HostNetworkingModule`: the networking contracts (`HTTPSession`, `HTTPTask`, `HTTPRequest`, `URL` and the rest) over Swift Foundation's `URLSession`, for hosts written in Swift on Apple platforms and Linux | host |
-| `DynamicWebKit` | Web views (`WebKit` in guest builds): the `WebContent` contract, the observable `WebPage`, and the `WebView` view | yes |
+| `DynamicWebKit` | Web views (`WebKit` in guest builds): the `WebContent` contract, the observable `WebPage`, `WebsiteDataStore`, `WebDownload`, and the `WebView` view | yes |
 | `DynamicMapKit` | Maps the host draws (`MapKit` in guest builds): the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with markers, annotations, lines, areas and where the user is | yes |
 | `RuntimeMaps` | `HostMaps`: the maps contract over the service a host is built with | host |
 | `DynamicDrawing` | Images the host decodes and draws: the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)` and `Image(pixels:width:height:scale:)` with their `size`. The canvas comes later | yes |
@@ -306,8 +306,11 @@ keeps them in Core Data (DarwinAppRuntime's `DarwinModelStore`).
 `examples/ExampleWeb` is a small browser around a `WebView`: guest code
 says `import WebKit`, shows a `WebPage`, follows its title and progress,
 decides its navigations and runs scripts in it
-([Web views](Documentation/Contracts/WebKit.md)). The Darwin host runs it
-over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`).
+([Web views](Documentation/Contracts/WebKit.md)). With `WebContent`
+version 2 it has tabs, a private tab, find and the find bar, downloads, a
+camera prompt, tab pictures and a message page that loads nothing remote.
+The Darwin host runs version 1 over `WKWebView` on iOS and macOS
+(DarwinAppRuntime's `DarwinWebKit`).
 
 ## Building
 
