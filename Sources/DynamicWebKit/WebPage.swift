@@ -39,10 +39,27 @@ import _Concurrency
 ///     return   // this host can't keep a page private
 /// }
 /// ```
+///
+/// An app talks to its pages with scripts that run in every document, URL
+/// schemes it answers, and handlers for messages from the page's scripts:
+///
+/// ```swift
+/// var configuration = WebPage.Configuration()
+/// configuration.userScripts = [WebUserScript(source: articleScript, injectionTime: .atDocumentStart)]
+/// configuration.urlSchemeHandlers["app-icon"] = { request, respond in
+///     respond(.success(WebURLSchemeResponse(contentType: "image/png", body: icons[request.path] ?? [])))
+/// }
+/// guard let page = WebPage(configuration: configuration) else {
+///     return   // this host can't run user scripts or answer schemes
+/// }
+/// page.addMessageHandler(named: "imageWasClicked") { body in
+///     showImage(json: body)
+/// }
+/// ```
 public final class WebPage: Observable {
 
     /// How a page is made. It's fixed once the page is.
-    public struct Configuration: Equatable, Sendable {
+    public struct Configuration {
 
         /// Where the page keeps cookies, storage and caches.
         public var websiteDataStore: WebsiteDataStore
@@ -59,6 +76,18 @@ public final class WebPage: Observable {
 
         /// `false`: a file input shows no picker.
         public var allowsFileUploads: Bool
+
+        /// Scripts that run in every document the page loads, in order.
+        /// Needs `.userScripts`.
+        public var userScripts: [WebUserScript] = []
+
+        /// Handlers for URL schemes the app answers, by scheme, such as
+        /// `"app-icon"` for `app-icon:/feed.png`. The page loads their URLs
+        /// as images, documents and `fetch` responses, even without
+        /// `.network` or with `loadsRemoteContent` off. Schemes are compared
+        /// lowercased, and the ones the engine loads itself, such as
+        /// `https` and `file`, are left to it. Needs `.urlSchemes`.
+        public var urlSchemeHandlers: [String: WebURLSchemeHandler] = [:]
 
         public init(
             websiteDataStore: WebsiteDataStore = .default,
@@ -78,6 +107,8 @@ public final class WebPage: Observable {
             if !websiteDataStore.isPersistent { features.insert(.nonPersistentStores) }
             if !loadsRemoteContent { features.insert(.remoteContentOff) }
             if !allowsJavaScript { features.insert(.pageScriptsOff) }
+            if !userScripts.isEmpty { features.insert(.userScripts) }
+            if !urlSchemeHandlers.isEmpty { features.insert(.urlSchemes) }
             return features
         }
 
@@ -218,8 +249,9 @@ public final class WebPage: Observable {
     }
 
     /// A page made as `configuration` says, or `nil` when this host can't
-    /// honor it: a non-persistent store, remote content off or page
-    /// scripts off that `hostFeatures` doesn't include.
+    /// honor it: a non-persistent store, remote content off, page scripts
+    /// off, user scripts or URL schemes that `hostFeatures` doesn't
+    /// include.
     public convenience init?(configuration: Configuration) {
         guard Self.hostFeatures.isSuperset(of: configuration.requiredFeatures) else { return nil }
         self.init(made: configuration)
@@ -227,6 +259,11 @@ public final class WebPage: Observable {
 
     init(made configuration: Configuration) {
         self.configuration = configuration
+        var handlers: [String: WebURLSchemeHandler] = [:]
+        for (scheme, handler) in configuration.urlSchemeHandlers where handlers[scheme.lowercased()] == nil {
+            handlers[scheme.lowercased()] = handler
+        }
+        schemeHandlers = handlers
     }
 
     deinit {
@@ -247,6 +284,14 @@ public final class WebPage: Observable {
         }
         for (_, download) in downloads {
             download.cancel()
+        }
+        for (_, reply) in replies {
+            // Answered here, not told back.
+            reply.onAnswer = nil
+            reply.answer(nil, error: "the page went away")
+        }
+        for (_, task) in schemeTasks {
+            task.stop()
         }
     }
 
@@ -390,6 +435,99 @@ public final class WebPage: Observable {
         content.removeData(since: since, request: request)
     }
 
+    // MARK: Script messages
+
+    /// Makes `window.webkit.messageHandlers[name].postMessage(body)` call
+    /// `handler` with the body as JSON text (nil for `undefined`), from the
+    /// page's next load on. The page's promise resolves to `undefined` at
+    /// once. Needs `.scriptMessages`; without it the page has no handler.
+    ///
+    /// ```swift
+    /// page.addMessageHandler(named: "imageWasClicked") { body in
+    ///     store.showImage(json: body)
+    /// }
+    /// ```
+    public func addMessageHandler(named name: String, _ handler: @escaping (_ body: String?) -> Void) {
+        addMessageHandler(name, .oneWay(handler))
+    }
+
+    /// Makes `window.webkit.messageHandlers[name].postMessage(body)` return
+    /// a promise of what `replyHandler` answers with `reply`, JSON text: nil
+    /// resolves it to `undefined`, and an error rejects it with the error's
+    /// message. Answer once, now or later. Needs `.messageReplies`; with
+    /// only `.scriptMessages` the handler hears messages, and the page's
+    /// promise resolves to `undefined`.
+    ///
+    /// ```swift
+    /// page.addMessageHandler(named: "settings") { body, reply in
+    ///     reply(.success(#"{"fontSize":17}"#))
+    /// }
+    /// ```
+    public func addMessageHandler(named name: String,
+                                  replyHandler: @escaping (_ body: String?, _ reply: @escaping (Result<String?, WebError>) -> Void) -> Void) {
+        addMessageHandler(name, .replying(replyHandler))
+    }
+
+    #if !EMBEDDED_NO_CONCURRENCY
+    /// As `addMessageHandler(named:replyHandler:)`, answering with what an
+    /// async function returns or throws.
+    ///
+    /// ```swift
+    /// page.addMessageHandler(named: "settings") { body async throws(WebError) -> String? in
+    ///     #"{"fontSize":17}"#
+    /// }
+    /// ```
+    public func addMessageHandler(named name: String,
+                                  replyHandler: @escaping (_ body: String?) async throws(WebError) -> String?) {
+        // As a function without typed throws, which older runtimes can
+        // hold in a generic box.
+        let answer: (String?) async -> Result<String?, WebError> = { body in
+            do throws(WebError) {
+                return .success(try await replyHandler(body))
+            } catch {
+                return .failure(error)
+            }
+        }
+        addMessageHandler(named: name) { body, reply in
+            let call = ReplyCall(answer: answer, body: body, reply: reply)
+            Task {
+                await call.run()
+            }
+        }
+    }
+    #endif
+
+    /// From the page's next load on, `window.webkit.messageHandlers[name]`
+    /// is gone.
+    public func removeMessageHandler(named name: String) {
+        guard messageHandlers.removeValue(forKey: name) != nil else { return }
+        made?.removeMessageHandler(name)
+    }
+
+    private enum MessageHandler {
+        case oneWay((String?) -> Void)
+        case replying((String?, @escaping (Result<String?, WebError>) -> Void) -> Void)
+
+        var replies: Bool {
+            if case .replying = self { return true }
+            return false
+        }
+    }
+
+    private func addMessageHandler(_ name: String, _ handler: MessageHandler) {
+        if let existing = messageHandlers[name], existing.replies != handler.replies {
+            // A host keeps a name's first kind: it's added again as the
+            // other.
+            made?.removeMessageHandler(name)
+            messageHandlers[name] = nil
+        }
+        let isNew = messageHandlers[name] == nil
+        messageHandlers[name] = handler
+        if isNew {
+            made?.addMessageHandler(name, replies: handler.replies)
+        }
+    }
+
     // MARK: The host's page
 
     /// What a `WebView` node carries: the host page's identifier. Asking
@@ -437,6 +575,17 @@ public final class WebPage: Observable {
 
     private var downloads: [Int32: WebDownload] = [:]
 
+    private var messageHandlers: [String: MessageHandler] = [:]
+
+    /// Replies the page awaits, by the host's number, until answered.
+    private var replies: [Int32: PendingReply] = [:]
+
+    /// `configuration`'s scheme handlers, by lowercased scheme.
+    private let schemeHandlers: [String: WebURLSchemeHandler]
+
+    /// Requests the page still wants, until answered or stopped.
+    private var schemeTasks: [Int32: PendingSchemeTask] = [:]
+
     /// The `newPage` call the host page was made during, if any.
     private var madeInWindow = 0
 
@@ -451,9 +600,16 @@ public final class WebPage: Observable {
             return made
         }
         receiver.page = Unmanaged.passUnretained(self)
-        let content = WebContentProxy.make(receiver, dataStore: configuration.websiteDataStore.identifier, options: configuration.options.rawValue)
+        let content = WebContentProxy.make(receiver, dataStore: configuration.websiteDataStore.identifier, options: configuration.options.rawValue,
+                                           schemes: schemeHandlers.keys.sorted())
         made = content
         madeInWindow = Self.window
+        for script in configuration.userScripts {
+            content.addUserScript(script.source, atDocumentStart: script.injectionTime == .atDocumentStart, mainFrameOnly: script.forMainFrameOnly)
+        }
+        for name in messageHandlers.keys.sorted() {
+            content.addMessageHandler(name, replies: messageHandlers[name]?.replies ?? false)
+        }
         return content
     }
 
@@ -591,7 +747,152 @@ public final class WebPage: Observable {
             completion(.failure(error))
         }
     }
+
+    fileprivate func received(_ name: String, _ body: String?, reply: Int32, from content: any WebContent) {
+        switch messageHandlers[name] {
+        case let .oneWay(handler)?:
+            handler(body)
+            if reply != 0 {
+                content.replyToMessage(reply, result: nil, error: nil)
+            }
+        case let .replying(handler)?:
+            guard reply != 0 else {
+                // A host without replies: the page's promise is resolved.
+                return handler(body) { _ in }
+            }
+            let pending = PendingReply(reply, content: content)
+            replies[reply] = pending
+            handler(body) { result in
+                switch result {
+                case let .success(json):
+                    pending.answer(json, error: nil)
+                case let .failure(error):
+                    pending.answer(nil, error: error.message.isEmpty ? "\(error.code)" : error.message)
+                }
+            }
+            if pending.isAnswered {
+                replies[reply] = nil
+            } else {
+                pending.onAnswer = { [unowned(unsafe) self] in self.replies[reply] = nil }
+            }
+        case nil:
+            if reply != 0 {
+                content.replyToMessage(reply, result: nil, error: "nothing answers \(name)")
+            }
+        }
+    }
+
+    fileprivate func start(_ task: Int32, _ request: WebURLSchemeRequest, from content: any WebContent) {
+        let scheme = String(request.url.prefix { $0 != ":" }).lowercased()
+        guard let handler = schemeHandlers[scheme] else {
+            return content.failURLSchemeTask(task, error: WebError.Code.badURL.rawValue, message: "nothing answers \(request.url)")
+        }
+        let pending = PendingSchemeTask(task, content: content)
+        schemeTasks[task] = pending
+        handler(request) { result in
+            pending.answer(result)
+        }
+        if pending.isAnswered {
+            schemeTasks[task] = nil
+        } else {
+            pending.onAnswer = { [unowned(unsafe) self] in self.schemeTasks[task] = nil }
+        }
+    }
+
+    fileprivate func stop(_ task: Int32) {
+        schemeTasks.removeValue(forKey: task)?.stop()
+    }
 }
+
+/// A reply a page awaits. The app's answer holds this, not the page, so an
+/// answer kept past the page's life doesn't keep the page; the page answers
+/// what's left when it goes, and forgets each as it's answered.
+private final class PendingReply {
+
+    let reply: Int32
+
+    let content: any WebContent
+
+    private(set) var isAnswered = false
+
+    /// Tells the page, while it lives.
+    var onAnswer: (() -> Void)?
+
+    init(_ reply: Int32, content: any WebContent) {
+        self.reply = reply
+        self.content = content
+    }
+
+    func answer(_ result: String?, error: String?) {
+        guard !isAnswered else { return }
+        isAnswered = true
+        content.replyToMessage(reply, result: result, error: error)
+        let onAnswer = self.onAnswer
+        self.onAnswer = nil
+        onAnswer?()
+    }
+}
+
+/// A URL scheme request the page wants, as `PendingReply` is for replies.
+private final class PendingSchemeTask {
+
+    let task: Int32
+
+    let content: any WebContent
+
+    private(set) var isAnswered = false
+
+    var onAnswer: (() -> Void)?
+
+    init(_ task: Int32, content: any WebContent) {
+        self.task = task
+        self.content = content
+    }
+
+    func answer(_ result: Result<WebURLSchemeResponse, WebError>) {
+        guard !isAnswered else { return }
+        isAnswered = true
+        switch result {
+        case let .success(response):
+            content.finishURLSchemeTask(task, status: Int32(clamping: response.status), contentType: response.contentType,
+                                        headers: [String](flattening: response.headers), body: response.body)
+        case let .failure(error):
+            content.failURLSchemeTask(task, error: error.code.rawValue, message: error.message)
+        }
+        let onAnswer = self.onAnswer
+        self.onAnswer = nil
+        onAnswer?()
+    }
+
+    /// The page stopped wanting it, or went away: an answer does nothing.
+    func stop() {
+        isAnswered = true
+        onAnswer = nil
+    }
+}
+
+#if !EMBEDDED_NO_CONCURRENCY
+/// A message an async handler answers, carried into its task. The guest is
+/// one thread.
+private final class ReplyCall: @unchecked Sendable {
+
+    let answer: (String?) async -> Result<String?, WebError>
+
+    let body: String?
+
+    let reply: (Result<String?, WebError>) -> Void
+
+    init(answer: @escaping (String?) async -> Result<String?, WebError>, body: String?, reply: @escaping (Result<String?, WebError>) -> Void) {
+        self.answer = answer
+        self.body = body
+        self.reply = reply
+    }
+
+    func run() async {
+        reply(await answer(body))
+    }
+}
+#endif
 
 /// The delegate the host holds. It doesn't keep the page alive: the page
 /// owns the host's `WebContent`, which owns this, and the page clears the
@@ -696,5 +997,29 @@ private final class Receiver: WebContentDelegate {
 
     func didFailRequest(_ content: any WebContent, request: Int32, error: Int32, message: String) {
         current?.failed(request, WebError(WebError.Code(rawValue: error) ?? .unknown, message: message))
+    }
+
+    // MARK: Scripts and schemes
+
+    func didReceiveMessage(_ content: any WebContent, name: String, body: String?, reply: Int32) {
+        guard let page = current else {
+            if reply != 0 {
+                content.replyToMessage(reply, result: nil, error: "the page went away")
+            }
+            return
+        }
+        page.received(name, body, reply: reply, from: content)
+    }
+
+    func startURLSchemeTask(_ content: any WebContent, task: Int32, url: String, method: String, headers: [String], body: [UInt8]?) {
+        guard let page = current else {
+            content.failURLSchemeTask(task, error: WebError.Code.cancelled.rawValue, message: "the page went away")
+            return
+        }
+        page.start(task, WebURLSchemeRequest(url: url, method: method, headers: headers.headerPairs, body: body), from: content)
+    }
+
+    func stopURLSchemeTask(_ content: any WebContent, task: Int32) {
+        current?.stop(task)
     }
 }

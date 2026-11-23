@@ -81,11 +81,31 @@ public protocol WebContentDelegate: AnyObject {
     /// `find`, `snapshot` or `removeData` failed. `error` is a
     /// `WebError.Code` raw value.
     func didFailRequest(_ content: WebContent, request: Int32, error: Int32, message: String)
+
+    // MARK: Scripts and schemes an app talks to its pages with
+
+    /// The page posted `body`, as JSON text (nil for `undefined`), to the
+    /// handler `name`. `reply` is 0 for a handler that doesn't reply;
+    /// otherwise answer it with `replyToMessage`, now or later. A message
+    /// to a removed handler isn't sent.
+    func didReceiveMessage(_ content: WebContent, name: String, body: String?, reply: Int32)
+
+    /// The page asks for `url`, in a scheme the page was made with. Answer
+    /// with `finishURLSchemeTask` or `failURLSchemeTask`, now or later.
+    /// `headers` are names and values in turn; `body` is nil without one.
+    /// Task numbers count up from 1 for each page, and aren't reused while
+    /// it lives.
+    func startURLSchemeTask(_ content: WebContent, task: Int32, url: String, method: String, headers: [String], body: [UInt8]?)
+
+    /// The page no longer wants `task`: it navigated away, or the request
+    /// was cancelled. Answering it does nothing.
+    func stopURLSchemeTask(_ content: WebContent, task: Int32)
 }
 
 /// What a delegate that doesn't implement these answers: a new window loads
-/// in the same page, downloads and permissions are refused, and the rest is
-/// ignored.
+/// in the same page, downloads and permissions are refused, a message that
+/// waits for a reply is rejected, a URL scheme's request fails, and the rest
+/// is ignored.
 public extension WebContentDelegate {
 
     func newPage(_ content: WebContent, url: String) -> WebContent? { nil }
@@ -111,4 +131,16 @@ public extension WebContentDelegate {
     func didCompleteRequest(_ content: WebContent, request: Int32) { }
 
     func didFailRequest(_ content: WebContent, request: Int32, error: Int32, message: String) { }
+
+    func didReceiveMessage(_ content: WebContent, name: String, body: String?, reply: Int32) {
+        if reply != 0 {
+            content.replyToMessage(reply, result: nil, error: "nothing answers \(name)")
+        }
+    }
+
+    func startURLSchemeTask(_ content: WebContent, task: Int32, url: String, method: String, headers: [String], body: [UInt8]?) {
+        content.failURLSchemeTask(task, error: WebError.Code.badURL.rawValue, message: "nothing answers \(url)")
+    }
+
+    func stopURLSchemeTask(_ content: WebContent, task: Int32) { }
 }
