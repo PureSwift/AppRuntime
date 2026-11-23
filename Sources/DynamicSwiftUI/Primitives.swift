@@ -57,18 +57,47 @@ public struct Text: PrimitiveView {
     }
 }
 
+/// What a module that adds image sources, such as `DynamicDrawing`, gives
+/// `Image`: the host's image, which the frontend keeps alive while a tree it
+/// sent shows it.
+public protocol _HostImageOwner: AnyObject {
+
+    /// The image's size in points, or a failure: the module's own error's
+    /// raw value, and 0 on success.
+    func _measure(_ completion: @escaping (_ width: Double, _ height: Double, _ failure: Int32) -> Void)
+}
+
 public struct Image: PrimitiveView {
 
     var props: [String: PropValue]
 
+    /// The host's image, for one a module such as `DynamicDrawing` made.
+    /// The frontend holds it while a tree it sent shows the image.
+    let host: (any _HostImageOwner)?
+
     /// A symbol: SF Symbols on Apple hosts; other hosts map common names.
     public init(systemName: String) {
         self.props = ["systemName": .string(systemName)]
+        self.host = nil
     }
 
     /// An image from the app's bundle resources.
     public init(_ name: String) {
         self.props = ["name": .string(name)]
+        self.host = nil
+    }
+
+    /// An image the host holds, by its `identifier()`, for a module that
+    /// adds sources: `DynamicDrawing`'s `Image(contentsOf:)`. `owner` keeps
+    /// the host's image alive while a tree shows it.
+    public init(_hostImage identifier: Int32, owner: any _HostImageOwner) {
+        self.props = ["image": .int(Int(identifier))]
+        self.host = owner
+    }
+
+    /// The `owner` an image was made with, for the module that made it.
+    public var _hostImage: (any _HostImageOwner)? {
+        host
     }
 
     /// Scales to fill its frame instead of keeping its natural size.
@@ -79,7 +108,10 @@ public struct Image: PrimitiveView {
     }
 
     func makeNode(_ id: RenderNode.ID, context: RenderContext) -> RenderNode {
-        RenderNode("Image", id: id, props: props)
+        if let host {
+            context.graph.retain(host)
+        }
+        return RenderNode("Image", id: id, props: props)
     }
 }
 
@@ -216,10 +248,45 @@ public struct ScrollView<Content: View>: View {
 
     let content: Content
 
+    /// The scales it zooms between, and the binding that hears the scale.
+    var zoom: (range: ClosedRange<Double>, scale: Binding<Double>?)?
+
     public init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, @ViewBuilder content: () -> Content) {
         self.axes = axes
         self.showsIndicators = showsIndicators
         self.content = content()
+    }
+
+    /// Zooms its content: a pinch, or a double tap, between the scales in
+    /// `range`, which are above 0. The content is laid out in the scroll
+    /// view's own size, as if it didn't scroll; zooming scales it, and the
+    /// scroll view scrolls what zooming makes larger than itself.
+    ///
+    /// ```swift
+    /// ScrollView([.horizontal, .vertical]) {
+    ///     Image(contentsOf: document.path).resizable().scaledToFit()
+    /// }
+    /// .zoomable(1...8, scale: $zoom)
+    /// ```
+    ///
+    /// The host zooms by itself. `scale` hears the new scale when the
+    /// gesture ends, and setting it zooms. SwiftUI has no scroll view that
+    /// zooms: this spelling is the frontend's own.
+    public func zoomable(_ range: ClosedRange<Double>, scale: Binding<Double>) -> ScrollView {
+        zooming(range, scale)
+    }
+
+    /// Zooms its content between the scales in `range`, keeping the scale
+    /// in the host.
+    public func zoomable(_ range: ClosedRange<Double>) -> ScrollView {
+        zooming(range, nil)
+    }
+
+    private func zooming(_ range: ClosedRange<Double>, _ scale: Binding<Double>?) -> ScrollView {
+        var view = self
+        let lower = Swift.max(range.lowerBound, 0.01)
+        view.zoom = (lower...Swift.max(range.upperBound, lower), scale)
+        return view
     }
 
     public var body: Never {
@@ -229,10 +296,24 @@ public struct ScrollView<Content: View>: View {
     public func _render(into nodes: inout [RenderNode], context: RenderContext) {
         let id = context.graph.nextNodeID()
         let axes: String = self.axes == [.horizontal, .vertical] ? "both" : self.axes.contains(.horizontal) ? "horizontal" : "vertical"
-        nodes.append(RenderNode("ScrollView", id: id, props: [
+        var props: [String: PropValue] = [
             "axes": .string(axes),
             "showsIndicators": .bool(showsIndicators),
-        ], children: context.children(content)))
+        ]
+        if let zoom {
+            let range = zoom.range
+            props["minZoom"] = .double(range.lowerBound)
+            props["maxZoom"] = .double(range.upperBound)
+            if let scale = zoom.scale {
+                props["zoom"] = .double(Swift.min(range.upperBound, Swift.max(range.lowerBound, scale.wrappedValue)))
+                context.graph.on(id, .change) { payload in
+                    if let new = payload?.double {
+                        scale.wrappedValue = Swift.min(range.upperBound, Swift.max(range.lowerBound, new))
+                    }
+                }
+            }
+        }
+        nodes.append(RenderNode("ScrollView", id: id, props: props, children: context.children(content)))
     }
 }
 
