@@ -20,6 +20,7 @@ import PackageDescription
 ///   `ExampleTransfers`, whose server and system the test plays,
 ///   `ExampleNotes`, whose window the test reports,
 ///   `ExampleMaps`, whose map the test stands in for,
+///   `ExampleDrawing`, whose canvases and bitmap the memory backend draws,
 ///   `ExampleImages`, whose images the test's decoder reads, from real
 ///   files,
 ///   `ExampleSignIn`, whose browser the test plays, with its secrets in
