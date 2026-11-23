@@ -11,14 +11,15 @@ content, and the view that shows it.
 The Darwin host implements them on iOS and macOS over `WKWebView`
 (DarwinAppRuntime's `DarwinWebKit`). Android, Linux and the browser have no
 host yet. The guest side and an example (`examples/ExampleWeb`, a small
-browser) exist, tested against a stand-in for the engine.
+browser) exist, tested against a stand-in for the engine. Version 2 (below)
+is built on the guest side; no host implements it yet.
 
 Guest-side Swift: `WebPage`, the observable page app code uses; `WebView`,
 the SwiftUI view; `WebNavigation`, `WebNavigationKind` and `WebError`.
 
 The render IR gains one node, `WebView`, whose `page` prop is the host
-page's `identifier()`. It has no events: everything about a page goes
-through the contract.
+page's `identifier()`. In version 1 it has no events: everything about a
+page goes through the contract. Version 2 adds the find bar's `change`.
 
 ## For a guest
 
@@ -88,7 +89,10 @@ All but the first are drafted below, for review:
 
 ## Version 2: a browser and a mail reader
 
-**Status:** a draft, not reviewed. Nothing in this section is built.
+**Status:** reviewed and built on the guest side: the contract, `WebPage`,
+`WebView`'s modifiers, tests against a stand-in engine, and
+`ExampleWeb` on the three engines. No host implements version 2 yet;
+"What hosts still need" is the list.
 
 A browser needs more of a page than version 1 gives: tabs a link opens,
 private windows, downloads, find, zoom, the lock icon, a page's request
@@ -145,8 +149,9 @@ page.customUserAgent = "ExampleBrowser/1.0"
 page.pageZoom = 1.25
 
 // A link that opens a new window opens a tab instead.
-page.newPageHandler = { navigation in
-    guard let tab = WebPage(configuration: page.configuration) else { return nil }
+let configuration = page.configuration
+page.newPageHandler = { url in
+    guard let tab = WebPage(configuration: configuration) else { return nil }
     tabs.append(tab)
     return tab
 }
@@ -155,15 +160,18 @@ page.newPageHandler = { navigation in
 page.downloadDecider = { request in request.mimeType != "application/x-msdownload" }
 page.onDownload = { download in downloads.append(download) }
 
-// A site asks for the camera: the app asks the user its own way.
-page.permissionDecider = { request in
-    await askUser("\(request.origin) wants to use \(request.kinds)")
+// A site asks for the camera: the app asks the user its own way, and
+// answers when they do.
+page.onPermissionRequest = { request in
+    pending = request   // a prompt that calls request.grant() or request.deny()
 }
 
 let result = try await page.find("swift", backwards: false)   // matchFound, and a count where the engine says
 let png = try await page.snapshot(width: 320)                  // a tab switcher's picture
 
-try await WebsiteDataStore.default.removeData(since: .distantPast)   // "Clear history and data"
+try await WebsiteDataStore.default.removeData()   // "Clear history and data": since 0, everything
+
+if WebPage.hostFeatures.contains(.find) { /* offer Find */ }
 
 WebView(page)
     .findNavigator(isPresented: $finding)
@@ -224,8 +232,9 @@ WebView(page)
   HTTP sign-in challenge) are the platform's dialogs, over the page. A
   client certificate is refused.
 - **Permissions.** A site's request for the camera, the microphone or
-  location goes to `permissionDecider`, with the site's origin and what
-  it asks for, and waits for the answer. The app's manifest must declare
+  location goes to `onPermissionRequest` as a `WebPermissionRequest`,
+  with the site's origin and what it asks for, and the host waits until
+  the app calls `grant()` or `deny()`; one let go unanswered is denied. The app's manifest must declare
   the capability for it, or the request is refused without asking; the
   platform then asks the user for the app as it does for any of the app's
   own uses. Without a decider, requests are refused, as in version 1.
@@ -235,8 +244,9 @@ WebView(page)
   `DynamicDrawing`. A page that has never been on screen may have nothing
   to draw on some engines, and fails with `unavailable`.
 - **`WebsiteDataStore.removeData(since:)`** removes cookies, storage,
-  caches and the rest of what sites kept since a date, for every page
-  that uses the store.
+  caches and the rest of what sites kept since a time, in seconds since
+  1970 (0, the default, is everything), for every page that uses the
+  store.
 - **Gestures.** `webViewBackForwardNavigationGestures` turns on the
   platform's swipe between history entries, and
   `webViewMagnificationGestures` pinch to zoom where the engine has it.
@@ -336,8 +346,8 @@ page scripts off, 8 new pages, 16 downloads, 32 find, 64 the find bar,
 2048 user agent and zoom. A guest-side call a host doesn't honor fails
 with `WebError.Code.unavailable`, a new code, 8.
 
-`WebsiteDataStore.removeData` on a store no page uses makes a page of
-that store, unseen, to call it on, and lets it go.
+`WebsiteDataStore.removeData` makes a page of that store, unseen, to
+call it on, and lets it go when the host answers.
 
 ### The render IR
 
@@ -404,6 +414,65 @@ haven't been checked against its documentation yet:
   user about, tab pictures, and a message page with remote content off.
   On the three engines, against the test's stand-in.
 
+### Changed while building
+
+- **`onPermissionRequest` instead of an async `permissionDecider`.** The
+  app gets a `WebPermissionRequest` and calls `grant()` or `deny()` when
+  the user answers, now or later. An app's own prompt is a view that
+  answers later, which an async closure made awkward, and it works in
+  guests built without concurrency.
+- **`newPageHandler` takes the URL,** not a navigation: the engine says
+  only the URL, and a navigation's kind would have been made up.
+- **`removeData(since:)` takes seconds since 1970,** 0 by default: guest
+  code has no Foundation `Date`. And it always asks an unseen page of the
+  store, not one the app has.
+- **`DynamicWebKit` links `DynamicFiles`,** for `WebDownload.file`, a
+  `FilePath` in `.caches`. So a web app declares `Files` too; every host
+  has it.
+- **The modifiers are `WebView`'s,** not every view's: they go right after
+  `WebView(page)`. Apple's are environment values; the frontend's
+  environment has no keys a module outside it can add.
+- **`WebPage.hostFeatures` and `WebFeatures` are public,** so an app can
+  leave out a Find button or private tabs where the host lacks them.
+- **Gestures left `.automatic` send no prop,** and the host's default is
+  off, as in version 1.
+- **`newPage`'s answer reaches the host as a proxy** of the host's own
+  page, as any contract object a guest hands back does. The host finds
+  its page behind it as it does for other methods given its own objects
+  (in process, `NativeRuntime.swiftObject(for:)`).
+- **`WebDownload.cancel()` marks the download cancelled at once,** and the
+  host reports nothing more about it. Releasing a page cancels its
+  downloads, and fails its waiting finds and snapshots with `cancelled`.
+- **A page made before `newPage` was called isn't loaded in:** it has a
+  view of its own. The guest answers nil for it, and for the opener.
+- **The draft's questions, as built:** dialogs, sign-in, uploads and the
+  find bar are the platform's; the engine doesn't remember a site's
+  permission, and an app that wants "always allow" keeps it by
+  `WebPermissionRequest.origin`; an Android WebView without profiles
+  leaves out `nonPersistentStores`, and the app offers no private tabs.
+
+### What hosts still need
+
+- **`features()`:** say each bit only when it's done in full.
+- **`make(_:dataStore:options:)`:** a non-persistent store per number,
+  made when a page first names it and let go when none does; the options'
+  remote content, page scripts and uploads off. Call version 2 delegate
+  methods only on pages it made.
+- **New windows:** call `newPage` when the engine asks for a window's
+  view, make a page asked for during the call with the engine's settings
+  for it, and load the window in the page behind the proxy it returns.
+- **Downloads:** ask `shouldDownload`, save under `Downloads/` in the
+  app's caches with the suggested name made unique, report progress no
+  more than ten times a second, and give the path from the caches
+  directory in `didFinishDownload`.
+- **Find, the security state, permissions, snapshots and removing data,**
+  each answered by its delegate method for its request. Refuse a
+  permission whose capability the manifest lacks without asking.
+- **The node:** `findNavigator` with its `change` event,
+  `backForwardGestures` and `magnificationGestures`.
+- **Checking the platform table above** against each platform's
+  documentation, which hasn't been done.
+
 ### Not in this version
 
 - Messages from a page's scripts to the app.
@@ -413,6 +482,9 @@ haven't been checked against its documentation yet:
 - Extensions, content blockers the user adds, and autofill.
 
 ### Questions
+
+The design was approved without answers to these; each is built as it
+proposes (the last item of "Changed while building").
 
 1. **Asking the app or the platform.** Dialogs, sign-in, uploads and the
    find bar are the platform's here. A browser that wants its own
