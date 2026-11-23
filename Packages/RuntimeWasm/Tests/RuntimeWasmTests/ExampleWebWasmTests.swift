@@ -22,8 +22,8 @@ final class WasmTestWebContent: WebContent {
 
     var calls: [String] = []
 
-    /// How it was made: "make" for version 1, else the version 2
-    /// constructor's store and options.
+    /// How it was made: "make" for the plain constructor, else the store
+    /// and options it was made with.
     var made = "make"
 
     init(delegate: any WebContentDelegate) {
@@ -38,7 +38,7 @@ final class WasmTestWebContent: WebContent {
         return content
     }
 
-    /// Everything version 2 has.
+    /// Every feature.
     static func features() -> Int32 { 4095 }
 
     static func make(_ delegate: any WebContentDelegate, dataStore: Int32, options: Int32) -> WasmTestWebContent {
@@ -172,8 +172,8 @@ extension WasmShimTests {
         // A host whose app didn't declare network refuses a remote URL.
         engine.delegate.didFailNavigation(engine, error: WebError.Code.notPermitted.rawValue, message: "This app can't use the network")
         #expect(renderer.screen?.identified("error")?.props["text"] == "Couldn't load the page: This app can't use the network")
-        // Version 2. Pages are made by its constructor, so the host tells
-        // their delegates its events.
+        // The browser's features. Pages are made with their store and
+        // options.
         #expect(engine.made == "store 0 options 0")
 
         // A link that opens a new window opens a tab, and the host loads
