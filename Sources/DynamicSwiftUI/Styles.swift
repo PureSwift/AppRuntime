@@ -176,6 +176,19 @@ public struct Color: Equatable, Sendable {
         propValue
     }
 
+    /// A named color's name and opacity, for a module that draws: `nil`
+    /// for a fixed one.
+    public var _named: (name: String, opacity: Double)? {
+        if case .named(let name, let opacity) = storage { return (name, opacity) }
+        return nil
+    }
+
+    /// A fixed color's `0xAARRGGBB`: `nil` for a named one.
+    public var _argb: UInt32? {
+        if case .rgba(let value) = storage { return value }
+        return nil
+    }
+
     var propValue: PropValue {
         switch storage {
         case .named(let name, let opacity):
@@ -226,6 +239,18 @@ public struct Font: Equatable, Sendable {
         var font = self
         font.props["weight"] = .string(weight.rawValue)
         return font
+    }
+
+    /// A font by its name, at a size: SwiftUI's `custom(_:size:)`. Where
+    /// the host has no such font, the system's.
+    public static func custom(_ name: String, size: Double) -> Font {
+        Font(["name": .string(name), "size": .double(size)])
+    }
+
+    /// What it is, as the IR has it, for a module that draws text: `style`,
+    /// or `size` with `weight` and `design`, `name`, `italic`.
+    public var _props: [String: PropValue] {
+        props
     }
 
     public func bold() -> Font {
