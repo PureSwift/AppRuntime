@@ -6,9 +6,9 @@ import DynamicRuntime
 /// Trees, subtrees and node IDs are `RenderCodec` bytes. One update is one
 /// call.
 ///
-/// Version 2 added `environment()`, and with it the `NavSplit` and
-/// `NavColumn` nodes (`Documentation/Environment.md`).
-@DynamicRuntime("org.pureswift.ui.Renderer", version: 2)
+/// A renderer that reports the window's values in `environment()` draws
+/// the `NavSplit` and `NavColumn` nodes too (`Documentation/Environment.md`).
+@DynamicRuntime("org.pureswift.ui.Renderer")
 public protocol Renderer: AnyObject {
 
     static func make(_ delegate: RendererDelegate) -> Self
@@ -23,15 +23,14 @@ public protocol Renderer: AnyObject {
     /// The window's values, as an `environment` event's payload
     /// (`RenderEnvironment.bytes`). The guest asks once, before its first
     /// tree; changes come as `environment` events. No bytes: a renderer that
-    /// doesn't report them, and doesn't know the version 2 nodes. Since
-    /// version 2.
+    /// doesn't report them, and doesn't draw `NavSplit` and `NavColumn`.
     func environment() -> [UInt8]
 }
 
 extension Renderer {
 
-    /// No bytes: what a renderer written before version 2 answers. One that
-    /// draws `NavSplit` and `NavColumn` implements this.
+    /// No bytes: what a renderer that hasn't implemented this answers. One
+    /// that draws `NavSplit` and `NavColumn` implements it.
     public func environment() -> [UInt8] {
         []
     }
