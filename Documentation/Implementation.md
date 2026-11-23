@@ -44,7 +44,7 @@ builds and the first provider contracts:
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
-| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. The Darwin host implements it over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no other host does yet |
+| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. Version 2 of `WebContent` (`Contracts/WebKit.md`) adds what a browser and a mail reader need: `WebPage.Configuration` with private data stores and pages without remote content or scripts, new pages, downloads (`WebDownload`), find and the find bar, the security state, permission requests, snapshots, removing data, the user agent, zoom and gestures, each said in `features()`. The Darwin host implements version 1 over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no host implements version 2, and no other host version 1, yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
@@ -812,6 +812,22 @@ which are each host's. TCP and UDP are not part of the spec.
     separate object with an unretained reference to the page, which the
     page clears when it's released.
   - **URLs are strings**, as `Link`'s are: guest code has no Foundation.
+  - **Version 2 is methods, not contracts.** A host refuses an app that
+    declares an interface it lacks, so a new contract would stop every
+    web app on every current host. Each new method has a default that does
+    nothing, so the host repos build unchanged, and a host says what it
+    really does in `features()`, since `isAvailable` can't tell a default
+    from support.
+  - **Only a page made by `make(_:dataStore:options:)` hears version 2's
+    events.** A version 1 guest's delegate lacks those methods, and a call
+    to one would trap. A version 2 guest makes every page with it where
+    the host has it.
+  - **What would leak if ignored is refused:** `WebPage(configuration:)`
+    is nil for a private store, remote content off or scripts off that
+    the host doesn't say it does.
+  - **A new window's page is made during `newPage`,** so the host makes it
+    with the engine's settings for the window. The guest answers nil for
+    a page made earlier, which has a view of its own.
 - **OpenGL ES (§8).**
   - **One table.** `Scripts/gles2.py` holds the 140 functions, each pointer
     parameter marked with how it's used and how many bytes, and the 301
@@ -1533,9 +1549,16 @@ Each of these needs a decision, or is verified only as far as noted:
   first use, state following the delegate, observation, the navigation
   decider, scripts answered out of order and awaited, and the host page
   destroyed with the guest's; the `WebView` node, and a `WebView(url:)`
-  keeping one page across updates. `RuntimeWasmTests` and
-  `LinkedSliceTests` run `examples/ExampleWeb` the same way, as
-  `App.wasm`, a sealed macOS slice and wasm2c output.
+  keeping one page across updates. Version 2: the new keys and
+  signatures, `WebPage(configuration:)` nil where the host lacks a
+  feature, every page made by the new constructor, and each feature
+  through the stand-in: the user agent and zoom, new pages, downloads,
+  find, the security state, permissions, snapshots, removing data, a
+  released page cancelling what waits, and the find bar's and gestures'
+  props and event. `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleWeb` the same way, as `App.wasm`, a sealed macOS slice
+  and wasm2c output, through its tabs, find, downloads, camera prompt,
+  tab pictures, private tab and message page.
 - `CRuntimeGLTests`: the GL shim against a recording GL and a block of
   "guest memory": pointers passed without copying, reads and writes at and
   past the end, sizes that would wrap, strings without a terminator, shader
@@ -1616,7 +1639,10 @@ Each of these needs a decision, or is verified only as far as noted:
 7. `WebContent` in the other hosts (`Documentation/Contracts/WebKit.md`):
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
-   messages from a page's scripts to the app.
+   version 2 in every host ("What hosts still need" there): `features()`,
+   the new constructor, new windows, downloads, find, permissions,
+   snapshots, removing data and the node's new props. Then messages from
+   a page's scripts to the app.
 8. App data (§7.9) in the hosts. The model store needs a provider in
    the Linux host (`Documentation/Contracts/Persistence.md`):
    CoreModel-SQLite, with the stored model and the migration rules, as
