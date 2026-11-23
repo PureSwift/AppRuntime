@@ -79,7 +79,7 @@ import RuntimeNative
         #expect(renderer.method(key: "apply:", kind: .instance)?.signature == Signature("(O)V"))
         #expect(renderer.method(key: "replaceSubtree:tree:", kind: .instance)?.signature == Signature("(OO)V"))
         #expect(renderer.method(key: "environment", kind: .instance)?.signature == Signature("()O"))
-        #expect(renderer.version == 2)
+        #expect(renderer.version == 1)
         let delegate = RendererDelegateProxy.descriptor
         #expect(delegate.method(key: "event:kind:payload:", kind: .instance)?.signature == Signature("(OIO)V"))
         #expect(delegate.method(key: "rowCount:", kind: .instance)?.signature == Signature("(O)I"))
@@ -118,7 +118,7 @@ import RuntimeNative
         #expect(partial == RenderEnvironment(colorScheme: .dark), "an unknown key, a value of the wrong kind and a key without a value are skipped")
         #expect(RenderEnvironment(payload: "dark").isEmpty)
         #expect(RenderEnvironment(payload: nil).isEmpty)
-        #expect(RenderEnvironment(bytes: []) == nil, "a renderer from before version 2")
+        #expect(RenderEnvironment(bytes: []) == nil, "a renderer that doesn't report them")
         #expect(RenderEnvironment(bytes: [1, 2, 3]) == nil)
         #expect(RenderEnvironment().payload == .array([]))
         #expect(RenderEnvironment(bytes: RenderEnvironment().bytes) == RenderEnvironment(), "no values is still an answer")
