@@ -3,6 +3,34 @@ import DynamicUI
 /// Lets app code written against SwiftUI use `CGFloat` without CoreGraphics.
 public typealias CGFloat = Double
 
+/// A width and a height, in points.
+public struct Size: Hashable, Sendable {
+
+    public var width: Double
+
+    public var height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
+    }
+
+    public static let zero = Size(width: 0, height: 0)
+}
+
+/// SwiftUI's spelling of `Size`, for code written against it.
+public typealias CGSize = Size
+
+/// How content keeps its aspect ratio in the space it's given.
+public enum ContentMode: String, Sendable, CaseIterable {
+
+    /// All of it shows, inside the space.
+    case fit
+
+    /// The space is covered, and what overflows it is cut by a `clipped()`.
+    case fill
+}
+
 public enum HorizontalAlignment: String, Sendable {
     case leading, center, trailing
 }
