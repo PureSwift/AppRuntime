@@ -9,16 +9,11 @@ import DynamicSwiftUI
 import SwiftUI
 #endif
 
-/// The example media app: a small music player. It plays the songs in its
-/// bundle one after another, says what's playing so the system can show
-/// it, answers next and previous, plays on in the background where the
-/// manifest allows, and shows a video beside it.
-
-struct Song {
-    let title: String
-    let artist: String
-    let file: String
-}
+/// The example media app: a small music player. It reads its songs'
+/// titles, artists, albums and covers from their tags, plays them one
+/// after another, says what's playing so the system can show it, answers
+/// next and previous, plays on in the background where the manifest
+/// allows, and shows a video beside it, with a choice of subtitles.
 
 /// The closures hold the jukebox, which lives as long as the app does:
 /// Embedded Swift has no weak or unowned references. The guest is
@@ -26,11 +21,11 @@ struct Song {
 @Observable
 final class Jukebox: @unchecked Sendable {
 
-    static let songs: [Song] = [
-        Song(title: "Morning", artist: "The Examples", file: "music/morning.mp3"),
-        Song(title: "Noon", artist: "The Examples", file: "music/noon.mp3"),
-        Song(title: "Night", artist: "The Examples", file: "music/night.mp3"),
-    ]
+    /// The songs in the bundle. What they're called is in their tags.
+    static let songs: [String] = ["music/morning.mp3", "music/noon.mp3", "music/night.mp3"]
+
+    /// Each song's tags, once read.
+    @ObservationIgnored var tags: [Int: MediaTags] = [:]
 
     var title: String = "Nothing playing"
 
@@ -59,17 +54,37 @@ final class Jukebox: @unchecked Sendable {
             self.status = "Couldn't play: error \(error.code.rawValue)"
         }
         load(0)
+        // The host reads the tags, a few at a time; the song playing is
+        // described again when its own arrive.
+        for index in Self.songs.indices {
+            MediaTags.read(from: .bundle / Self.songs[index], artwork: true) { result in
+                guard case .success(let tags) = result else { return }
+                self.tags[index] = tags
+                if index == self.index {
+                    self.describe()
+                }
+            }
+        }
+    }
+
+    /// What's playing, from its tags; its file's name until they're read.
+    func describe() {
+        let file = Self.songs[index]
+        let tags = self.tags[index]
+        let name = tags?.title ?? String(file.split(separator: "/").last ?? "")
+        let artist = tags?.artist
+        title = artist.map { "\(name), \($0)" } ?? name
+        // Said with each source: the host adds the position itself. The
+        // bundle's cover where the song has none of its own.
+        player.nowPlaying = NowPlayingInfo(title: name, artist: artist, album: tags?.album,
+                                           artwork: tags?.artwork ?? .file(.bundle / "music/cover.png"))
     }
 
     func load(_ index: Int) {
         let songs = Self.songs
         self.index = (index % songs.count + songs.count) % songs.count
-        let song = songs[self.index]
-        title = "\(song.title), \(song.artist)"
-        player.load(.resource(song.file))
-        // Said with each source: the host adds the position itself.
-        player.nowPlaying = NowPlayingInfo(title: song.title, artist: song.artist, album: "Examples",
-                                           artwork: .file(.bundle / "music/cover.png"))
+        player.load(.resource(songs[self.index]))
+        describe()
     }
 
     /// To another song, playing.
@@ -111,6 +126,18 @@ struct ContentView: View {
             Button("Show Video") { jukebox.showVideo() }
             VideoPlayer(jukebox.video)
                 .frame(height: 120)
+            // The video's subtitles, once it's loaded and has some.
+            if !jukebox.video.subtitleTracks.isEmpty {
+                HStack(spacing: 8) {
+                    Button("No Subtitles") { jukebox.video.selectedSubtitleTrack = nil }
+                    ForEach(jukebox.video.subtitleTracks.indices, id: { $0 }) { index in
+                        let track = jukebox.video.subtitleTracks[index]
+                        Button(track.name) { jukebox.video.selectedSubtitleTrack = track }
+                    }
+                }
+                Text("Subtitles: \(jukebox.video.selectedSubtitleTrack?.name ?? "off")")
+                    .accessibilityIdentifier("subtitles")
+            }
             Text(jukebox.status)
                 .accessibilityIdentifier("status")
         }
