@@ -21,13 +21,13 @@ builds and the first provider contracts:
 | URL and HTTP | declared: `DynamicNetworking`; `RuntimeNetworking` implements it over Swift Foundation's `URLSession` for any host written in Swift, on Apple platforms and on Linux, where `URLSession` is `FoundationNetworking` over libcurl. The Darwin host has its own `DarwinNetworking`, which it's a port of; the Linux host registers it, with `deliver` on its main loop. Callbacks arrive on a queue of each session's own and reach the guest on the main thread through `HostNetworkingModule.deliver`, which a host with a loop of its own points at that loop; what the contracts couldn't do as asked goes to `HostNetworkingModule.log` |
 | Number and date formatting, dates and sorting | declared: `DynamicFormatting`; `RuntimeFormatting` implements `LocaleInfo`, `NumberFormat`, `DateFormat`, `SystemClockInfo`, `TimeZoneInfo`, `CalendarInfo` and `Collator` over Swift Foundation for any host written in Swift, on Apple platforms and Linux (`Documentation/Contracts/Formatting.md`). The guest has `SystemClock`; Foundation's `Calendar`, `TimeZone` and `Locale` for a guest wait for swift-embedded-foundation's platform hooks. The Linux and Darwin hosts register it. What a guest asks for that the contracts don't know, such as an unknown style or time zone, is replaced and told to `HostFormattingModule.log`, which the host points at its logger |
 | Guest executor and `Clock` contract (§5.4, §7.4) | done: `GuestExecutor`, `RuntimeClock`, `HostClock`; runs in `App.wasm` and every native slice (arm64 ELF needs `Scripts/fetch-embedded-linux.sh`) |
-| `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts |
+| `Permissions`, `Bundle` and `Application` built-ins (§7.4) | declared: `Permissions`, `AppBundle`, `Application` in `DynamicRuntime`; tested against fake hosts. `Application` opens URLs and keeps the screen awake (`Contracts/Application.md`), with `HostApplication`'s hooks for a platform host, and the frontend makes one of its own for `openURL`, `OpenURLAction`, `onOpenURL`, `scenePhase` and `idleTimerDisabled`; `examples/ExampleUI`'s System tab. No platform host opens a URL or keeps the screen awake yet |
 | Async wrappers over the provider contracts (§6.2.1) | done: `EventStream`, `withCallback`, and an `Async…` wrapper per contract; tested against fake hosts |
 | Observation stopgap (§5.3) | done: `DynamicObservation`, `ObservationMacros` (`Observation` in guest builds) |
 | SwiftUI frontend, render IR and renderer contract (§9) | done: `DynamicSwiftUI` (`SwiftUI` in guest builds), `DynamicUI`, `Documentation/RenderIR.md`; no players |
 | wasm2c import shim (§11) | done: `Scripts/wasm2c-shim.py` (WABT's wasm2c); `ExampleApp` and `ExampleUI` pass through it |
 | Files (§7.9) | done: `DynamicFiles` (the `Files` contract and the guest's `FileManager`), and `HostFiles` in `RuntimeHost`, the contract over POSIX calls for the Darwin and Linux hosts; `examples/ExampleFiles`. The Darwin host registers it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`). Android and the browser need their own host side |
-| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. Version 2 of `Documents` adds the system's photo picker, `open(from: .photoLibrary)` (`Contracts/Photos.md`), which falls back to the file picker for images and videos on a host without one. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`), and has no photo picker yet; no other host does yet |
+| Documents (`Contracts/Documents.md`) | done on the guest side, with the shared host side: `DynamicDocuments` (the `Documents` and `DocumentGrant` contracts, the guest's `DocumentPicker`, `Document` and `ContentType`, and the `fileImporter` and `fileExporter` modifiers), grant directories in `HostFiles`, and `RuntimeDocuments` (`HostDocuments`, the contracts over a host's `DocumentPresenter`); the `.userFiles` capability and `documentTypes` in the manifest; `examples/ExampleDocuments`. `Documents` has the system's photo picker too, `open(from: .photoLibrary)` (`Contracts/Photos.md`), which falls back to the file picker for images and videos on a host without one. The Darwin host shows the pickers on iOS and macOS (DarwinAppRuntime's `DarwinDocuments`), and has no photo picker yet; no other host does yet |
 | Media players (`Contracts/MediaPlayer.md`, `Contracts/NowPlaying.md`) | done on the guest side, with the shared host side: `DynamicMedia` (the `MediaPlayback` contract, the guest's observable `MediaPlayer`, the `VideoPlayer` view and node, `AudioPlayer`, and what's playing, its buttons and background playback), and `RuntimeMedia` (`HostMediaPlayback`, the contract over a host's `MediaPlatform` and `MediaEngine`); the `.audio` capability, with `background`; `examples/ExampleMedia`. The Darwin host plays through `AVPlayer`, shows what's playing and plays on in the background (DarwinAppRuntime's `DarwinMedia`); no other host does yet |
 | Text editing (`Contracts/TextEditor.md`) | done on the guest side, with the shared host side: `DynamicText` (the `TextStorage` contract, the guest's observable `TextBuffer`, and the `TextEditor` view and node, for a buffer or a `String` binding), `@FocusState`, `focused` and the keyboard's two modifiers in the frontend, with the `focus` event, and `RuntimeText` (`HostTextStorage`, the contract over a host's `TextPlatform` and `TextEngine`, with `TextCoding`, `TextSearch` and `MemoryTextEngine`); `examples/ExampleText`. The Darwin host holds texts in `UITextView` and `NSTextView`, with its own undo history, and shows them in `TextEditor` nodes (DarwinAppRuntime's `DarwinText`); no other host does yet |
 | Clipboard (`Contracts/Clipboard.md`) | done on the guest side, with the shared host side: `DynamicClipboard` (the `Clipboard` contract and the guest's `Pasteboard`), `textSelection` in the frontend, and `RuntimeClipboard` (`HostClipboard`, the contract over a host's `ClipboardPlatform`, and `MemoryClipboard`); `examples/ExampleClipboard`. The Darwin host copies and pastes through `UIPasteboard` and `NSPasteboard` (DarwinAppRuntime's `DarwinClipboard`); no other host does yet |
@@ -36,7 +36,7 @@ builds and the first provider contracts:
 | Contacts (`Contracts/Contacts.md`) | done on the guest side, with the shared host side: `DynamicContacts` (the `Contacts` contract with its record, and the guest's `ContactStore`, `Contact`, `LabeledValue` and `ContactDate`), and `RuntimeContacts` (`HostContacts`, the contract over a host's `ContactDirectory`, and `MemoryContactDirectory`); the `.contacts` capability, which says whether an app writes; `examples/ExampleContacts`. No platform host has an address book behind it, so no real contact has been read |
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
-| Environment values and split views (`Environment.md`) | done on the guest side: version 2 of `Renderer`, with `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
+| Environment values and split views (`Environment.md`) | done on the guest side: `Renderer`'s `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
 | Maps (`Contracts/Maps.md`) | done on the guest side, with the shared host side: `DynamicMapKit` (`MapKit` in guest builds: the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with `Marker`, `Annotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `UserAnnotation`, camera positions, styles, controls, `onMapCameraChange`, `onMapTap` and `onMapLongPress`), and `RuntimeMaps` (`HostMaps`, the contract over the service a host is built with); `_RenderContainerView` in the frontend, for a module's node with children and events; `examples/ExampleMaps`. No platform host draws a `Map` node yet |
 | Images (`Contracts/Drawing.md`, its image part) | done on the guest side, with the shared host side: `DynamicDrawing` (the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)`, `Image(pixels:width:height:scale:)`, `size` and `decodableTypes` on the frontend's `Image`), and `RuntimeDrawing`'s image half (`HostImages` and `HostImage`, the contract over a host's `ImageDecoder`, with `MemoryImageDecoder`); in the frontend, an `image` prop on the `Image` node, `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped`, `Size`, and `ScrollView.zoomable`; `examples/ExampleImages`. No platform host decodes or draws an image yet. The canvas, bitmaps and fonts aren't built |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
@@ -44,7 +44,7 @@ builds and the first provider contracts:
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
 | Defaults (§7.9) | done: `DynamicDefaults` (the `Defaults` contract, the guest's `UserDefaults` and `@AppStorage`), and `HostDefaults` in `RuntimeHost` with a file-backed store; `examples/ExampleDefaults`. The Darwin host keeps the values in a `UserDefaults` suite of the app's own (DarwinAppRuntime's `DarwinDefaults`) |
 | Model store (§7.9) | done: `DynamicCoreModel` (the `ModelStore` contracts, and for the guest `RuntimeModelStorage`, `FetchedResults` and `Query` over CoreModel), and `RuntimeCoreModel` (`HostModelStore`, the contracts over any CoreModel backend, with an in-memory provider); `examples/ExampleModel`. The Darwin host keeps stores in Core Data (DarwinAppRuntime's `DarwinModelStore`); the Linux host needs a provider, and Android and the browser a host side of their own |
-| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. Version 2 of `WebContent` (`Contracts/WebKit.md`) adds what a browser and a mail reader need: `WebPage.Configuration` with private data stores and pages without remote content or scripts, new pages, downloads (`WebDownload`), find and the find bar, the security state, permission requests, snapshots, removing data, the user agent, zoom and gestures, each said in `features()`. The Darwin host implements version 1 over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no host implements version 2, and no other host version 1, yet |
+| Web views (§9.6) | done on the guest side: `DynamicWebKit` (`WebKit` in guest builds) with the `WebContent` contract, `WebPage` and the `WebView` view and node; `examples/ExampleWeb`. `WebContent` (`Contracts/WebKit.md`) also has what a browser and a mail reader need: `WebPage.Configuration` with private data stores and pages without remote content or scripts, new pages, downloads (`WebDownload`), find and the find bar, the security state, permission requests, snapshots, removing data, the user agent, zoom and gestures, each said in `features()`. The Darwin host implements the page and its navigation over `WKWebView` on iOS and macOS (DarwinAppRuntime's `DarwinWebKit`); no host implements the browser features, and no other host any of it, yet |
 | OpenGL ES 2.0 for guests, the surface and its input (§8.1, §8.2, §8.6) | done on the guest side and for both wasm engines: `CGLES2` (`gles2.h`), `DynamicGraphics` (`Surface`, `SurfaceDelegate`, `SurfaceEvents`), the `GLSurface` view, and the import shim `CRuntimeGL`, generated with the header by `Scripts/gles2.py`; `examples/ExampleGL`, which draws correctly on Mesa under a test host (`Scripts/test-gl-mesa.sh`). The Darwin host makes the GL context and sends input on iOS and macOS (DarwinAppRuntime's `DarwinGraphics`); no other platform host does yet |
 
 Not in phase one: platform hosts and backends (ObjC, JNI), renderers
@@ -194,6 +194,15 @@ which are each host's. TCP and UDP are not part of the spec.
   - The delegates take their object first, like the provider contracts'
     (`didChangeState(_:state:)`), and `ApplicationState`'s raw values match
     `UIApplication.State`.
+  - **`openURL` answers at once.** Every platform but iOS knows at once
+    whether it could open a URL, and an answer through the delegate would
+    never come from a host that has only the default.
+  - **The frontend owns an `Application`,** made before the first tree, so
+    a URL the app is opened with is held until an `onOpenURL` appears,
+    rather than going to whichever `Application` the app made first.
+  - **The screen's switch is the app's, and the frontend counts views.**
+    `HostApplication` keeps it awake while any `Application` asks and the
+    app isn't in the background.
 - **Contracts are class-bound** (`protocol BluetoothCentral: AnyObject`). Embedded
   Swift only supports existentials of class-bound protocols, and contract
   parameters such as `BluetoothPeripheral` are existentials. The macro reports a
@@ -574,12 +583,13 @@ which are each host's. TCP and UDP are not part of the spec.
     browsing are `DynamicPhotos`. Being given one is the photo picker,
     which is `Documents`' so that an app which only picks links nothing
     of the library and declares none of its contracts.
-  - **Adding a method to a contract others implement.** `pickPhotos` made
-    `Documents` version 2. A guest asks whether the host has the method
-    (`DocumentsProxy.Methods.pickPhotos.isAvailable`) and asks the file
-    picker if it hasn't. The protocol has a default for it, and so has
-    `DocumentPresenter`, so a host that implements either itself still
-    compiles and does the same.
+  - **Adding a method to a contract others implement.** `pickPhotos` has
+    a default that asks the file picker, and so has `DocumentPresenter`,
+    so a host that implements either itself still compiles and does the
+    same. It made `Documents` version 2 until 2026-11-23, when every
+    contract went back to version 1: none is public yet, so no app or
+    host depends on an older one, and a guest no longer asks whether the
+    host has a method.
   - **Nothing lists the library.** A fetch crosses as an object with a
     count; its assets are asked for a range at a time, with a callback,
     and come as seven strings apiece in one array. The shared host holds
@@ -812,16 +822,14 @@ which are each host's. TCP and UDP are not part of the spec.
     separate object with an unretained reference to the page, which the
     page clears when it's released.
   - **URLs are strings**, as `Link`'s are: guest code has no Foundation.
-  - **Version 2 is methods, not contracts.** A host refuses an app that
-    declares an interface it lacks, so a new contract would stop every
-    web app on every current host. Each new method has a default that does
-    nothing, so the host repos build unchanged, and a host says what it
-    really does in `features()`, since `isAvailable` can't tell a default
-    from support.
-  - **Only a page made by `make(_:dataStore:options:)` hears version 2's
-    events.** A version 1 guest's delegate lacks those methods, and a call
-    to one would trap. A version 2 guest makes every page with it where
-    the host has it.
+  - **A browser's methods are added to the contracts, not beside them.**
+    Each has a default that does nothing, so the host repos build
+    unchanged, and a host says what it really does in `features()`, since
+    a guest can't tell a default from support. They were version 2 of
+    both contracts, with a constructor that marked the pages whose
+    delegates took the new events, until every contract went back to
+    version 1 on 2026-11-23. Now every page's delegate takes every event,
+    and the guest makes every page with `make(_:dataStore:options:)`.
   - **What would leak if ignored is refused:** `WebPage(configuration:)`
     is nil for a private store, remote content off or scripts off that
     the host doesn't say it does.
@@ -1160,7 +1168,17 @@ Each of these needs a decision, or is verified only as far as noted:
   `withCallback`; `PendingCallbacks` ordering; `EventSubscribers` fan-out.
 - `DynamicRuntimeTests/BuiltinContractTests`: the `Permissions`, `Bundle`
   and `Application` built-ins against fake hosts, calls before a host
-  implements them, and their descriptors against `BuiltinContracts`.
+  implements them, opening a URL and keeping the screen awake through the
+  native runtime, and their descriptors against `BuiltinContracts`.
+  `RuntimeHostTests/BuiltinTests`: `Application`'s defaults,
+  `HostApplication` opening through its hook and refusing files, and
+  keeping the screen awake while any `Application` asks and the app is in
+  front. `DynamicSwiftUITests`, against a stand-in `Application`:
+  `openURL` and its answer, nested `OpenURLAction`s and a `Link`'s
+  `intercepts`, a URL held until an `onOpenURL` appears, `scenePhase`,
+  `idleTimerDisabled` counted across views, and a host with only the
+  defaults. `RuntimeWasmTests` and `LinkedSliceTests` run `ExampleUI`'s
+  System tab on the three engines.
 - `DynamicFilesTests`: the file contracts' keys and signatures, `FilePath`,
   and the guest's `FileManager` against a scripted host: what each call
   asks, answers and failures, an answer of the wrong kind, a second
@@ -1348,7 +1366,7 @@ Each of these needs a decision, or is verified only as far as noted:
   it. `RuntimeWasmTests` and `LinkedSliceTests` run `examples/ExampleNotes`
   as `App.wasm`, a sealed macOS slice and wasm2c output, with the test's
   renderer reporting the window and going back, and `RuntimeWasmTests`
-  again with a renderer from before version 2.
+  again with a renderer that reports no values and draws no split views.
 - `DynamicMapKitTests`: the maps contract's keys and capability,
   `MapProvider` from a host, positions and the camera's payload both ways,
   regions in meters; and a `Map` in the view graph: each kind of content
@@ -1549,9 +1567,9 @@ Each of these needs a decision, or is verified only as far as noted:
   first use, state following the delegate, observation, the navigation
   decider, scripts answered out of order and awaited, and the host page
   destroyed with the guest's; the `WebView` node, and a `WebView(url:)`
-  keeping one page across updates. Version 2: the new keys and
+  keeping one page across updates. A browser's and a mail reader's: the keys and
   signatures, `WebPage(configuration:)` nil where the host lacks a
-  feature, every page made by the new constructor, and each feature
+  feature, every page made with its store and options, and each feature
   through the stand-in: the user agent and zoom, new pages, downloads,
   find, the security state, permissions, snapshots, removing data, a
   released page cancelling what waits, and the find bar's and gestures'
@@ -1639,8 +1657,8 @@ Each of these needs a decision, or is verified only as far as noted:
 7. `WebContent` in the other hosts (`Documentation/Contracts/WebKit.md`):
    Android's `WebView`, and WPE on Linux (the Darwin host has `WKWebView`), where its child
    processes inside the launcher's sandbox are the open question. Then
-   version 2 in every host ("What hosts still need" there): `features()`,
-   the new constructor, new windows, downloads, find, permissions,
+   the browser features in every host ("What hosts still need" there):
+   `features()`, the constructor with a store and options, new windows, downloads, find, permissions,
    snapshots, removing data and the node's new props. Then messages from
    a page's scripts to the app.
 8. App data (§7.9) in the hosts. The model store needs a provider in
@@ -1795,3 +1813,8 @@ Each of these needs a decision, or is verified only as far as noted:
    `clipped`, and zooms a `ScrollView` with `minZoom`, reporting `change`
    when a gesture ends. Then the rest of `Drawing`: the canvas, bitmaps and
    fonts.
+25. Opening URLs and keeping the screen awake in the hosts
+   (`Documentation/Contracts/Application.md`): `DarwinApplication`
+   implements `openURL` and `setIdleTimerDisabled`; the Android and Linux
+   hosts set `HostApplication.openURL` and `idleTimerDisabledChanged`;
+   every renderer sends `tap` for a `Link` with `intercepts`.
