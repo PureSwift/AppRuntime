@@ -18,7 +18,7 @@ import WebKit
 /// script that counts the page's links; and a decider that keeps the page
 /// on the web, refusing schemes such as `tel:` and `mailto:`.
 ///
-/// With `WebContent` version 2 it has tabs, which a link that opens a new
+/// It also has tabs, which a link that opens a new
 /// window opens too; a private tab; find, and the platform's find bar; a
 /// list of downloads; a site's request for the camera, which it asks the
 /// user about; a picture of the tab; and a message page that loads nothing
