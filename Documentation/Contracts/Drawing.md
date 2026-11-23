@@ -1,7 +1,8 @@
 # Drawing
 
-**Status:** a design, reviewed once (the decisions are at the end).
-Nothing here is implemented.
+**Status:** a design, reviewed once (the decisions are at the end). Its
+image part, drafted to be built first, waits on review:
+[Images, built first](#images-built-first). Nothing here is implemented.
 
 Module `DynamicDrawing`: 2D vector graphics, drawn by the host's GPU. It
 has CoreGraphics' model and method names, and none of its `CG` prefixes.
@@ -17,16 +18,321 @@ can read back or show.
 | `DrawingFont` | contract | a platform font at a size |
 | `DrawingCallback` | callback | |
 
-Guest-side Swift: `GraphicsContext`, `BitmapContext`, `Path`, `Point`,
-`Size`, `Rect`, `AffineTransform`, `Gradient`, `StrokeStyle`, and the
-`Color`, `Font` and `Image` the SwiftUI frontend already has. The SwiftUI
-frontend adds `Canvas`, and `Shape`s made from a `Path`.
+Guest-side Swift: `GraphicsContext`, `BitmapContext`, `Path`,
+`Gradient`, `StrokeStyle`, and more sources for the frontend's `Image`.
+It draws with the `Color`, `Font`, `Point`, `Size`, `Rect` and
+`AffineTransform` of the SwiftUI frontend, which it imports. It adds
+`Canvas`, and `Shape`s made from a `Path`.
 
 On every host written in Swift the contracts are one module,
 `RuntimeDrawing`, which draws with
 [Silica](https://github.com/PureSwift/Silica). Silica's `CGContext` is a
 protocol with CoreGraphics, Cairo and Android Canvas backends, and this
 design adds one over OpenGL ES 2.0 ([Drawn by the GPU](#drawn-by-the-gpu)).
+
+## Images, built first
+
+The image viewer needs four things from this design and nothing more: an
+image the host decodes, from a file the user picked, drawn at the size
+it's shown, in a view that zooms. Contacts' photos and music artwork need
+the image and its view. So the image part is built first, on its own:
+
+| Built now | Built later, with the canvas |
+|---|---|
+| `DrawingImage` and `DrawingCallback` | `DrawingCanvas`, `DrawingBitmap`, `DrawingFont` |
+| `Image` from a file, from bytes and from pixels; its `size` | `GraphicsContext`, `BitmapContext`, `Path`, `Canvas` |
+| An `image` prop on the `Image` node | The drawing format and its player |
+| `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped` | `Image` from a bundle resource in a canvas, and from a bitmap |
+| A scroll view that zooms | `SilicaGL` |
+| `RuntimeDrawing`'s image half, over a host's decoder | |
+
+The four questions at the end stay open: none of them is about images.
+
+### What shapes it
+
+- **A photo doesn't fit through the guest.** A 48-megapixel photo is
+  about 20 MB as a file and 190 MB as RGBA. A wasm guest's heap is 4 GB
+  at most, and every byte that crosses is copied. So the host reads the
+  file, decodes it and draws it, and the guest holds a handle.
+- **A picked file is already somewhere the host can reach.** A
+  `Document`'s `path` is a `FilePath`, and a contract can take a
+  directory and a path, as `MediaPlayback.loadFile` does. Decoding from a
+  document needs no handle of a new kind: a document is a directory
+  `Files` accepts.
+- **Only the host knows the size it shows.** The guest does no layout
+  (§9.1), so it can't choose how large to decode. The host decodes for
+  the size an image is drawn at, as it draws a `Photo` node from the
+  system's thumbnails at the node's size. A guest that wants a small copy
+  whatever happens says so.
+- **Zooming stays in the host.** An event per frame of a pinch would cross
+  to the guest and come back as an update, behind the fingers. The
+  platforms' scroll views zoom by themselves; the guest hears the scale
+  when the fingers lift.
+- **Every SwiftUI app shouldn't declare this.** An app declares every
+  contract of the modules it links, and a host refuses one that declares
+  a contract the host lacks. `TextEditor` and the clipboard's image type
+  found this when they were built. So `Image` stays in the frontend, which
+  declares nothing new, and `DynamicDrawing` adds its sources
+  ([What this changes](#what-this-changes)).
+
+### For a guest
+
+```swift
+import SwiftUI
+import DynamicDocuments
+import DynamicDrawing
+
+struct Viewer: View {
+
+    let document: Document           // held for as long as it's shown
+
+    @State var zoom = 1.0
+
+    var body: some View {
+        ScrollView([.horizontal, .vertical]) {
+            Image(contentsOf: document.path)
+                .resizable()
+                .scaledToFit()
+                .accessibilityLabel(document.name)
+        }
+        .zoomable(1...8, scale: $zoom)
+    }
+}
+```
+
+```swift
+let photo = Image(contentsOf: document.path)        // nothing is read yet
+let size = try await photo.size                     // 8064 by 6048: the header, not a decode
+
+let thumbnail = Image(contentsOf: document.path, maximumPixelSize: 256)
+let avatar = Image(data: contact.photo)             // encoded bytes the app has
+let swatch = Image(pixels: rgba, width: 16, height: 16, scale: 2)
+
+let types = Image.decodableTypes                    // ["image/png", "image/jpeg", "image/heic", …]
+```
+
+- **`Image` is the frontend's**, with three more sources. It's still a
+  value: copies of one share one host image. Making one reads nothing.
+  The host reads the file when the image is first shown or asked its
+  size.
+- **It's decoded where it's drawn.** The host decodes for the pixels the
+  view covers, rounded up to a power of two. That's never more than the
+  image has, nor more than `maximumPixelSize` on the longer side. Shown
+  larger, because it's zoomed or the window grew, it's decoded again, and
+  the old decode is shown scaled until the new one is ready. The host
+  holds one decode per image, and may drop one that isn't on screen.
+- **Upright.** The orientation the file records is applied, and `size` is
+  the size as shown.
+- **`size` is `async throws(DrawingError)`**, in points: pixels over the
+  scale. A file's or bytes' scale is 1.
+- **An image that can't be read draws nothing**, as a `Photo` node
+  doesn't, and the host says so once in its log. Its `size` throws
+  `undecodable`, `notFound` or `notPermitted`.
+- **Hold the document.** A file image reads through the document's
+  access, which ends when the app releases the `Document`, as for any
+  `FilePath` ([Documents](Documents.md)). An image shown after that draws
+  what it already decoded, or nothing.
+- **`decodableTypes`** are MIME types, for filtering a picker: PNG and
+  JPEG on every host; HEIF, WebP, GIF, TIFF and BMP where the platform
+  decodes them. A GIF is its first frame.
+- `Image(data:)` copies the bytes to the host once. It's for what the app
+  already has in memory, a contact's photo or a song's artwork, not for a
+  file it could name.
+
+### Showing it
+
+- **The `Image` node gets an `image` prop:** a `DrawingImage`'s
+  identifier. Without `resizable`, the node is the image's size in points.
+  With it, the image fills its frame.
+- **It's laid out before it's decoded.** The host reads the header first,
+  which costs a read of a few kilobytes. Until then the node is empty, and
+  the host lays out again when the size arrives.
+- **New modifiers, as SwiftUI has them:** `aspectRatio(_:contentMode:)`,
+  `scaledToFit()`, `scaledToFill()` and `clipped()`, on any view. In the
+  IR, `aspectRatio` has `ratio` (none: the content's own) and
+  `contentMode` (`fit`, `fill`), and `clipped` has nothing. A host that
+  doesn't know them ignores them, and the image is stretched.
+- **The frontend keeps the images it shows.** An `Image` made in `body`
+  would be released when `body` returns. The frontend holds every host
+  image the last tree it sent names, and lets go of one when a tree no
+  longer does.
+
+### Zooming
+
+```swift
+ScrollView([.horizontal, .vertical]) { … }
+    .zoomable(1...8, scale: $zoom)     // or .zoomable(1...8)
+```
+
+SwiftUI has no scroll view that zooms, so this spelling is the
+frontend's own. It's a method on `ScrollView`, as `resizable()` is on
+`Image`.
+
+- **The content is laid out in the scroll view's own size,** as if it
+  didn't scroll, and centered. Zooming scales it, and the scroll view
+  scrolls what zooming makes larger than itself.
+- **A pinch zooms** around the fingers, and so does a trackpad's. A
+  **double tap** zooms in to twice the minimum at the point tapped, or
+  back out to the minimum.
+- **The guest hears the scale when the gesture ends:** a `change` event
+  with the scale. Setting the binding zooms, around the center, animated
+  as the platform animates it. The usual control sync applies: the host
+  zooms only to a scale that differs from the one it last rendered.
+- **Content is drawn sharp at its zoomed size.** An image in it is decoded
+  for that size when the gesture ends. While the fingers move, the host
+  scales what it has.
+- **In the IR,** `ScrollView` gains `minZoom`, `maxZoom` and `zoom`
+  (doubles), and a `change` event (double: the scale). A host that doesn't
+  know them shows a scroll view that doesn't zoom.
+- Not here: zooming a lazy container, rotating, and a pinch on a view
+  that isn't a scroll view, which is the frontend's gestures' to add.
+
+### The contract, now
+
+`DrawingImage` as built, in place of the draft
+[below](#the-contracts). `named` comes back with the canvas, as an added
+method. `DrawingCallback` is as drafted.
+
+```swift
+/// An image the host holds and decodes.
+@DynamicRuntime("org.pureswift.drawing.Image")
+public protocol DrawingImage: AnyObject {
+
+    /// A file `Files` reaches: `directory` is a `FileDirectory`'s value,
+    /// the app's own or a document's. Nothing is read yet. `maxPixelSize`
+    /// caps the longer side of every decode; 0 doesn't.
+    static func open(_ directory: Int32, path: String, maxPixelSize: Int32) -> Self
+
+    /// Encoded bytes, in a format `formats()` names.
+    static func decode(_ data: [UInt8], maxPixelSize: Int32) -> Self
+
+    /// RGBA, 8 bits each, premultiplied, sRGB, rows from the top. Nil when
+    /// the bytes don't match the size, or the host refuses the size.
+    static func make(pixels: [UInt8], width: Int32, height: Int32, scale: Float) -> Self?
+
+    /// The MIME types this host decodes.
+    static func formats() -> [String]
+
+    func identifier() -> Int32
+
+    /// Reads the header if it hasn't been, then `didMeasure` with the
+    /// upright size in points and the scale, or `didFail`.
+    func size(_ callback: DrawingCallback)
+}
+```
+
+- **No capability.** Reading a file is the access the app already has to
+  its directory, or the user gave with the document.
+- `DrawingError` gains `notPermitted`, for a document the app let go of.
+
+### For a host
+
+`RuntimeDrawing`'s image half: `HostImages`, the contract over a host's
+`ImageDecoder`, and what a renderer asks it for.
+
+```swift
+public protocol ImageDecoder: AnyObject, Sendable {   // off the main thread, one call at a time
+
+    /// The MIME types it decodes.
+    var formats: [String] { get }
+
+    /// The upright size in pixels, from the header alone.
+    func header(of source: HostImageSource) throws(DrawingError) -> HostImageHeader
+
+    /// Upright, with the longer side no more than `maxPixelSize`.
+    func decode(_ source: HostImageSource, maxPixelSize: Int) throws(DrawingError) -> HostDecodedImage
+
+    /// The platform's image of pixels the guest made.
+    func image(pixels: [UInt8], width: Int, height: Int) throws(DrawingError) -> HostDecodedImage
+}
+
+// HostImageSource: .file(String), an absolute path from HostFiles, or .data([UInt8]).
+// HostDecodedImage: its size in pixels, and the decoder's own image as an
+// AnyObject: a CGImage, an android.graphics.Bitmap, a GdkTexture.
+
+HostImages.decoder = PlatformImageDecoder()
+HostDrawingModule.register(in: runtime)
+
+// In the renderer, for an Image node's `image` prop:
+let image = HostImages.image(identifier)
+image.header { header in … }                       // for layout
+image.decoded(forPixelSize: 1800) { decoded in … } // at once when what it holds is enough
+```
+
+- **The file is found through `HostFiles`** when it's first read, as
+  `HostMedia` finds a file to play, so a document that's been let go of
+  fails with `notPermitted`.
+- **The header is read once,** and every `size` and every layout is
+  answered from it.
+- **Sizes are rounded up** to a power of two and capped by the image's
+  own size and its `maxPixelSize`, so a resize by a few points doesn't
+  decode again. One decode runs at a time per image; requests that arrive
+  meanwhile wait for it, or for one more large enough.
+- **It keeps the largest decode** asked for, and lets go of it when the
+  guest releases the image. `HostImages.trim()`, for the platform's
+  memory warning, drops every decode not drawn since the last frame.
+- **Answers are on the main thread.**
+- **`MemoryImageDecoder`,** for tests, reads the sizes in PNG and JPEG
+  headers and records each decode asked of it. It isn't a default:
+  without a decoder, images can be made, `formats()` is empty, and
+  `size` fails with `unavailable`.
+
+What decodes on each platform. These are from what's known of each, and
+haven't been checked against its documentation yet:
+
+| Host | Header | Decode at a size | Formats besides PNG and JPEG |
+|---|---|---|---|
+| iOS / macOS | ImageIO: `CGImageSourceCopyPropertiesAtIndex`, with the orientation | `CGImageSourceCreateThumbnailAtIndex` with `kCGImageSourceThumbnailMaxPixelSize`, `CreateThumbnailWithTransform` and `CreateThumbnailFromImageAlways` | HEIF, WebP, GIF, TIFF, BMP |
+| Android | `ImageDecoder`'s `OnHeaderDecodedListener` (API 28); `BitmapFactory` with `inJustDecodeBounds` and `ExifInterface` below it | `ImageDecoder.setTargetSize`; `BitmapFactory`'s `inSampleSize` below API 28 | WebP, GIF, BMP; HEIF from API 28 |
+| Linux | `gdk_pixbuf_get_file_info`, and the orientation option | `gdk_pixbuf_new_from_file_at_scale`, then `gdk_pixbuf_apply_embedded_orientation` | whatever loaders are installed: often WebP, GIF, TIFF, BMP |
+| Browser | `createImageBitmap` of the file, or the `ImageDecoder` API where there is one | `createImageBitmap` with `resizeWidth`, `resizeHeight` and `imageOrientation: "from-image"` | WebP, GIF, BMP; HEIF in Safari |
+
+What a renderer does with the node and the scroll view:
+
+| Host | `Image` with `image` | Zooming |
+|---|---|---|
+| iOS | a `UIImageView` of the decode's `CGImage` | `UIScrollView`'s `minimumZoomScale`, `maximumZoomScale`, `viewForZooming(in:)`; `scrollViewDidEndZooming` reports |
+| macOS | an `NSImageView` | `NSScrollView`'s `allowsMagnification`, `minMagnification`, `maxMagnification`; `didEndLiveMagnifyNotification` reports |
+| Android | an `ImageView` of the `Bitmap`, or a Compose `Image` | a `ScaleGestureDetector` and a double-tap detector over the content, or Compose's `transformable` |
+| Linux | a `GtkPicture`, or the toolkit's image | `GtkGestureZoom` over the scrolled content |
+| Browser | an `<img>` or a canvas with the `ImageBitmap` | a CSS scale on the content, from pointer events and a trackpad's wheel with control held |
+
+### What this changes
+
+Three of the reviewed decisions, and the text that followed from them:
+
+- **`Color`, `Font` and `Image` stay in the frontend.** The review had
+  them move to `DynamicDrawing` and the frontend re-export them. Then
+  every SwiftUI app would link `DynamicDrawing` and declare its
+  contracts. Kept in the frontend, they're still one type each, which is
+  what moving them was for, and no file that imports both sees a clash.
+- **`DynamicDrawing` imports the frontend,** and `DynamicFiles`, as
+  `DynamicMedia` and `DynamicPhotos` do. It needs the frontend's `Image`
+  to extend, and its `Canvas` couldn't be in the frontend for the same
+  reason as above. An app that draws a bitmap with no window links the
+  frontend's code, and declares the renderer.
+- **The geometry is the frontend's too.** `Point`, `Size`, `Rect` and
+  `AffineTransform` are where SwiftUI's API is, with the `CG` aliases
+  beside them. `Size` comes now, for `size`; the rest come with the
+  canvas. `DynamicDrawing` still has no `CG` names.
+- And one thing in the draft contract: **an image is decoded at the size
+  it's drawn,** not once when it's made, and `decode` takes a
+  `maxPixelSize`.
+
+### Tests and an example
+
+- **Frontend:** the `image` prop, the new modifiers, the zoom props and
+  its `change` event, and that the frontend holds an image while a tree
+  names it and lets go after.
+- **`DynamicDrawing`:** sources, `size` through a test host, errors.
+- **`RuntimeDrawing`:** rounding and capping sizes, one decode at a time,
+  keeping the largest, `trim()`, `notPermitted` after a grant is revoked,
+  `MemoryImageDecoder`'s headers.
+- **`ExampleImages`,** on the three engines: it writes a PNG to its own
+  directory, shows it fitted in a zooming scroll view with its size and
+  the scale beneath, shows a thumbnail of it, and has a button that opens
+  a picked image instead. The tests check the tree, the size, and a zoom
+  reported by a test renderer.
 
 ## What shapes it
 
@@ -136,8 +442,8 @@ let png = try await context.png()         // bytes, for a file or an upload
 let pixels = try await context.pixels()   // RGBA, 512 by 512
 ```
 
-- `BitmapContext` needs no view and no SwiftUI: `DynamicDrawing` doesn't
-  depend on the frontend.
+- `BitmapContext` needs no view and no window, though `DynamicDrawing`
+  imports the frontend for its types.
 - `makeImage()` is the bitmap as it is now, as an `Image`: a view
   (`image.resizable()`), or something to draw in another context.
 - Reading bytes back is asynchronous, for the browser's sake (below).
@@ -156,18 +462,19 @@ imports both sees no clash.
 | `CGContext` | `GraphicsContext` | SwiftUI's name for what `Canvas` hands over |
 | bitmap `CGContext` | `BitmapContext` | a `GraphicsContext` |
 | `CGPath`, `CGMutablePath` | `Path` | a value type, as in SwiftUI |
-| `CGColor` | `Color` | the frontend's, moved here |
-| `CGFont` + a size, `CTFont` | `Font` | the frontend's, moved here |
-| `CGImage` | `Image` | the frontend's, moved here; also a view |
+| `CGColor` | `Color` | the frontend's |
+| `CGFont` + a size, `CTFont` | `Font` | the frontend's |
+| `CGImage` | `Image` | the frontend's, with more sources here; also a view |
 | `CGGradient` | `Gradient` | |
 | `CGLineCap`, `CGLineJoin` | `LineCap`, `LineJoin` | |
 | `CGPathFillRule` | `FillRule` | `.winding`, `.evenOdd` |
 | `CGPathDrawingMode` | `DrawingMode` | |
 | `CGBlendMode` | `BlendMode` | |
 
-`Color`, `Font` and `Image` are in `DynamicSwiftUI` today. They move to
-`DynamicDrawing` with their API unchanged, and the frontend re-exports
-them and keeps how each is written in the render tree.
+`Color`, `Font` and `Image` stay in `DynamicSwiftUI`, where they are
+today, and so do `Point`, `Size`, `Rect`, `Vector` and `AffineTransform`
+when they come. `DynamicDrawing` imports the frontend and draws with them
+([What this changes](#what-this-changes)).
 
 No type has a `CG` name. Where source written for Apple's frameworks
 needs one to compile, it's a type alias and nothing more, as the
@@ -235,10 +542,11 @@ answers `boundingRect`, `contains(_:using:)`, `applying(_:)` and
   never for an appearance change.
 - **A `Shape` with `path(in:)`** is a canvas whose drawing is its path,
   filled or stroked. The five built-in shapes stay the nodes they are.
-- **`Image`** gains two sources besides a name and a symbol: bytes
-  (`Image(data:)`, `Image(pixels:width:height:scale:)`) and a bitmap
-  context's `makeImage()`. In the tree such an image is its
-  `DrawingImage`'s identifier.
+- **`Image`** gains sources besides a name and a symbol: a file
+  (`Image(contentsOf:)`), bytes (`Image(data:)`,
+  `Image(pixels:width:height:scale:)`), and later a bitmap context's
+  `makeImage()`. In the tree such an image is its `DrawingImage`'s
+  identifier ([Showing it](#showing-it)).
 - **A canvas isn't a `Surface`.** The guest calls no GL in it, and gets no
   frame callback. The host's renderer draws it, in the host's context.
 - Not in this version: redrawing every frame (`TimelineView`), gestures
@@ -343,6 +651,7 @@ public protocol DrawingBitmap: AnyObject {
 }
 
 /// An image the host holds: a resource, decoded bytes or a bitmap's.
+/// Superseded by the image part: see "The contract, now".
 @DynamicRuntime("org.pureswift.drawing.Image")
 public protocol DrawingImage: AnyObject {
 
@@ -423,12 +732,15 @@ when it's made. So:
 
 ## Images
 
-- **Sources:** a bundle resource by name, a symbol by name (as today),
-  encoded bytes, raw pixels, and a bitmap context.
-- **Formats:** PNG everywhere. JPEG where the host has a decoder; Silica
-  has none of its own yet.
+- **Sources:** a bundle resource by name, a symbol by name (as today), a
+  file, encoded bytes, raw pixels, and a bitmap context.
+- **Formats:** PNG and JPEG everywhere, decoded by the platform
+  ([the image part's host](#for-a-host)). Silica's own decoders, when it has them,
+  are for a host whose platform has none.
 - **`draw(_:in:)` scales to the rect**, with the host's default
-  interpolation. An image has a scale, so its `size` is in points.
+  interpolation. An image has a scale, so its `size` is in points. A
+  file image is decoded for the pixels the rect covers, as it is for a
+  view.
 
 ## Color and scale
 
@@ -591,7 +903,8 @@ needs only the `Silica` module. That's for Silica's package to solve
 - **No `CG` names.** A type alias where compatibility needs one: the
   frontend's, for SwiftUI's spellings.
 - The module is **`DynamicDrawing`**, and `Color`, `Font` and `Image`
-  live in it.
+  live in it. The image part proposes keeping them in the frontend
+  ([What this changes](#what-this-changes)).
 - **Silica is the host's renderer,** and what it lacks is added to it.
 - **Animation isn't a goal yet.**
 - **It's for vector graphics drawn by the GPU.**
@@ -612,3 +925,15 @@ needs only the `Silica` module. That's for Silica's package to solve
    CoreGraphics before `SilicaGL` exists. Is that order acceptable: the
    guest API, the format and the player on the backends Silica has, then
    the GL backend?
+
+For the image part:
+
+5. **Keeping `Color`, `Font` and `Image` in the frontend,** which reverses
+   a reviewed decision so that a SwiftUI app doesn't declare drawing
+   contracts ([What this changes](#what-this-changes)).
+6. **Decoding at the size drawn,** chosen by the host, with
+   `maximumPixelSize` as the guest's only say. The other way is a guest
+   that asks for a size and decodes again when the scale it hears
+   changes, which it can't choose well without layout.
+7. **`zoomable(_:scale:)`,** a spelling of the frontend's own, since
+   SwiftUI has none.
