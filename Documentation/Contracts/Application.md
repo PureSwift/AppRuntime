@@ -1,6 +1,11 @@
 # The application: opening URLs and keeping the screen awake
 
-**Status:** a draft, not reviewed. Nothing in this document is built.
+**Status:** reviewed and built on the guest side, with the shared host
+side: the two methods and their defaults, `HostApplication`'s hooks, the
+frontend's `Application` with `openURL`, `OpenURLAction`, `onOpenURL`,
+`scenePhase` and `idleTimerDisabled`, `Link`'s `intercepts`, and
+`ExampleUI`'s System tab on the three engines. No platform host opens a
+URL or keeps the screen awake yet; "What hosts still need" is the list.
 
 `Application` is a built-in contract (`DynamicRuntime.md` §7.4): the
 app's lifecycle, memory warnings, and the URLs it's opened with. This
@@ -202,6 +207,36 @@ Darwin host implements `Application` itself (DarwinAppRuntime's
   shows the answer, a `Link` the app handles itself, the last URL the app
   was opened with, the scene phase, and a switch that keeps the screen
   awake. On the three engines, against a stand-in host.
+
+## Changed while building
+
+- **`OpenURLAction.Result` is a struct with static members,** as
+  SwiftUI's is: an enum can't have both `systemAction` and
+  `systemAction(_:)`.
+- **The frontend makes its `Application` only where the host has one.**
+  `HostRenderer.start` makes it before the first tree; where making it
+  fails, `openURL` answers `false` and the phase stays `.active`.
+- **A URL held for a later `onOpenURL` is answered `true`** to the host:
+  the app takes it, once a view is there to.
+- **A state the guest doesn't know is ignored,** as a newer host's might
+  be, and `ScenePhase` is `Comparable`, `.background` first, as SwiftUI's
+  is.
+- **`HostApplication` refuses a `file:` URL itself,** before its hook, and
+  says what it last told the platform in `isIdleTimerDisabled`.
+- **The draft's questions, as built:** `Link` has `intercepts`; the
+  modifier is `idleTimerDisabled(_:)`; `openURL` answers at once.
+
+## What hosts still need
+
+- **The Darwin host:** `DarwinApplication` implements `openURL`
+  (`UIApplication.open`, `NSWorkspace.open`) and `setIdleTimerDisabled`
+  (`isIdleTimerDisabled`, a power assertion on macOS).
+- **The Android and Linux hosts:** set `HostApplication.openURL` and
+  `HostApplication.idleTimerDisabledChanged` to the platform's.
+- **Every renderer:** a `Link` with `intercepts` sends `tap` and opens
+  nothing.
+- **Checking the table at the top** against each platform's
+  documentation, which hasn't been done.
 
 ## Not in this design
 
