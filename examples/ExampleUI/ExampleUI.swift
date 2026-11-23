@@ -13,7 +13,10 @@ import SwiftUI
 /// group with a link, a date picker, context menus, pull to refresh, a
 /// shape, and a sheet with tabs and grids. The sheet's System tab opens a
 /// URL, has a link the app handles itself, shows the URL the app was last
-/// opened with and its scene phase, and keeps the screen awake.
+/// opened with and its scene phase, and keeps the screen awake. Its Card
+/// tab has a card the user drags and holds to pin; the app has a Fruit
+/// menu with a shortcut, shortcuts on its buttons, and detents on its
+/// sheet.
 @Observable
 final class Store {
     var name: String = "World"
@@ -24,6 +27,12 @@ final class Store {
     var lastURL: String = ""
     var opened: String = ""
     var keepsAwake: Bool = false
+
+    /// The Fruit menu's command.
+    func addFruit() {
+        let id = (items.map { $0.id }.max() ?? 0) + 1
+        items.append(Fruit(id: id, name: "Fruit \(id)"))
+    }
 
     /// A URL of the app's own: `exampleui://fruit/2` makes Banana the
     /// favorite.
@@ -171,11 +180,41 @@ struct AboutView: View {
                     }
                 }
                 Button("Done") { isPresented = false }
+                    .keyboardShortcut(.defaultAction)
                     .accessibilityIdentifier("done")
             }
             .tabItem { Label("About", systemImage: "info.circle") }
             SystemView(store: store)
                 .tabItem { Label("System", systemImage: "gear") }
+            CardView()
+                .tabItem { Label("Card", systemImage: "hand.draw") }
+        }
+    }
+}
+
+/// A card the user drags about, and holds to pin where it is.
+struct CardView: View {
+    @State var offset = Size.zero
+    @State var pinned = false
+    @GestureState var dragging = false
+
+    var body: some View {
+        VStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(pinned ? .orange : dragging ? .gray : .blue)
+                .frame(width: 120, height: 80)
+                .offset(x: offset.width, y: offset.height)
+                .gesture(
+                    DragGesture()
+                        .updating($dragging) { _, state, _ in state = true }
+                        .onChanged { value in
+                            if !pinned { offset = value.translation }
+                        }
+                )
+                .onLongPressGesture { pinned.toggle() }
+                .accessibilityIdentifier("card")
+            Text("\(Int(offset.width)), \(Int(offset.height))\(pinned ? ", pinned" : "")\(dragging ? ", dragging" : "")")
+                .accessibilityIdentifier("cardPosition")
         }
     }
 }
@@ -214,8 +253,11 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 Button("About") { showingAbout = true }
+                    .keyboardShortcut("i")
                     .sheet(isPresented: $showingAbout) {
                         AboutView(isPresented: $showingAbout, store: store)
+                            .presentationDetents([.medium, .large])
+                            .presentationDragIndicator(.visible)
                     }
                 List(store.items.filter { store.query.isEmpty || $0.name.hasPrefix(store.query) }) { fruit in
                     NavigationLink(fruit.name, destination: FruitDetail(fruit: fruit))
@@ -253,6 +295,12 @@ struct ExampleUIApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(store: store)
+        }
+        .commands {
+            CommandMenu("Fruit") {
+                Button("Add Fruit") { store.addFruit() }
+                    .keyboardShortcut("n")
+            }
         }
     }
 }
