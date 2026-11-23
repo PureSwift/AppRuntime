@@ -1,5 +1,6 @@
-/// The built-in `Application` contract: the app's lifecycle and incoming
-/// URLs.
+/// The built-in `Application` contract: the app's lifecycle, incoming
+/// URLs, opening URLs in other apps, and keeping the screen awake
+/// (`Documentation/Contracts/Application.md`).
 ///
 /// A file the app is opened with isn't a URL here: a guest can't open a
 /// path outside its container. It arrives as a document, through
@@ -23,6 +24,27 @@ public protocol Application: AnyObject {
 
     /// An `ApplicationState` raw value.
     func state() throws(RuntimeError) -> Int32
+
+    /// Asks the platform to open `url` in the app that handles it. Whether
+    /// it could: there's an app for it, and the URL is well formed. On iOS,
+    /// whether the system was asked; its answer comes later, and isn't
+    /// passed on.
+    func openURL(_ url: String) throws(RuntimeError) -> Bool
+
+    /// While true, the screen doesn't dim or lock for want of input, while
+    /// the app is in the foreground. The last call wins.
+    func setIdleTimerDisabled(_ disabled: Bool) throws(RuntimeError)
+}
+
+/// What a host that hasn't implemented these does: opens nothing, and
+/// lets the screen sleep.
+public extension Application {
+
+    func openURL(_ url: String) throws(RuntimeError) -> Bool {
+        false
+    }
+
+    func setIdleTimerDisabled(_ disabled: Bool) throws(RuntimeError) { }
 }
 
 /// Lifecycle events and URLs, from the host.
