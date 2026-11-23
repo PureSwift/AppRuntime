@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import DynamicDrawing
+@testable import DynamicDrawing
 import DynamicFiles
 import DynamicRuntime
 @testable import DynamicSwiftUI
@@ -86,11 +86,14 @@ struct ShelfView: View {
         HostImages.work = { $0() }
         HostImages.deliver = { $0() }
         HostImages.log = { _ in }
+        HostDrawing.reset()
+        HostDrawing.log = { _ in }
         HostDrawingModule.register(in: native)
     }
 
     deinit {
         HostImages.reset()
+        HostDrawing.reset()
         try? Foundation.FileManager.default.removeItem(at: root)
     }
 
@@ -116,7 +119,7 @@ struct ShelfView: View {
             #expect(keys.contains { $0.hasPrefix(name) }, "\(name) in \(keys)")
         }
         #expect(DrawingCallbackProxy.descriptor.name == "org.pureswift.drawing.Callback")
-        #expect(HostDrawingModule.contracts.count == 2)
+        #expect(HostDrawingModule.contracts.count == 6, "the image and its callback, the canvas and its delegate, the bitmap and the font")
     }
 
     // MARK: Sources
