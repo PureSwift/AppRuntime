@@ -64,7 +64,8 @@ public struct EventStream<Element, Failure: Error>: AsyncSequence, @unchecked Se
 
         /// The next element; `nil` once the stream has finished or the task
         /// is cancelled. Throws the failure the stream finished with, once.
-        public mutating func next() async throws(Failure) -> Element? {
+        /// It runs on the caller's actor, as the delegate that yields does.
+        public nonisolated(nonsending) mutating func next() async throws(Failure) -> Element? {
             try await storage.next()
         }
 
@@ -184,7 +185,11 @@ public struct EventStream<Element, Failure: Error>: AsyncSequence, @unchecked Se
             handler?()
         }
 
-        func next() async throws(Failure) -> Element? {
+        /// On the caller's actor: the storage isn't locked, and the delegate
+        /// that yields into it runs there. Nonisolated, it would run on the
+        /// global executor, beside a yield on the main actor, wherever the
+        /// guest isn't the only thread, as in a host's tests.
+        nonisolated(nonsending) func next() async throws(Failure) -> Element? {
             if head < elements.count {
                 let element = elements[head]
                 head += 1
