@@ -21,8 +21,8 @@ final class TestWebContent: WebContent {
 
     var calls: [String] = []
 
-    /// How it was made: "make" for version 1, else the version 2
-    /// constructor's store and options.
+    /// How it was made: "make" for the plain constructor, else the store
+    /// and options it was made with.
     var made = "make"
 
     init(delegate: any WebContentDelegate) {
@@ -37,7 +37,7 @@ final class TestWebContent: WebContent {
         return content
     }
 
-    /// Everything version 2 has.
+    /// Every feature.
     static func features() -> Int32 { 4095 }
 
     static func make(_ delegate: any WebContentDelegate, dataStore: Int32, options: Int32) -> TestWebContent {
@@ -154,8 +154,8 @@ extension LinkedSliceTests {
         engine.delegate.didChangeLoading(engine, isLoading: true, progress: 0.1)
         #expect(renderer.screen?.identified("error") == nil)
 
-        // Version 2. Pages are made by its constructor, so the host tells
-        // their delegates its events.
+        // The browser's features. Pages are made with their store and
+        // options.
         #expect(engine.made == "store 0 options 0")
 
         // A link that opens a new window opens a tab, and the host loads
