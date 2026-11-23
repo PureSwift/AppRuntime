@@ -54,6 +54,15 @@ final class WasmTestEngine: MediaEngine {
     func setLooping(_ looping: Bool) { }
     func setTimeUpdateInterval(_ seconds: Double) { }
 
+    /// The subtitles the loaded file has, as an engine would list them.
+    var subtitles: [HostMediaTrack] = []
+
+    /// Chosen, as the platform would: it says so back.
+    func selectTrack(_ kind: HostMediaTrack.Kind, index: Int?) {
+        guard kind == .subtitles else { return }
+        player?.tracksChanged(audio: [], subtitles: subtitles, selectedAudio: nil, selectedSubtitle: index)
+    }
+
     /// The source turned out to be a three-minute song.
     func finishLoading() {
         player?.loaded(duration: 180, width: 0, height: 0, hasAudio: true, hasVideo: false)
@@ -74,6 +83,17 @@ final class WasmTestPlatform: MediaPlatform {
     }
 
     func canPlay(_ mimeType: String) -> MediaSupport { .probably }
+
+    /// The songs' tags, by file name; none has a cover of its own.
+    func readTags(_ path: String, artwork: Bool, completion: @escaping (Result<HostMediaTags, MediaError>) -> Void) {
+        let name = path.split(separator: "/").last.map(String.init) ?? ""
+        let titles = ["morning.mp3": "Morning", "noon.mp3": "Noon", "night.mp3": "Night"]
+        guard let title = titles[name] else {
+            completion(.failure(MediaError(.unsupportedFormat)))
+            return
+        }
+        completion(.success(HostMediaTags(values: ["title": title, "artist": "The Examples", "album": "Examples", "duration": "180"])))
+    }
 
     func showNowPlaying(_ nowPlaying: HostNowPlaying?) {
         shown = nowPlaying
@@ -133,7 +153,13 @@ extension WasmShimTests {
         HostMediaPlayback.allowsNetwork = true
         HostMediaPlayback.allowsBackground = true
         HostMediaModule.register(in: native)
-        defer { HostMediaPlayback.reset() }
+        // Tags are read and answered at once.
+        HostMediaMetadata.work = { $0() }
+        HostMediaMetadata.deliver = { $0() }
+        defer {
+            HostMediaPlayback.reset()
+            HostMediaMetadata.reset()
+        }
         WasmTestRenderer.last = nil
 
         let bytes = Array(try Data(contentsOf: Self.exampleMediaURL))
@@ -221,5 +247,17 @@ extension WasmShimTests {
         try tap("Show Video")
         #expect(video.source == .url("https://example.com/trailer.mp4"))
         #expect(platform.shown == shown, "the video isn't what's playing")
+
+        // The video's subtitles, once it's loaded: the app offers them, and
+        // the engine shows the one chosen.
+        #expect(renderer.screen?.button("No Subtitles") == nil)
+        video.finishLoading()
+        video.subtitles = [HostMediaTrack(name: "English", language: "en"), HostMediaTrack(name: "Français", language: "fr")]
+        video.player?.tracksChanged(audio: [], subtitles: video.subtitles, selectedAudio: nil, selectedSubtitle: nil)
+        #expect(text("subtitles") == "Subtitles: off")
+        try tap("Français")
+        #expect(text("subtitles") == "Subtitles: Français")
+        try tap("No Subtitles")
+        #expect(text("subtitles") == "Subtitles: off")
     }
 }
