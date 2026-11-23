@@ -30,7 +30,10 @@ the matching Embedded wasm Swift SDK for wasm32, and Xcode command line tools
 for the Apple targets. For concurrency in the linux-arm64 and
 android-arm64-v8a slices, the Embedded modules and runtime for
 aarch64-unknown-linux-gnu: arm64 Linux toolchains include them, and
-Scripts/fetch-embedded-linux.sh copies them from the swift Docker image.
+Scripts/fetch-embedded-linux.sh copies them from the swift Docker image. For
+concurrency in the linux-x86_64 and android-x86_64 slices, those for
+x86_64-unknown-none-elf (macOS toolchains) or x86_64-unknown-linux-gnu
+(x86_64 Linux toolchains).
 
 Limitations: target settings from Package.swift (defines, unsafe flags,
 platform-conditional dependencies) are not read, apart from dependencies
@@ -106,7 +109,9 @@ APPLE_ARM64 = "arm64-apple-none-macho"
 # aarch64-none-none-elf, so the arm64 ELF slices are compiled for
 # aarch64-unknown-linux-gnu when its Embedded modules and runtime are
 # available (same AAPCS64 code; os(Linux) is true there), and without
-# concurrency otherwise. canImport(_Concurrency) can't detect that, so
+# concurrency otherwise. x86_64 Linux toolchains likewise have them only for
+# x86_64-unknown-linux-gnu, not x86_64-unknown-none-elf, so the x86_64 ELF
+# slices fall back to that triple there (the same System V code). canImport(_Concurrency) can't detect that, so
 # packages check this define.
 NO_CONCURRENCY = ["EMBEDDED_NO_CONCURRENCY"]
 # Modules that take the names of Apple frameworks in guest builds, so guest
@@ -119,12 +124,14 @@ GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "Sw
 CONCURRENCY_SUPPORT = "concurrency.c"
 # For a Linux triple, the Clang importer looks for glibc headers to map, and
 # warns without a sysroot. Guest code never includes libc headers.
-LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'",)
-# The concurrency triple for arm64 ELF slices. Its runtime was built for a
-# hosted Linux: aarch64-linux.c supplies outline atomics, libstdc++'s tree,
-# glibc's errno and stderr, and the stack protector.
+LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'", "libc not found for 'x86_64-unknown-linux-gnu'")
+# The concurrency triples for ELF slices whose bare-metal triple has no
+# Embedded concurrency runtime. Their runtimes were built for a hosted
+# Linux: linux-gnu.c supplies libstdc++'s tree, glibc's errno and stderr,
+# and the stack protector, and aarch64-linux.c outline atomics.
 AARCH64_LINUX = dict(triple="aarch64-unknown-linux-gnu", cflags=["-mno-outline-atomics"],
-                     support=["aarch64-linux.c"])
+                     support=["aarch64-linux.c", "linux-gnu.c"])
+X86_64_LINUX = dict(triple="x86_64-unknown-linux-gnu", support=["linux-gnu.c"])
 TARGETS = {
     "wasm32": dict(kind="wasm", triple="wasm32-unknown-wasip1",
                    about="WASI reactor module, every host"),
@@ -160,14 +167,14 @@ TARGETS = {
                         support=["math.c"], shared=True, about="Linux arm64, libc-agnostic"),
     "linux-armv7": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_HARD, shared=True,
                         support=["armv7-eabi.c", "math.c"], about="Linux armv7 hard-float, libc-agnostic"),
-    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+    "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", concurrency=X86_64_LINUX,
                          support=["x86_64-half.c", "math.c"], shared=True,
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
     "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
                               support=["math.c"], about="Android arm64-v8a"),
     "android-armeabi-v7a": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_SOFTFP,
                                 support=["armv7-eabi.c", "math.c"], about="Android armeabi-v7a (softfp)"),
-    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem",
+    "android-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", concurrency=X86_64_LINUX,
                            support=["x86_64-half.c", "math.c"],
                            about="Android x86_64 (SSE4.2 and POPCNT, as the ABI requires)"),
 }
@@ -1092,12 +1099,12 @@ class Builder:
             directory = self.root / ".metadata"
             if directory.exists():
                 shutil.rmtree(directory)
-            # Any ELF triple works; this one ships the Embedded concurrency
-            # module, which aarch64-none-none-elf doesn't. Linux toolchains
-            # ship it only for their own triple.
-            triple = "x86_64-unknown-none-elf"
-            if not has_concurrency(self.toolchain, triple) and has_concurrency(self.toolchain, AARCH64_LINUX["triple"]):
-                triple = AARCH64_LINUX["triple"]
+            # Any ELF triple works, as long as it has the Embedded
+            # concurrency module: macOS toolchains ship it for
+            # x86_64-unknown-none-elf, Linux toolchains only for their own
+            # triple, and fetch-embedded-linux.sh copies arm64 Linux's.
+            candidates = ["x86_64-unknown-none-elf", X86_64_LINUX["triple"], AARCH64_LINUX["triple"]]
+            triple = next((t for t in candidates if has_concurrency(self.toolchain, t)), candidates[0])
             compiler = Compiler(self.toolchain, self.graph, self.product, triple, directory)
             objects = compiler.compile(self.targets, self.plugins)
             sealed = seal_elf(self.toolchain, objects, [], directory)
