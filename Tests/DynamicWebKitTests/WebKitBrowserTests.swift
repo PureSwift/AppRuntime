@@ -6,7 +6,8 @@ import DynamicUI
 @testable import DynamicWebKit
 import RuntimeNative
 
-/// `WebContent` version 2 through the stand-in engine. Part of
+/// What a browser and a mail reader use of `WebContent`, through the
+/// stand-in engine. Part of
 /// `DynamicWebKitTests`, which is serialized.
 extension DynamicWebKitTests {
 
@@ -14,9 +15,9 @@ extension DynamicWebKitTests {
 
     // MARK: Contracts
 
-    @Test func version2AddsMethodsNotContracts() {
+    @Test func theBrowserMethodsKeysAndSignatures() {
         let content = WebContentProxy.descriptor
-        #expect(content.version == 2)
+        #expect(content.version == 1)
         #expect(method(content, "features")?.kind == .static)
         #expect(method(content, "features")?.signature == Signature("()I"))
         #expect(method(content, "make:dataStore:options:")?.kind == .constructor)
@@ -27,7 +28,7 @@ extension DynamicWebKitTests {
         #expect(method(content, "removeData:request:")?.signature == Signature("(DI)V"), "a first label isn't in a key")
 
         let delegate = WebContentDelegateProxy.descriptor
-        #expect(delegate.version == 2)
+        #expect(delegate.version == 1)
         #expect(method(delegate, "newPage:url:")?.signature == Signature("(OO)O"), "the guest's page for the window, or nil")
         #expect(method(delegate, "shouldDownload:download:url:suggestedName:mimeType:expectedLength:")?.signature == Signature("(OIOOOJ)Z"), "answered while the host waits")
         #expect(method(delegate, "didChangeDownload:download:received:expected:")?.signature == Signature("(OIJJ)V"), "no objects per progress step")
@@ -54,11 +55,11 @@ extension DynamicWebKitTests {
         #expect(TestWebContent.all.isEmpty, "checking makes no page")
     }
 
-    @Test func pagesAreMadeByTheVersion2Constructor() throws {
+    @Test func pagesAreMadeWithTheirStoreAndOptions() throws {
         TestWebContent.honored = Self.everything
         let plain = WebPage()
         plain.load("https://example.com/")
-        #expect(TestWebContent.last?.made == "store 0 options 0", "so the host knows the delegate takes version 2's events")
+        #expect(TestWebContent.last?.made == "store 0 options 0", "the default store, and no options")
 
         let store = WebsiteDataStore.nonPersistent()
         #expect(!store.isPersistent && WebsiteDataStore.default.isPersistent)
@@ -132,7 +133,7 @@ extension DynamicWebKitTests {
         let page = WebPage()
         page.load("https://example.com/")
         let host = try #require(TestWebContent.last)
-        #expect(!host.delegate.shouldDownload(host, download: 1, url: "https://example.com/a.pdf", suggestedName: "a.pdf", mimeType: "application/pdf", expectedLength: 2048), "no decider: refused, as in version 1")
+        #expect(!host.delegate.shouldDownload(host, download: 1, url: "https://example.com/a.pdf", suggestedName: "a.pdf", mimeType: "application/pdf", expectedLength: 2048), "no decider: refused")
 
         var asked: [WebDownloadRequest] = []
         var started: [WebDownload] = []
@@ -231,7 +232,7 @@ extension DynamicWebKitTests {
         page.load("https://meet.example.com/")
         let host = try #require(TestWebContent.last)
         host.delegate.didRequestPermission(host, request: 1, origin: "https://meet.example.com", kinds: 3)
-        #expect(host.calls.last == "permission 1 false", "no handler: refused, as in version 1")
+        #expect(host.calls.last == "permission 1 false", "no handler: refused")
 
         var pending: [WebPermissionRequest] = []
         page.onPermissionRequest = { pending.append($0) }
