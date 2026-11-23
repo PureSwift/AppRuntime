@@ -177,7 +177,10 @@ public func appMain() -> rt_status {
 `examples/ExampleUI` is a fuller app. Its sheet's System tab opens a URL,
 has a link the app handles itself, shows the URL the app was opened with
 and its scene phase, and keeps the screen awake
-([Application](Documentation/Contracts/Application.md)). The Darwin host's
+([Application](Documentation/Contracts/Application.md)). Its Card tab has
+a card the user drags and holds to pin; it has a Fruit menu, shortcuts on
+its buttons, and detents on its sheet
+([Input](Documentation/Input.md)). The Darwin host's
 SwiftUI player renders the IR on iOS and macOS (DarwinAppRuntime's
 `DarwinUI`).
 
