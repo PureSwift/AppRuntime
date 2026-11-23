@@ -11,7 +11,9 @@ import SwiftUI
 /// picker, a searchable lazy list with swipe actions that pushes detail
 /// forms, a toolbar menu, an alert, a confirmation dialog, a disclosure
 /// group with a link, a date picker, context menus, pull to refresh, a
-/// shape, and a sheet with tabs and grids.
+/// shape, and a sheet with tabs and grids. The sheet's System tab opens a
+/// URL, has a link the app handles itself, shows the URL the app was last
+/// opened with and its scene phase, and keeps the screen awake.
 @Observable
 final class Store {
     var name: String = "World"
@@ -19,6 +21,19 @@ final class Store {
     var favorite: Int = 1
     var query: String = ""
     var items: [Fruit] = Store.fruits
+    var lastURL: String = ""
+    var opened: String = ""
+    var keepsAwake: Bool = false
+
+    /// A URL of the app's own: `exampleui://fruit/2` makes Banana the
+    /// favorite.
+    func show(_ url: String) {
+        lastURL = url
+        let prefix = "exampleui://fruit/"
+        if url.hasPrefix(prefix), let id = Int(url.dropFirst(prefix.count)) {
+            favorite = id
+        }
+    }
 
     static let fruits = [
         Fruit(id: 1, name: "Apple"),
@@ -78,9 +93,54 @@ struct FruitDetail: View {
     }
 }
 
-/// The sheet: a tab view with a grid of swatches and an about page.
+/// The app's place in the system: opening URLs, the URLs it's opened
+/// with, its phase, and the screen.
+struct SystemView: View {
+    @Environment(.openURL) var openURL
+    @Environment(.scenePhase) var scenePhase
+    @Bindable var store: Store
+
+    var phase: String {
+        switch scenePhase {
+        case .active: "active"
+        case .inactive: "inactive"
+        case .background: "background"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Button("Open swift.org") {
+                openURL("https://swift.org") { accepted in
+                    store.opened = accepted ? "Opened" : "Couldn't open it"
+                }
+            }
+            Text(store.opened)
+                .accessibilityIdentifier("opened")
+            // The app's own URLs stay in the app; others go to the host.
+            Link("Make Banana the Favorite", destination: "exampleui://fruit/2")
+            Text(store.lastURL.isEmpty ? "Not opened with a URL" : "Opened with \(store.lastURL)")
+                .accessibilityIdentifier("lastURL")
+            Text("Phase: \(phase)")
+                .accessibilityIdentifier("phase")
+            Toggle("Keep the Screen Awake", isOn: $store.keepsAwake)
+        }
+        .idleTimerDisabled(store.keepsAwake)
+        .environment(.openURL, OpenURLAction { url in
+            if url.hasPrefix("exampleui:") {
+                store.show(url)
+                return .handled
+            }
+            return .systemAction
+        })
+    }
+}
+
+/// The sheet: a tab view with a grid of swatches, an about page, and the
+/// app's place in the system.
 struct AboutView: View {
     @Binding var isPresented: Bool
+    @Bindable var store: Store
 
     let colors: [Color] = [.red, .orange, .yellow, .green, .mint, .teal, .cyan, .blue, .indigo, .purple, .pink, .brown]
 
@@ -114,6 +174,8 @@ struct AboutView: View {
                     .accessibilityIdentifier("done")
             }
             .tabItem { Label("About", systemImage: "info.circle") }
+            SystemView(store: store)
+                .tabItem { Label("System", systemImage: "gear") }
         }
     }
 }
@@ -153,7 +215,7 @@ struct ContentView: View {
                 .pickerStyle(.segmented)
                 Button("About") { showingAbout = true }
                     .sheet(isPresented: $showingAbout) {
-                        AboutView(isPresented: $showingAbout)
+                        AboutView(isPresented: $showingAbout, store: store)
                     }
                 List(store.items.filter { store.query.isEmpty || $0.name.hasPrefix(store.query) }) { fruit in
                     NavigationLink(fruit.name, destination: FruitDetail(fruit: fruit))
@@ -180,6 +242,8 @@ struct ContentView: View {
                 }
             }
         }
+        // The URLs the app is opened with.
+        .onOpenURL { store.show($0) }
     }
 }
 
