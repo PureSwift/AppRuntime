@@ -96,8 +96,8 @@ final class ScriptedDocuments: Documents {
     }
 }
 
-/// A host's documents from before the photo picker: it implements what
-/// version 1 had, and no more.
+/// A host's documents with no photo picker: it implements everything but
+/// `pickPhotos`, and gets the default.
 final class FilesOnlyDocuments: Documents {
 
     var calls: [String] = []
@@ -213,7 +213,7 @@ struct DeskView: View {
         #expect(method(documents, "pick:multiple:access:callback:")?.signature == Signature("(OZIO)V"))
         #expect(method(documents, "pickFolder:callback:")?.signature == Signature("(IO)V"))
         #expect(method(documents, "pickPhotos:multiple:callback:")?.signature == Signature("(IZO)V"))
-        #expect(documents.version == 2, "the photo picker came in version 2")
+        #expect(documents.version == 1)
         #expect(method(documents, "export:path:name:callback:")?.signature == Signature("(IOOO)V"))
         #expect(method(documents, "resolve:callback:")?.signature == Signature("(OO)V"))
         #expect(method(documents, "forget:")?.signature == Signature("(O)V"))
