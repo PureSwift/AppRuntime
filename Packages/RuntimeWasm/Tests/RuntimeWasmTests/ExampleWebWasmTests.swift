@@ -3,6 +3,7 @@ import Testing
 import DynamicUI
 import DynamicWebKit
 import RuntimeABI
+import RuntimeHost
 import RuntimeNative
 import RuntimeWasm
 
@@ -12,12 +13,23 @@ final class WasmTestWebContent: WebContent {
 
     nonisolated(unsafe) static var all: [WasmTestWebContent] = []
 
+    /// Pages are 7, 8, 9… in the order they're made.
+    nonisolated(unsafe) static var nextIdentifier: Int32 = 7
+
     let delegate: any WebContentDelegate
+
+    let id: Int32
 
     var calls: [String] = []
 
+    /// How it was made: "make" for version 1, else the version 2
+    /// constructor's store and options.
+    var made = "make"
+
     init(delegate: any WebContentDelegate) {
         self.delegate = delegate
+        id = Self.nextIdentifier
+        Self.nextIdentifier += 1
     }
 
     static func make(_ delegate: any WebContentDelegate) -> WasmTestWebContent {
@@ -26,7 +38,16 @@ final class WasmTestWebContent: WebContent {
         return content
     }
 
-    func identifier() -> Int32 { 7 }
+    /// Everything version 2 has.
+    static func features() -> Int32 { 4095 }
+
+    static func make(_ delegate: any WebContentDelegate, dataStore: Int32, options: Int32) -> WasmTestWebContent {
+        let content = make(delegate)
+        content.made = "store \(dataStore) options \(options)"
+        return content
+    }
+
+    func identifier() -> Int32 { id }
 
     func load(_ url: String) { calls.append("load \(url)") }
 
@@ -45,6 +66,12 @@ final class WasmTestWebContent: WebContent {
     func evaluateJavaScript(_ script: String, request: Int32) {
         calls.append("script \(request) \(script)")
     }
+
+    func find(_ text: String, backwards: Bool, caseSensitive: Bool, request: Int32) { calls.append("find \(request) \(text)") }
+
+    func answerPermission(_ request: Int32, granted: Bool) { calls.append("permission \(request) \(granted)") }
+
+    func snapshot(_ width: Double, request: Int32) { calls.append("snapshot \(request) \(width)") }
 }
 
 /// The example web app as App.wasm under WasmKit, with the test standing in
@@ -70,8 +97,12 @@ extension WasmShimTests {
         RendererDelegateProxy.registerInterface(in: native)
         WebContentProxy.register(WasmTestWebContent.self, in: native)
         WebContentDelegateProxy.registerInterface(in: native)
+        // Every host has files; a web app links them for where downloads
+        // land, and declares them.
+        HostFilesModule.register(in: native)
         WasmTestRenderer.last = nil
         WasmTestWebContent.all = []
+        WasmTestWebContent.nextIdentifier = 7
 
         let bytes = Array(try Data(contentsOf: Self.exampleWebURL))
         // No capabilities: a web view needs none. Whether its pages reach
@@ -80,7 +111,8 @@ extension WasmShimTests {
         let contracts = try #require(WasmApp.contracts(of: app.module))
         let content = try #require(contracts.first { $0.name == "org.pureswift.web.WebContent" })
         #expect(content.capability == nil)
-        #expect(!WasmApp.validate(app.module, runtime: native.runtime, capabilities: []).contains { $0.severity == .error })
+        let problems = WasmApp.validate(app.module, runtime: native.runtime, capabilities: [])
+        #expect(!problems.contains { $0.severity == .error }, "\(problems)")
         #expect(try app.start() == .ok)
 
         // One page in the host, loading the first address, shown by the node.
@@ -140,5 +172,78 @@ extension WasmShimTests {
         // A host whose app didn't declare network refuses a remote URL.
         engine.delegate.didFailNavigation(engine, error: WebError.Code.notPermitted.rawValue, message: "This app can't use the network")
         #expect(renderer.screen?.identified("error")?.props["text"] == "Couldn't load the page: This app can't use the network")
+        // Version 2. Pages are made by its constructor, so the host tells
+        // their delegates its events.
+        #expect(engine.made == "store 0 options 0")
+
+        // A link that opens a new window opens a tab, and the host loads
+        // the window in it.
+        let window = engine.delegate.newPage(engine, url: "https://swift.org/blog/")
+        #expect(WasmTestWebContent.all.count == 2)
+        let tab = try #require(WasmTestWebContent.all.last)
+        #expect(window?.identifier() == tab.id)
+        #expect(tab.made == "store 0 options 0", "the opener's configuration")
+        #expect(tab.calls.isEmpty)
+        screen = try #require(renderer.screen)
+        #expect(screen.first { $0.type == "WebView" }?.props["page"] == .int(Int(tab.id)), "the new tab shows")
+        tab.delegate.didChangeTitle(tab, title: "Blog")
+        screen = try #require(renderer.screen)
+        #expect(screen.button("Blog") != nil && screen.button("Swift.org") != nil, "a button for each tab")
+
+        // Find, and the platform's find bar.
+        renderer.send(try #require(screen.identified("find")), .change, "swift")
+        renderer.send(try #require(screen.button("Find")), .tap)
+        #expect(tab.calls.last == "find 1 swift")
+        tab.delegate.didFind(tab, request: 1, matchFound: true, count: 3, index: 0)
+        #expect(renderer.screen?.identified("status")?.props["text"] == "Found 3 matches")
+        renderer.send(try #require(screen.button("Find Bar")), .tap)
+        var view = try #require(renderer.screen?.first { $0.type == "WebView" })
+        #expect(view.props["findNavigator"] == .bool(true))
+        #expect(view.props["backForwardGestures"] == .bool(true))
+        renderer.send(view, .change, .bool(false))
+        view = try #require(renderer.screen?.first { $0.type == "WebView" })
+        #expect(view.props["findNavigator"] == .bool(false), "the user closed it")
+
+        // A download, followed to the end; one the app refuses.
+        #expect(tab.delegate.shouldDownload(tab, download: 1, url: "https://swift.org/swift.pkg", suggestedName: "swift.pkg", mimeType: "application/octet-stream", expectedLength: 2048))
+        #expect(renderer.screen?.identified("download")?.props["text"] == "swift.pkg: 0 of 2048 bytes")
+        tab.delegate.didChangeDownload(tab, download: 1, received: 1024, expected: 2048)
+        #expect(renderer.screen?.identified("download")?.props["text"] == "swift.pkg: 1024 of 2048 bytes")
+        tab.delegate.didFinishDownload(tab, download: 1, path: "Downloads/swift.pkg")
+        #expect(renderer.screen?.identified("download")?.props["text"] == "swift.pkg: done")
+        #expect(!tab.delegate.shouldDownload(tab, download: 2, url: "https://example.com/setup.exe", suggestedName: "setup.exe", mimeType: "application/x-msdownload", expectedLength: -1))
+
+        // A site asks for the camera, and the user is asked.
+        tab.delegate.didRequestPermission(tab, request: 1, origin: "https://meet.example.com", kinds: 1)
+        screen = try #require(renderer.screen)
+        #expect(screen.identified("permission")?.props["text"] == "https://meet.example.com wants to use the camera")
+        #expect(!tab.calls.contains { $0.hasPrefix("permission") }, "the host waits")
+        renderer.send(try #require(screen.button("Allow")), .tap)
+        #expect(tab.calls.last == "permission 1 true")
+        #expect(renderer.screen?.identified("permission") == nil)
+
+        // The lock, and a picture of the tab.
+        tab.delegate.didChangeSecurity(tab, hasOnlySecureContent: true, certificateSummary: "swift.org")
+        screen = try #require(renderer.screen)
+        #expect(screen.identified("secure") != nil)
+        renderer.send(try #require(screen.button("Picture")), .tap)
+        #expect(tab.calls.last == "snapshot 2 320.0")
+        tab.delegate.didSnapshot(tab, request: 2, png: [0x89, 0x50, 0x4E, 0x47])
+        #expect(renderer.screen?.identified("status")?.props["text"] == "Picture: 4 bytes")
+
+        // A private tab, and a message with remote content and scripts off.
+        renderer.send(try #require(screen.button("Private Tab")), .tap)
+        #expect(WasmTestWebContent.all.last?.made == "store 1 options 0")
+        screen = try #require(renderer.screen)
+        renderer.send(try #require(screen.button("Message")), .tap)
+        let message = try #require(WasmTestWebContent.all.last)
+        #expect(message.made == "store 0 options 3")
+        #expect(message.calls == ["html"])
+        #expect(WasmTestWebContent.all.count == 4)
+
+        // Back to the first tab.
+        screen = try #require(renderer.screen)
+        renderer.send(try #require(screen.button("Swift.org")), .tap)
+        #expect(renderer.screen?.first { $0.type == "WebView" }?.props["page"] == .int(Int(engine.id)))
     }
 }
