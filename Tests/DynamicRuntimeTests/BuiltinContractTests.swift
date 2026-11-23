@@ -57,6 +57,19 @@ final class HostApplication: Application {
     }
 
     func state() -> Int32 { current.rawValue }
+
+    var opened: [String] = []
+
+    var idle: [Bool] = []
+
+    func openURL(_ url: String) -> Bool {
+        opened.append(url)
+        return url.hasPrefix("https:")
+    }
+
+    func setIdleTimerDisabled(_ disabled: Bool) {
+        idle.append(disabled)
+    }
 }
 
 // MARK: - Guest delegates
@@ -181,6 +194,14 @@ extension NativeModeTests {
             host.delegate.didReceiveMemoryWarning(host)
             #expect(host.delegate.open(host, url: "example://item/1"))
             #expect(!host.delegate.open(host, url: "https://example.org"))
+
+            // The other way: the app opens a URL, and keeps the screen awake.
+            #expect(try application.openURL("https://swift.org"))
+            #expect(try !application.openURL("tel:5551234"))
+            try application.setIdleTimerDisabled(true)
+            try application.setIdleTimerDisabled(false)
+            #expect(host.opened == ["https://swift.org", "tel:5551234"])
+            #expect(host.idle == [true, false])
             HostApplication.current = nil
         }
         #expect(recorder.events == [
