@@ -69,8 +69,8 @@ public struct WebError: Error, Equatable, Sendable {
     }
 }
 
-/// What a host does of `WebContent` version 2. A host built before it does
-/// none of it.
+/// What a host does of `WebContent`'s browser and mail features. A host
+/// that has only their defaults does none of it.
 public struct WebFeatures: OptionSet, Sendable {
 
     public let rawValue: Int32
