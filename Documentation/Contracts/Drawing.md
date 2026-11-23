@@ -1,8 +1,11 @@
 # Drawing
 
 **Status:** a design, reviewed once (the decisions are at the end). Its
-image part, drafted to be built first, waits on review:
-[Images, built first](#images-built-first). Nothing here is implemented.
+image part is implemented in this repository: the contract, the guest's
+`Image` sources, the image node, the zooming scroll view and the shared
+host ([Images, built first](#images-built-first)). No platform host
+decodes or draws an image yet ([What hosts still need](#what-hosts-still-need)).
+The canvas, bitmaps and fonts aren't built.
 
 Module `DynamicDrawing`: 2D vector graphics, drawn by the host's GPU. It
 has CoreGraphics' model and method names, and none of its `CG` prefixes.
@@ -270,7 +273,8 @@ image.decoded(forPixelSize: 1800) { decoded in … } // at once when what it hol
   meanwhile wait for it, or for one more large enough.
 - **It keeps the largest decode** asked for, and lets go of it when the
   guest releases the image. `HostImages.trim()`, for the platform's
-  memory warning, drops every decode not drawn since the last frame.
+  memory warning, drops every decode nothing asked for since the trim
+  before.
 - **Answers are on the main thread.**
 - **`MemoryImageDecoder`,** for tests, reads the sizes in PNG and JPEG
   headers and records each decode asked of it. It isn't a default:
@@ -318,6 +322,41 @@ Three of the reviewed decisions, and the text that followed from them:
 - And one thing in the draft contract: **an image is decoded at the size
   it's drawn,** not once when it's made, and `decode` takes a
   `maxPixelSize`.
+
+### Changed while building
+
+- **`Image` reaches its host image through a protocol,** the frontend's
+  `_HostImageOwner`, not by casting the object it holds. Embedded Swift
+  compiled the cast, and it failed at run time in every guest: `size`
+  answered `unavailable`. The macOS tests, which aren't Embedded, passed.
+- **`zoomable` is two methods,** `zoomable(_:)` and `zoomable(_:scale:)`.
+  With one taking an optional binding, `$model.zoom` didn't type-check.
+- **A lazy row keeps its images until it's fetched again,** or its list
+  goes. The host still shows the row it fetched after the guest updates.
+- **`Image(pixels:width:height:scale:)` is failable,** as its contract
+  call is.
+- **`HostImages.maximumSide`,** 16384 by default, is the most pixels on a
+  side the host decodes or takes from the guest. `HostImages.log` is where
+  an image that can't be read is said, once for each image.
+- **A header that failed for want of access is read again** next time:
+  the app may be given the file again. Other failures are kept.
+
+### What hosts still need
+
+- **A decoder:** `HostImages.decoder`, the platform's (the table above).
+  Without one, every image draws nothing and its size fails with
+  `unavailable`.
+- **The node:** draw an `Image` with `image` from
+  `HostImages.image(identifier)`: lay it out from `header`, draw
+  `decodedImage`, and ask `decoded(forPixelSize:)` for the pixels it
+  covers.
+- **The modifiers:** `aspectRatio` and `clipped`, on any node.
+- **The zooming scroll view:** `minZoom`, `maxZoom`, `zoom` and the
+  `change` event (`RenderIR.md`).
+- **`HostDrawingModule.register(in:)`,** and `HostImages.trim()` on the
+  platform's memory warning.
+- On Android and in the browser, a `findFile` that gives the decoder what
+  it reads a document with, as `HostMediaPlayback.findFile` does.
 
 ### Tests and an example
 
