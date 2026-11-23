@@ -75,6 +75,7 @@ public struct RenderContext {
 
     init(window: RenderEnvironment) {
         values.window = window
+        values.scenePhase = AppLifecycle.shared.phase
     }
 
     /// The innermost object of type `T` in the environment.
