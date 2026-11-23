@@ -147,8 +147,8 @@ public final class ViewGraph {
         }
     }
 
-    /// Whether the renderer draws `NavSplit` nodes (version 2). Without
-    /// them a split view is drawn as a stack.
+    /// Whether the renderer draws `NavSplit` nodes: it reports the window's
+    /// values. Without them a split view is drawn as a stack.
     public var supportsSplitViews = true
 
     // MARK: Lifecycle
