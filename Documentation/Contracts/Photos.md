@@ -259,17 +259,16 @@ parameter:
     func pickPhotos(_ kinds: Int32, multiple: Bool, callback: DocumentCallback)
 ```
 
-`Documents` is version 2 with it. The types an app names say which
+The types an app names say which
 kinds: image types ask for images, video types for videos, and anything
 else, or nothing, for both.
 
 - **Each pick is a read-only `Document`,** a copy the host holds while
   the app holds the document. It can't be bookmarked: `unsupported`.
 - **A host with no photo picker shows its document picker,** for images
-  and videos. So `from: .photoLibrary` always works: on a host from
-  before version 2 the guest asks for the document picker itself, and a
-  host written in Swift gets the same from the contract's and the
-  presenter's defaults until it has a photo picker of its own.
+  and videos. So `from: .photoLibrary` always works: a host written in
+  Swift gets that from the contract's and the presenter's defaults until
+  it has a photo picker of its own.
 - **What's picked is read-only and not remembered,** whichever screen
   showed it and whatever access was asked for.
 - **It needs nothing of this module:** no `.photoLibrary`, and no
