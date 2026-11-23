@@ -15,6 +15,14 @@ final class TestWebContent: WebContent {
 
     nonisolated(unsafe) static var nextIdentifier: Int32 = 1
 
+    /// What `features()` answers: none, as a host that only has the
+    /// defaults.
+    nonisolated(unsafe) static var honored: WebFeatures = []
+
+    /// Called by `make` while a page is made, as an engine making a new
+    /// window's view would.
+    nonisolated(unsafe) static var onMake: ((TestWebContent) -> Void)?
+
     static var last: TestWebContent? { all.last }
 
     let delegate: any WebContentDelegate
@@ -22,6 +30,10 @@ final class TestWebContent: WebContent {
     let id: Int32
 
     var calls: [String] = []
+
+    /// How it was made: "make" for version 1, else the version 2
+    /// constructor's store and options.
+    var made = "make"
 
     /// Answers scripts as they arrive, with this JSON.
     var scriptResult: String?
@@ -43,8 +55,20 @@ final class TestWebContent: WebContent {
         return content
     }
 
+    static func make(_ delegate: any WebContentDelegate, dataStore: Int32, options: Int32) -> TestWebContent {
+        let content = TestWebContent(delegate: delegate)
+        content.made = "store \(dataStore) options \(options)"
+        all.append(content)
+        onMake?(content)
+        return content
+    }
+
+    static func features() -> Int32 { honored.rawValue }
+
     static func reset() {
         all = []
+        honored = []
+        onMake = nil
     }
 
     func identifier() -> Int32 { id }
@@ -69,6 +93,24 @@ final class TestWebContent: WebContent {
             delegate.didEvaluateJavaScript(self, request: request, result: scriptResult, error: nil)
         }
     }
+
+    func setCustomUserAgent(_ userAgent: String) { calls.append("user agent \(userAgent)") }
+
+    func setPageZoom(_ zoom: Double) { calls.append("zoom \(zoom)") }
+
+    func find(_ text: String, backwards: Bool, caseSensitive: Bool, request: Int32) {
+        calls.append("find \(request) \(text)\(backwards ? " backwards" : "")\(caseSensitive ? " case" : "")")
+    }
+
+    func clearFind() { calls.append("clear find") }
+
+    func cancelDownload(_ download: Int32) { calls.append("cancel download \(download)") }
+
+    func answerPermission(_ request: Int32, granted: Bool) { calls.append("permission \(request) \(granted)") }
+
+    func snapshot(_ width: Double, request: Int32) { calls.append("snapshot \(request) \(width)") }
+
+    func removeData(since: Double, request: Int32) { calls.append("remove data \(request) \(since)") }
 
     /// A page load, as an engine reports one.
     func finishLoading(_ url: String, title: String) {
@@ -159,7 +201,7 @@ struct Viewer: View {
         #expect(method(content, "loadResource:")?.signature == Signature("(O)V"))
         #expect(method(content, "evaluateJavaScript:request:")?.signature == Signature("(OI)V"))
         #expect(["reload", "stopLoading", "goBack", "goForward"].allSatisfy { method(content, $0)?.signature == Signature("()V") })
-        #expect(content.methods.count == 10)
+        #expect(content.methods.count == 20, "version 1's ten and version 2's ten")
     }
 
     @Test func delegateAnswersNavigationsSynchronously() {
@@ -169,7 +211,7 @@ struct Viewer: View {
         #expect(method(delegate, "shouldNavigate:url:kind:isMainFrame:")?.signature == Signature("(OOIZ)Z"))
         #expect(method(delegate, "didChangeLoading:isLoading:progress:")?.signature == Signature("(OZD)V"), "no objects per progress step")
         #expect(method(delegate, "didEvaluateJavaScript:request:result:error:")?.signature == Signature("(OIOO)V"))
-        #expect(delegate.methods.count == 8)
+        #expect(delegate.methods.count == 19, "version 1's eight and version 2's eleven")
         let descriptors = [WebContentProxy.descriptor, delegate]
         #expect(ContractMetadata.decode(descriptors.flatMap(ContractMetadata.encode)) == descriptors)
     }
