@@ -263,7 +263,7 @@ let package = Package(
         ),
         .target(
             name: "DynamicWebKit",
-            dependencies: ["DynamicRuntime", "DynamicSwiftUI", "DynamicUI"]
+            dependencies: ["DynamicRuntime", "DynamicFiles", "DynamicSwiftUI", "DynamicUI"]
         ),
         .target(
             name: "DynamicRuntime",
