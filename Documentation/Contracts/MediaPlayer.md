@@ -417,8 +417,8 @@ audio and display threads touch only the host's player.
 - **Picture in picture** and playing to another device (AirPlay, Cast),
   beyond what the platform's own controls offer.
 - **Playlists and gapless playback.** One source at a time.
-- **Choosing tracks:** subtitles, captions and alternative audio. The
-  platform's controls show what the file has, where they can.
+- **Choosing tracks:** subtitles, captions and alternative audio. Since
+  added: [Media files](MediaFiles.md), with a file's tags and artwork.
 - **Request headers and cookies** for a URL. A browser can't set them on
   a media element.
 - **A frame as an image**, for a thumbnail or to draw with. It would
