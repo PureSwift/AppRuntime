@@ -90,12 +90,11 @@ public final class WebPage: Observable {
         }
     }
 
-    /// What this host does of `WebContent` version 2; none of it on a host
-    /// built before it. A call that needs a feature the host lacks fails
-    /// with `WebError.Code.unavailable`, or does nothing.
+    /// What this host does of the browser and mail features. A call that
+    /// needs a feature the host lacks fails with `WebError.Code.unavailable`,
+    /// or does nothing.
     public static var hostFeatures: WebFeatures {
-        guard WebContentProxy.Methods.features.isAvailable else { return [] }
-        return WebFeatures(rawValue: WebContentProxy.features())
+        WebFeatures(rawValue: WebContentProxy.features())
     }
 
     // MARK: State
@@ -156,7 +155,7 @@ public final class WebPage: Observable {
     /// `.userAgentAndZoom`.
     public var customUserAgent: String? {
         didSet {
-            guard customUserAgent != oldValue, WebContentProxy.Methods.setCustomUserAgent.isAvailable else { return }
+            guard customUserAgent != oldValue else { return }
             content.setCustomUserAgent(customUserAgent ?? "")
         }
     }
@@ -164,7 +163,7 @@ public final class WebPage: Observable {
     /// 1 is 100%. Needs `.userAgentAndZoom`.
     public var pageZoom: Double = 1 {
         didSet {
-            guard pageZoom != oldValue, WebContentProxy.Methods.setPageZoom.isAvailable else { return }
+            guard pageZoom != oldValue else { return }
             content.setPageZoom(pageZoom)
         }
     }
@@ -334,7 +333,7 @@ public final class WebPage: Observable {
 
     /// Removes find's highlight.
     public func clearFind() {
-        guard let made, WebContentProxy.Methods.clearFind.isAvailable else { return }
+        guard let made else { return }
         made.clearFind()
     }
 
@@ -452,13 +451,7 @@ public final class WebPage: Observable {
             return made
         }
         receiver.page = Unmanaged.passUnretained(self)
-        let content: any WebContent
-        if WebContentProxy.Methods.make_3.isAvailable {
-            // Version 2: the receiver takes its events.
-            content = WebContentProxy.make(receiver, dataStore: configuration.websiteDataStore.identifier, options: configuration.options.rawValue)
-        } else {
-            content = WebContentProxy.make(receiver)
-        }
+        let content = WebContentProxy.make(receiver, dataStore: configuration.websiteDataStore.identifier, options: configuration.options.rawValue)
         made = content
         madeInWindow = Self.window
         return content
@@ -649,7 +642,7 @@ private final class Receiver: WebContentDelegate {
         }
     }
 
-    // MARK: Since version 2
+    // MARK: A browser's and a mail reader's
 
     func newPage(_ content: any WebContent, url: String) -> (any WebContent)? {
         current?.openWindow(url)
