@@ -13,7 +13,9 @@ The Darwin host implements them on iOS and macOS over `WKWebView`
 host yet. The guest side and an example (`examples/ExampleWeb`, a small
 browser) exist, tested against a stand-in for the engine. What a browser
 and a mail reader need (below) is built on the guest side; no host
-implements it yet.
+implements it yet. What an app talks to its pages with, user scripts,
+script messages and URL schemes (below), is built, and the Darwin and
+Linux hosts implement it.
 
 Guest-side Swift: `WebPage`, the observable page app code uses; `WebView`,
 the SwiftUI view; `WebNavigation`, `WebNavigationKind` and `WebError`.
@@ -78,8 +80,8 @@ own, and loads again when the URL it's given changes.
 
 ### What isn't there yet
 
-- Messages from a page's scripts to the app. A page can only be asked,
-  with `evaluateJavaScript`.
+- Messages from a page's scripts to the app, now built:
+  [Scripts, messages and schemes](#scripts-messages-and-schemes).
 - Cookies and site data, a custom user agent, find in page, zoom, and
   back-and-forward swipes.
 - Downloads and file uploads.
@@ -471,10 +473,8 @@ haven't been checked against its documentation yet:
 
 ### Not in this version
 
-- Messages from a page's scripts to the app.
 - Choosing what a site may store, or reading its cookies.
 - Saving a page as PDF or web archive, printing, and reader mode.
-- Custom URL schemes served by the app.
 - Extensions, content blockers the user adds, and autofill.
 
 ### Questions
@@ -493,6 +493,143 @@ proposes (the last item of "Changed while building").
 3. **Android without profiles.** A private tab needs WebView 1.13's
    profiles. Older WebViews would have `features()` without bit 1, and
    no private tabs. Is that acceptable?
+
+## Scripts, messages and schemes
+
+**Status:** built: the contract, `WebPage`'s configuration and message
+handlers, and tests against the stand-in engine here; LinuxAppRuntime
+(over PureSwift/WebKit's WPE pages) and DarwinAppRuntime (over
+`WKWebView`) implement it, tested in real engines. On Apple's WebKit a
+nil reply resolves the page's promise to `undefined`; WPE does the same. The design is
+PureSwift/WebKit's plan (`Documentation/Plan.md` there), with its version 2
+made methods with defaults, as above.
+
+An app that renders its own HTML talks to its pages three ways beside
+`evaluateJavaScript`: scripts it runs in every document, before the page's
+own; messages the page's scripts post to it, some awaiting a reply; and
+URL schemes it answers, for images and data it has and the page can't
+fetch. NetNewsWire's article view is the case it's measured against: two
+scripts at document start, four one-way messages (an image tapped, the
+feed inspector, media), and schemes for the feed's icon and article images.
+
+### What shapes it
+
+- **Methods with defaults, and feature bits,** as for a browser:
+  `userScripts`, `scriptMessages`, `messageReplies` and `urlSchemes`. A host
+  without replies still has one-way messages: iOS 11–13 have only those.
+- **Schemes in the constructor.** WebKit on Apple's platforms takes a
+  scheme's handler only on the configuration a `WKWebView` is made with, so
+  the guest makes every page with `make(_:dataStore:options:schemes:)`,
+  whose default drops the schemes.
+- **A page that can't do what its configuration says isn't made.** User
+  scripts or schemes the host lacks would leave an article without its
+  script or icons, so `WebPage(configuration:)` answers nil, as for a
+  private store. Message handlers come later; on a host without
+  `scriptMessages` the page has none.
+- **WebKit's JavaScript API.** Pages post with
+  `window.webkit.messageHandlers[name].postMessage(body)` on every host;
+  Android and the browser would inject that shim. Bodies and replies are
+  JSON text, as script results are.
+- **Numbers, not objects,** for replies and scheme tasks: each counts up
+  from 1 for its page, as script requests do, and an answer to one that's
+  gone does nothing.
+
+### For a guest
+
+```swift
+var configuration = WebPage.Configuration()
+configuration.userScripts = [WebUserScript(source: articleScript, injectionTime: .atDocumentStart)]
+configuration.urlSchemeHandlers["app-icon"] = { request, respond in
+    respond(.success(WebURLSchemeResponse(contentType: "image/png", body: icons[request.path] ?? [])))
+}
+guard let page = WebPage(configuration: configuration) else {
+    return   // this host can't run user scripts or answer schemes
+}
+
+page.addMessageHandler(named: "imageWasClicked") { body in
+    showImage(json: body)
+}
+page.addMessageHandler(named: "settings") { body, reply in
+    reply(.success(#"{"fontSize":17}"#))
+}
+page.addMessageHandler(named: "lookUp") { body async throws(WebError) -> String? in
+    try await dictionary.definition(json: body)
+}
+```
+
+- `WebUserScript`: source, `.atDocumentStart` or `.atDocumentEnd`, and
+  whether it's for the main frame only.
+- `urlSchemeHandlers`, by scheme, compared lowercased. A handler gets a
+  `WebURLSchemeRequest` (URL, path, method, headers, body) and answers
+  once, now or later, with a `WebURLSchemeResponse` (status, type,
+  headers, bytes) or a `WebError`. The page loads them as images,
+  documents and `fetch` responses, without `.network` too. Schemes the
+  engine loads itself, such as `https`, are left to it.
+- A one-way handler hears each body as JSON text, nil for `undefined`. A
+  replying one answers with JSON text, nil for `undefined`, or an error
+  that rejects the page's promise with its message; the async form is for
+  guests with concurrency. Handlers take effect from the next load. A
+  name added again as the other kind replaces the first.
+
+### The contract
+
+`WebContent` gains:
+
+```swift
+static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32, schemes: [String]) -> Self
+
+func addUserScript(_ source: String, atDocumentStart: Bool, mainFrameOnly: Bool)
+func removeAllUserScripts()
+
+func addMessageHandler(_ name: String, replies: Bool)
+func removeMessageHandler(_ name: String)
+func replyToMessage(_ reply: Int32, result: String?, error: String?)
+
+func finishURLSchemeTask(_ task: Int32, status: Int32, contentType: String?, headers: [String], body: [UInt8])
+func failURLSchemeTask(_ task: Int32, error: Int32, message: String)
+```
+
+`WebContentDelegate` gains:
+
+```swift
+/// `reply` is 0 for a handler that doesn't reply.
+func didReceiveMessage(_ content: WebContent, name: String, body: String?, reply: Int32)
+
+func startURLSchemeTask(_ content: WebContent, task: Int32, url: String, method: String, headers: [String], body: [UInt8]?)
+/// The page no longer wants it. Answering it afterward does nothing.
+func stopURLSchemeTask(_ content: WebContent, task: Int32)
+```
+
+- Headers are names and values in turn. `Content-Type` is sent from
+  `contentType` unless the headers have one.
+- A delegate without these rejects a reply with "nothing answers *name*"
+  and fails a scheme's request as `badURL`.
+- A page that's released stops its tasks, and rejects each reply it owes
+  with "the page went away".
+
+### For a host
+
+| Host | Scripts | Messages | Schemes |
+|---|---|---|---|
+| Linux | `WebKitUserContentManager` (PureSwift/WebKit's `WPEWebContent`) | `script-message-received`, `script-message-with-reply-received` | `webkit_web_context_register_uri_scheme`, once per process |
+| iOS 14+ / macOS 11+ | `WKUserScript` | `WKScriptMessageHandler`, `WKScriptMessageHandlerWithReply` | `WKURLSchemeHandler`, on the configuration before the `WKWebView` is made |
+| iOS 11–13 / macOS 10.13–10.15 | `WKUserScript` | `WKScriptMessageHandler`, without replies | `WKURLSchemeHandler` |
+| Android | `WebViewCompat.addDocumentStartJavaScript` | `WebViewCompat.addWebMessageListener`, with a `webkit.messageHandlers` shim | `shouldInterceptRequest` |
+| Browser | Only for pages from the app's origin | `postMessage` to the parent, through the same shim | A service worker, or none |
+
+### Changed while building
+
+- **Version 2 is methods with defaults,** as every contract went back to
+  version 1: `features()` says what a host does.
+- **`WebPage.Configuration` isn't `Equatable` or `Sendable`:** it holds
+  the scheme handlers, which are closures.
+- **A replying handler takes a `reply` callback,** and an async form
+  where the guest has concurrency, as guests built without it need one.
+- **A request's path is worked out by the guest** from its URL, so the
+  contract carries only the URL.
+- **Replies and requests the app is still answering hold the host's page,
+  not the `WebPage`,** as Embedded Swift has no weak references: a reply
+  kept past the page's life doesn't keep it.
 
 ## For a host
 
