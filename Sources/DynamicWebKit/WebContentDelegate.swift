@@ -4,11 +4,7 @@ import DynamicRuntime
 ///
 /// A new page has no URL, an empty title, and isn't loading; the delegate
 /// hears every change from there.
-///
-/// Version 2's events go only to the delegate of a page made by
-/// `WebContent.make(_:dataStore:options:)`: a guest built before version 2
-/// never makes one, and its delegate lacks them.
-@DynamicCallback("org.pureswift.web.WebContentDelegate", version: 2)
+@DynamicCallback("org.pureswift.web.WebContentDelegate")
 public protocol WebContentDelegate: AnyObject {
 
     /// Whether the page may go to `url`. The host waits for the answer:
@@ -41,7 +37,7 @@ public protocol WebContentDelegate: AnyObject {
     /// hold), or the exception's message in `error`.
     func didEvaluateJavaScript(_ content: WebContent, request: Int32, result: String?, error: String?)
 
-    // MARK: Since version 2
+    // MARK: A browser's and a mail reader's
 
     /// The page opens a new window (`target="_blank"`, `window.open`),
     /// after `shouldNavigate` agreed. Returns a page made during this call,
@@ -87,8 +83,8 @@ public protocol WebContentDelegate: AnyObject {
     func didFailRequest(_ content: WebContent, request: Int32, error: Int32, message: String)
 }
 
-/// What a delegate written before version 2 answers: a new window loads in
-/// the same page, downloads and permissions are refused, and the rest is
+/// What a delegate that doesn't implement these answers: a new window loads
+/// in the same page, downloads and permissions are refused, and the rest is
 /// ignored.
 public extension WebContentDelegate {
 
