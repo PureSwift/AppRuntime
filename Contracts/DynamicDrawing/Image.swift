@@ -67,7 +67,12 @@ extension Image {
         self.init(host: image)
     }
 
-    private init(host image: DrawingImageProxy) {
+    /// A host image already made, such as a bitmap's.
+    init(drawingImage image: any DrawingImage) {
+        self.init(host: image)
+    }
+
+    private init(host image: any DrawingImage) {
         self.init(_hostImage: image.identifier(), owner: ImageOwner(image))
     }
 
@@ -118,9 +123,9 @@ extension Image {
 /// through the frontend's protocol.
 final class ImageOwner: _HostImageOwner {
 
-    let image: DrawingImageProxy
+    let image: any DrawingImage
 
-    init(_ image: DrawingImageProxy) {
+    init(_ image: any DrawingImage) {
         self.image = image
     }
 
