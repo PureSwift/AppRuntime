@@ -114,6 +114,36 @@ extension View {
         modified("cornerRadius", ["radius": .double(radius)])
     }
 
+    /// Keeps the view at `aspectRatio`, width over height, or at its
+    /// content's own ratio when that's `nil`: a resizable image's.
+    public func aspectRatio(_ aspectRatio: CGFloat? = nil, contentMode: ContentMode) -> _ModifierView<Self> {
+        var args: [String: PropValue] = ["contentMode": .string(contentMode.rawValue)]
+        if let aspectRatio, aspectRatio > 0 {
+            args["ratio"] = .double(aspectRatio)
+        }
+        return modified("aspectRatio", args)
+    }
+
+    public func aspectRatio(_ aspectRatio: CGSize, contentMode: ContentMode) -> _ModifierView<Self> {
+        self.aspectRatio(aspectRatio.height > 0 ? aspectRatio.width / aspectRatio.height : nil, contentMode: contentMode)
+    }
+
+    /// Fits inside the space it's offered, keeping its ratio.
+    public func scaledToFit() -> _ModifierView<Self> {
+        aspectRatio(contentMode: .fit)
+    }
+
+    /// Covers the space it's offered, keeping its ratio. Add `clipped()` to
+    /// cut what overflows.
+    public func scaledToFill() -> _ModifierView<Self> {
+        aspectRatio(contentMode: .fill)
+    }
+
+    /// Cuts what's drawn outside the view's frame.
+    public func clipped() -> _ModifierView<Self> {
+        modified("clipped")
+    }
+
     public func border(_ color: Color, width: CGFloat = 1) -> _ModifierView<Self> {
         modified("border", ["color": color.propValue, "width": .double(width)])
     }
