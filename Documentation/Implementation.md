@@ -38,7 +38,7 @@ builds and the first provider contracts:
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
 | Environment values and split views (`Environment.md`) | done on the guest side: `Renderer`'s `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
 | Maps (`Contracts/Maps.md`) | done on the guest side, with the shared host side: `DynamicMapKit` (`MapKit` in guest builds: the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with `Marker`, `Annotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `UserAnnotation`, camera positions, styles, controls, `onMapCameraChange`, `onMapTap` and `onMapLongPress`), and `RuntimeMaps` (`HostMaps`, the contract over the service a host is built with); `_RenderContainerView` in the frontend, for a module's node with children and events; `examples/ExampleMaps`. No platform host draws a `Map` node yet |
-| Images (`Contracts/Drawing.md`, its image part) | done on the guest side, with the shared host side: `DynamicDrawing` (the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)`, `Image(pixels:width:height:scale:)`, `size` and `decodableTypes` on the frontend's `Image`), and `RuntimeDrawing`'s image half (`HostImages` and `HostImage`, the contract over a host's `ImageDecoder`, with `MemoryImageDecoder`); in the frontend, an `image` prop on the `Image` node, `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped`, `Size`, and `ScrollView.zoomable`; `examples/ExampleImages`. No platform host decodes or draws an image yet. The canvas, bitmaps and fonts aren't built |
+| Images (`Contracts/Drawing.md`, its image part) | done on the guest side, with the shared host side: `DynamicDrawing` (the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)`, `Image(pixels:width:height:scale:)`, `size` and `decodableTypes` on the frontend's `Image`), and `RuntimeDrawing`'s image half (`HostImages` and `HostImage`, the contract over a host's `ImageDecoder`, with `MemoryImageDecoder`); in the frontend, an `image` prop on the `Image` node, `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped`, `Size`, and `ScrollView.zoomable`; `examples/ExampleImages`. The canvas, bitmaps and fonts are built too: the frontend's `Point`, `Vector`, `Rect` and `AffineTransform`, `DynamicDrawing`'s `Path`, `GraphicsContext`, `BitmapContext`, the drawing format, `Canvas` and shapes of an app's own, the `DrawingCanvas`, `DrawingBitmap` and `DrawingFont` contracts, and `RuntimeDrawing`'s `DrawingPlayer`, `HostCanvas`, `HostBitmap` and `HostFont` over a host's `DrawingBackend` and `DrawingRenderer`; `examples/ExampleDrawing`. No platform host decodes or draws an image, or draws a canvas, yet |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
 | Background tasks (`Contracts/BackgroundTasks.md`) | done on the guest side, with the shared host side: `DynamicBackgroundTasks` (the `BackgroundTasks` contract, and the guest's `BackgroundTaskScheduler` with its requests, runs and activities), and `RuntimeBackgroundTasks` (`HostBackgroundTasks`, the contract over a host's `BackgroundScheduler`); `backgroundTasks` and its capability in the manifest; a `.background` option for a notification's button, and `wakesApp` for a push; `examples/ExampleBackground`. The Darwin host schedules tasks and holds the app for activities, and starts the guest without a window (DarwinAppRuntime's `DarwinBackgroundTasks`); no other host does yet |
 | Notifications (`Contracts/Notifications.md`) | done on the guest side, with the shared host side: `DynamicNotifications` (the `Notifications` and `PushNotifications` contracts, and the guest's `UserNotificationCenter` with its content, triggers, categories, responses and push subscription), and `RuntimeNotifications` (`HostNotifications`, both contracts over a host's `NotificationPresenter`); `remote` and `exactTiming` on the manifest's capability, and Android's `googleServices`; `examples/ExampleNotifications`. The Darwin host shows and schedules them on iOS and macOS, and registers for push (DarwinAppRuntime's `DarwinNotifications`); no other host does yet |
@@ -586,6 +586,15 @@ which are each host's. TCP and UDP are not part of the spec.
   - **Zooming stays in the host.** `ScrollView.zoomable(_:scale:)` sends
     the range and the scale, and the host reports the scale when a
     gesture ends.
+  - **The canvas records, and the host replays.** A drawing is one call's
+    bytes: the context keeps the transform and the path, so building a
+    path never crosses, and the host replays the drawing into a renderer
+    of its own choosing, through `RuntimeDrawing`'s own protocol rather
+    than Silica's, whose package would bring every backend's dependencies.
+  - **A shape of the app's own is found through `Shape`'s associated
+    `_Path`,** which `DynamicDrawing`'s `Path` fills in: the frontend can't
+    name the module that draws.
+  - **The guest has its own trigonometry,** since a slice can't call libm.
 - **Photo library (`Contracts/Photos.md`).**
   - **Three ways to the user's photos, in two modules.** Adding and
     browsing are `DynamicPhotos`. Being given one is the photo picker,
@@ -1406,6 +1415,18 @@ Each of these needs a decision, or is verified only as far as noted:
   props and scale. `RuntimeWasmTests` and `LinkedSliceTests` run
   `examples/ExampleImages` as `App.wasm`, a sealed macOS slice and wasm2c
   output, with the test's decoder over real files and its picker.
+  The canvas: the geometry and its trigonometry against libm; `Path`'s
+  building, bounds, both fill rules and arcs; a context's recording,
+  replayed command by command; a path kept in the transform it was built
+  in; named colors light and dark; text and fonts measured; an image by
+  its host image; a canvas drawn when the host asks and again when what
+  its closure read changes; a shape of the app's own as a canvas; a
+  bitmap read back after what was drawn, its state carried on, and made
+  an image. The player: a drawing without its header, an unknown command
+  skipped, malformed ones stopping it, a long payload's length, a font or
+  image the host doesn't have, a font restored, and bitmaps and fonts
+  without a backend. `RuntimeWasmTests` and `LinkedSliceTests` run
+  `examples/ExampleDrawing` on the three engines.
 - `DynamicCameraTests`: the camera contract's keys and signatures, and
   the guest's `Camera` against a scripted host: the device's cameras,
   access and its two questions, starting and failing, a zoom the host
@@ -1836,3 +1857,9 @@ Each of these needs a decision, or is verified only as far as noted:
    `GstDiscoverer`), and each `MediaEngine` lists its tracks and chooses
    them (`AVMediaSelectionGroup`, Media3's `Tracks`, `playbin`'s
    `current-audio` and `current-text`).
+27. Canvases in the hosts (`Documentation/Contracts/Drawing.md`, "The
+   canvas, built next"): each host supplies a `DrawingBackend` and a
+   `DrawingRenderer` over the context it draws with (Silica's backends, or
+   the platform's), and draws a `Canvas` node through `HostCanvas`. Then
+   gradients, blend modes and text from a string in Silica, and
+   `SilicaGL`.
