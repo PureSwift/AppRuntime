@@ -74,6 +74,9 @@ A node has a **type**, a 64-bit **ID**, **props**, an ordered list of
 | `Alert` | `title`, `isPresented`; `message`; `style` (`dialog`) and `titleVisibility` (`automatic`, `visible`, `hidden`) | the presenting view, then `Button` actions while presented | `change` (bool: `false`) |
 | `Menu` | `title`, `systemImage` | its items: buttons, dividers, sections, menus | — |
 | `ContextMenu` | — | the view, then the menu's items | — |
+| `Commands` | —; the root, when the app gives commands | the window's content, then `CommandMenu`s and `CommandGroup`s | — |
+| `CommandMenu` | `title` | buttons, dividers, sections, menus | — |
+| `CommandGroup` | `placement` (`appInfo`, `appSettings`, `newItem`, `saveItem`, `importExport`, `printItem`, `undoRedo`, `pasteboard`, `textEditing`, `toolbar`, `sidebar`, `help`), `position` (`before`, `after`, `replacing`) | buttons, dividers, sections, menus | — |
 | `Refreshable` | `refreshing` | the list or scroll view | `refresh` |
 
 Optional props are absent when unset. Colors are a platform color name
@@ -121,6 +124,12 @@ own, like SwiftUI's environment.
 | `preferredColorScheme` | `scheme` (`light`, `dark`); none: the system's | no: it's the window's, or the sheet's it's in |
 | `tag` | `value` (int): a list row the list's `selection` can name | no |
 | `onTapGesture` | `count`; report `tap` | no |
+| `dragGesture` | `minimumDistance`, `coordinateSpace` (`local`, `global`); report `drag` (`Input.md`) | no |
+| `longPressGesture` | `minimumDuration`, `maximumDistance`; `pressing` (bool: report `pressing`); report `longPress` | no |
+| `keyboardShortcut` | `key` (a character, or `return`, `escape`, `delete`, `deleteForward`, `tab`, `space`, the arrows, `home`, `end`, `pageUp`, `pageDown`), `modifiers` (`command`, `shift`, `option`, `control`); none: no shortcut | yes: to buttons without one |
+| `presentationDetents` | `detents` (`medium`, `large`, `[fraction, 0.3]`, `[height, 200]`), `selection` (index); on a sheet's content | no: it's the sheet's |
+| `presentationDragIndicator` | `visibility` (`automatic`, `visible`, `hidden`); on a sheet's content | no: it's the sheet's |
+| `interactiveDismissDisabled` | `value`; on a sheet's content | no: it's the sheet's |
 | `accessibilityLabel` | `text` | no |
 | `accessibilityIdentifier` | `identifier` | no |
 
@@ -143,7 +152,10 @@ props of the `Picker`, `TabView` and `Tab` nodes.
 | `focus` | 6 | whether the view now has the keyboard (bool) |
 | `environment` | 7 | node ID 0, the window: its values (see [The window](#the-window)) |
 | `camera` | 8 | where a `Map` looks: `[lat, lon, distance, heading, pitch, latitudeDelta, longitudeDelta]` |
-| `longPress` | 9 | a `Map` held away from its content: `[lat, lon]` |
+| `longPress` | 9 | a `Map` held away from its content: `[lat, lon]`; none for `longPressGesture` |
+| `drag` | 10 | `[phase, startX, startY, x, y, predictedEndX, predictedEndY]`: `phase` 0 changed, 1 ended, 2 cancelled |
+| `pressing` | 11 | bool: a long press began touching, or stopped |
+| `detent` | 12 | int: the detent the user dragged a sheet to, sent to the `Sheet` node |
 
 **Control sync.** The guest's state is the source of truth, and its answer
 to an event arrives as an update before the event call returns. Set a control
