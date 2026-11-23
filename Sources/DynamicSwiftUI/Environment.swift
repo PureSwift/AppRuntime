@@ -90,6 +90,10 @@ public struct EnvironmentValues {
 
     var isEnabled = true
 
+    var scenePhase = ScenePhase.active
+
+    var openURL = OpenURLAction.system
+
     public init() { }
 
     /// One value: how to read it and set it.
