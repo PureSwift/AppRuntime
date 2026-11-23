@@ -21,8 +21,10 @@ import DynamicRuntime
 ///
 /// What a browser and a mail reader need beyond loading a page, such as
 /// data stores, pages without remote content or scripts, new windows,
-/// downloads, find, permissions, snapshots and removing data, has a default
-/// here that does nothing, and a host says which it honors in `features()`.
+/// downloads, find, permissions, snapshots and removing data, and what an
+/// app talks to its pages with, user scripts, script messages and URL
+/// schemes, has a default here that does nothing, and a host says which it
+/// honors in `features()`.
 @DynamicRuntime("org.pureswift.web.WebContent")
 public protocol WebContent: AnyObject {
 
@@ -38,6 +40,13 @@ public protocol WebContent: AnyObject {
     /// `options` is `WebPageOptions` bits. The guest makes every page with
     /// this.
     static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32) -> Self
+
+    /// As `make(_:dataStore:options:)`, with the URL schemes the app
+    /// answers, lowercased, such as `app-icon` for `app-icon:/feed.png`.
+    /// Their requests arrive as `startURLSchemeTask`. Schemes the engine
+    /// loads itself, such as `https` and `file`, are left to it. The guest
+    /// makes every page with this.
+    static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32, schemes: [String]) -> Self
 
     /// What a `WebView` node carries to say which page it shows. Unique
     /// among the app's pages while this one is alive.
@@ -103,6 +112,42 @@ public protocol WebContent: AnyObject {
     /// page of the store. Answered by `didCompleteRequest`, or
     /// `didFailRequest`.
     func removeData(since: Double, request: Int32)
+
+    // MARK: Scripts and schemes an app talks to its pages with
+
+    /// Runs `source` in every document the page loads from its next load
+    /// on, before the document's own scripts or once it has loaded, in the
+    /// main frame or every frame.
+    func addUserScript(_ source: String, atDocumentStart: Bool, mainFrameOnly: Bool)
+
+    /// From the next load on.
+    func removeAllUserScripts()
+
+    /// Makes `window.webkit.messageHandlers[name].postMessage(body)` reach
+    /// `didReceiveMessage` from the next load on. With `replies`, the
+    /// page's promise waits for `replyToMessage`; without, it resolves to
+    /// `undefined` at once. A name has one handler: added again, it stays
+    /// as it was until it's removed.
+    func addMessageHandler(_ name: String, replies: Bool)
+
+    /// From the next load on, `window.webkit.messageHandlers[name]` is
+    /// gone.
+    func removeMessageHandler(_ name: String)
+
+    /// Resolves the page's promise for `reply` with `result`, JSON text
+    /// (nil for `undefined`), or rejects it with an error whose message is
+    /// `error`. Text that isn't JSON rejects it. Once: a second answer, or
+    /// one after the page went away, does nothing.
+    func replyToMessage(_ reply: Int32, result: String?, error: String?)
+
+    /// Answers `task` with a response. `headers` are names and values in
+    /// turn; `Content-Type` is sent from `contentType` unless it's there.
+    /// Once: an answer to a stopped or answered task does nothing.
+    func finishURLSchemeTask(_ task: Int32, status: Int32, contentType: String?, headers: [String], body: [UInt8])
+
+    /// Fails `task`: the page sees a network error. `error` is a
+    /// `WebError.Code` raw value.
+    func failURLSchemeTask(_ task: Int32, error: Int32, message: String)
 }
 
 /// What a host that hasn't implemented these does: nothing, and its
@@ -114,6 +159,10 @@ public extension WebContent {
 
     static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32) -> Self {
         make(delegate)
+    }
+
+    static func make(_ delegate: WebContentDelegate, dataStore: Int32, options: Int32, schemes: [String]) -> Self {
+        make(delegate, dataStore: dataStore, options: options)
     }
 
     func setCustomUserAgent(_ userAgent: String) { }
@@ -131,4 +180,18 @@ public extension WebContent {
     func snapshot(_ width: Double, request: Int32) { }
 
     func removeData(since: Double, request: Int32) { }
+
+    func addUserScript(_ source: String, atDocumentStart: Bool, mainFrameOnly: Bool) { }
+
+    func removeAllUserScripts() { }
+
+    func addMessageHandler(_ name: String, replies: Bool) { }
+
+    func removeMessageHandler(_ name: String) { }
+
+    func replyToMessage(_ reply: Int32, result: String?, error: String?) { }
+
+    func finishURLSchemeTask(_ task: Int32, status: Int32, contentType: String?, headers: [String], body: [UInt8]) { }
+
+    func failURLSchemeTask(_ task: Int32, error: Int32, message: String) { }
 }

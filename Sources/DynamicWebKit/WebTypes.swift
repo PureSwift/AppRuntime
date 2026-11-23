@@ -99,6 +99,16 @@ public struct WebFeatures: OptionSet, Sendable {
     public static let security = WebFeatures(rawValue: 1024)
     /// `customUserAgent` and `pageZoom`.
     public static let userAgentAndZoom = WebFeatures(rawValue: 2048)
+    /// `Configuration.userScripts`.
+    public static let userScripts = WebFeatures(rawValue: 4096)
+    /// `WebPage.addMessageHandler(named:_:)`: messages from a page.
+    public static let scriptMessages = WebFeatures(rawValue: 8192)
+    /// `WebPage.addMessageHandler(named:replyHandler:)`: messages a page
+    /// awaits a reply to. Without it the page's promise resolves to
+    /// `undefined`.
+    public static let messageReplies = WebFeatures(rawValue: 16384)
+    /// `Configuration.urlSchemeHandlers`.
+    public static let urlSchemes = WebFeatures(rawValue: 32768)
 }
 
 /// How a page is made, for `WebContent.make(_:dataStore:options:)`.
