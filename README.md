@@ -200,11 +200,13 @@ bundle, and saves, lists, opens and deletes notes with the guest's
 `FileManager` ([Files](Documentation/Contracts/Files.md)). The Darwin host
 runs it on iOS and macOS (DarwinAppRuntime's `DarwinFiles`).
 
-`examples/ExampleMedia` is a small music player: it plays the songs in its
-bundle one after another, says what's playing so the system can show it,
-answers next and previous, and plays on in the background
+`examples/ExampleMedia` is a small music player: it reads its songs'
+titles, artists and covers from their tags, plays them one after another,
+says what's playing so the system can show it, answers next and previous,
+plays on in the background, and offers its video's subtitles
 ([Media players](Documentation/Contracts/MediaPlayer.md),
-[Now playing](Documentation/Contracts/NowPlaying.md)). The Darwin host
+[Now playing](Documentation/Contracts/NowPlaying.md),
+[Media files](Documentation/Contracts/MediaFiles.md)). The Darwin host
 plays it on iOS and macOS (DarwinAppRuntime's `DarwinMedia`); in the
 tests, players kept in memory stand in.
 
