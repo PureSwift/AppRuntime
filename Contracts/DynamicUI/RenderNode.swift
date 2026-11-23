@@ -162,8 +162,21 @@ public enum RenderEventKind: Int32, Sendable {
     case camera = 8
 
     /// A long press on a `Map`, away from its content: the payload is the
-    /// coordinate, `[lat, lon]`.
+    /// coordinate, `[lat, lon]`. On a view with `longPressGesture`, no
+    /// payload.
     case longPress = 9
+
+    /// A drag on a view with `dragGesture`: the payload is `[phase, startX,
+    /// startY, x, y, predictedEndX, predictedEndY]`, `phase` 0 changed, 1
+    /// ended, 2 cancelled.
+    case drag = 10
+
+    /// A long press began touching, or stopped: a bool.
+    case pressing = 11
+
+    /// The user dragged a sheet to another detent: the payload is its int
+    /// index, sent to the `Sheet` node.
+    case detent = 12
 }
 
 extension RenderNode {
