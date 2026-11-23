@@ -541,7 +541,8 @@ struct DeskView: View {
         }
         host.delegate?.didOpen([ScriptedGrant(360, "a.png"), ScriptedGrant(361, "b.png")])
         host.delegate?.didOpen([ScriptedGrant(362, "c.png")])
-        #expect(await reading.value == ["a.png", "b.png", "c.png"])
+        let names = await reading.value
+        #expect(names == ["a.png", "b.png", "c.png"])
         #expect(host.calls.last == "setDelegate nil", "a stream that's finished with stops listening")
     }
 
