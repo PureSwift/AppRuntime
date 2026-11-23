@@ -37,6 +37,7 @@ builds and the first provider contracts:
 | Photo library (`Contracts/Photos.md`) | done on the guest side, with the shared host side: `DynamicPhotos` (the `Photos` contract with its fetch results and original files, the guest's `PhotoLibrary`, `PhotoAsset`, `PhotoAlbum`, `PhotoFetchResult` and `PhotoFile`, and the `PhotoView` view and `Photo` node), and `RuntimePhotos` (`HostPhotos`, the contract over a host's `PhotoStore`, with `PhotoFileFormat` and `MemoryPhotoStore`); the `.photoLibrary` capability, which says whether an app browses or only adds; `examples/ExamplePhotos`. No platform host has a library behind it or draws a `Photo` node, so no real photo has been shown |
 | Transfers (`Contracts/Transfers.md`) | done on the guest side, with the shared host side: `DynamicTransfers` (the `Transfers` contract, the guest's `TransferManager` and observable `Transfer`), and `RuntimeTransfers` (`HostTransfers`, the contract over a host's `TransferEngine`s, with `URLSessionTransferEngine` for transfers in the host's process and `MemoryTransferEngine`); `examples/ExampleTransfers`. No platform host carries a transfer on after the app closes |
 | Environment values and split views (`Environment.md`) | done on the guest side: `Renderer`'s `environment()` and the `environment` event, and `RenderEnvironment` in `DynamicUI`; in the frontend, `@Environment(.colorScheme)` and the window's other values, an app's own `EnvironmentKey`s, `environment(_:_:)`, `dismiss`, `isPresented`, `isEnabled`, `preferredColorScheme(_:)`, `NavigationSplitView` (a stack on an older renderer) and `List(selection:)`; `examples/ExampleNotes`. No platform host reports the values or draws a split view yet |
+| Gestures, shortcuts, commands and detents (`Input.md`) | done in the frontend: `DragGesture`, `LongPressGesture`, `TapGesture`, `gesture(_:)`, `onLongPressGesture` and `@GestureState`; `keyboardShortcut` with `KeyEquivalent` and `EventModifiers`; `commands` with `CommandMenu` and `CommandGroup`; `presentationDetents`, `presentationDragIndicator` and `interactiveDismissDisabled`; the render IR's modifiers, the `Commands` nodes and the `drag`, `pressing` and `detent` events; `examples/ExampleUI`'s card, menu, shortcuts and detents. No platform host does any of it yet |
 | Maps (`Contracts/Maps.md`) | done on the guest side, with the shared host side: `DynamicMapKit` (`MapKit` in guest builds: the `Maps` contract, `MapProvider`, and SwiftUI's `Map` with `Marker`, `Annotation`, `MapPolyline`, `MapPolygon`, `MapCircle`, `UserAnnotation`, camera positions, styles, controls, `onMapCameraChange`, `onMapTap` and `onMapLongPress`), and `RuntimeMaps` (`HostMaps`, the contract over the service a host is built with); `_RenderContainerView` in the frontend, for a module's node with children and events; `examples/ExampleMaps`. No platform host draws a `Map` node yet |
 | Images (`Contracts/Drawing.md`, its image part) | done on the guest side, with the shared host side: `DynamicDrawing` (the `DrawingImage` contract, and `Image(contentsOf:)`, `Image(data:)`, `Image(pixels:width:height:scale:)`, `size` and `decodableTypes` on the frontend's `Image`), and `RuntimeDrawing`'s image half (`HostImages` and `HostImage`, the contract over a host's `ImageDecoder`, with `MemoryImageDecoder`); in the frontend, an `image` prop on the `Image` node, `aspectRatio`, `scaledToFit`, `scaledToFill`, `clipped`, `Size`, and `ScrollView.zoomable`; `examples/ExampleImages`. The canvas, bitmaps and fonts are built too: the frontend's `Point`, `Vector`, `Rect` and `AffineTransform`, `DynamicDrawing`'s `Path`, `GraphicsContext`, `BitmapContext`, the drawing format, `Canvas` and shapes of an app's own, the `DrawingCanvas`, `DrawingBitmap` and `DrawingFont` contracts, and `RuntimeDrawing`'s `DrawingPlayer`, `HostCanvas`, `HostBitmap` and `HostFont` over a host's `DrawingBackend` and `DrawingRenderer`; `examples/ExampleDrawing`. No platform host decodes or draws an image, or draws a canvas, yet |
 | Camera (`Contracts/Camera.md`) | done on the guest side, with the shared host side: `DynamicCamera` (the `CameraCapture` contract, the guest's observable `Camera`, and the `CameraPreview` view and node), and `RuntimeCamera` (`HostCameraCapture`, the contract over a host's `CameraPlatform` and its engines); the `.microphone` capability beside `.camera`; `examples/ExampleCamera`, which saves to the photo library. No platform host has a camera behind it or shows a `CameraPreview` node, so no real photo has been taken |
@@ -810,6 +811,14 @@ which are each host's. TCP and UDP are not part of the spec.
     and `FileManager`). In a guest there's one thread anyway. In host-side
     Swift they used to hop to the pool and make their contract calls
     there, beside whatever the main thread was doing with the runtime.
+- **Gestures, shortcuts, commands and detents (`Input.md`).**
+  - **A drag crosses at most once a frame,** and the host arbitrates
+    between gestures as its platform does; pinch stays the scroll view's.
+  - **A shortcut is its button's tap:** no key event crosses.
+  - **Commands are views,** in a `Commands` node around the window's
+    content, so a host that doesn't know it shows the content.
+  - **Detents are reported to the `Sheet` node,** which the sheet's
+    content knows through its render context.
 - **Web views (§9.6).**
   - **A page is a contract object, and the node only places it**, as
     `Surface` and `GLSurface` do. A web view is mostly commands and
@@ -1596,6 +1605,13 @@ Each of these needs a decision, or is verified only as far as noted:
   protocol, so on Linux the tests ask the session's delegate about
   redirects, challenges and progress directly; the end-to-end versions run
   on macOS.
+- `DynamicSwiftUITests/InputTests`: a drag's values, phases and gesture
+  state reset; a long press, `pressing` and a tap gesture; shortcuts on a
+  button, on a view and taken away; `Commands` around the content, with a
+  command tapped and its title following what it reads; detents, their
+  selection both ways and their order. `RuntimeWasmTests` and
+  `LinkedSliceTests` run `ExampleUI`'s card, menu, shortcuts and detents
+  on the three engines.
 - `DynamicWebKitTests`: the web contracts' keys and signatures; `WebPage`
   against a stand-in engine through `NativeRuntime`: the host page made on
   first use, state following the delegate, observation, the navigation
@@ -1863,3 +1879,8 @@ Each of these needs a decision, or is verified only as far as noted:
    the platform's), and draws a `Canvas` node through `HostCanvas`. Then
    gradients, blend modes and text from a string in Silica, and
    `SilicaGL`.
+28. Gestures, shortcuts, commands and detents in the hosts
+   (`Documentation/Input.md`): each renderer recognizes `dragGesture` and
+   `longPressGesture`, presses buttons for `keyboardShortcut`, puts a
+   `Commands` node's menus in the platform's menu bar, and rests a sheet
+   at its detents.
