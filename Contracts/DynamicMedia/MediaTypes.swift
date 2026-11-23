@@ -88,8 +88,11 @@ public struct MediaError: Error, Equatable, Sendable {
         case notPermitted = 4
         /// The data is damaged.
         case decoding = 5
-        /// No output device, or no capability.
+        /// No output device, or no capability; a host that can't read tags.
         case unavailable = 6
+        /// Guest-side: the task waiting for tags was cancelled. Hosts never
+        /// send it.
+        case cancelled = 7
     }
 
     public var code: Code
@@ -196,6 +199,26 @@ public struct NowPlayingInfo: Equatable, Sendable {
         self.artist = artist
         self.album = album
         self.artwork = artwork
+    }
+}
+
+/// One of a loaded file's audio or subtitle tracks.
+public struct MediaTrack: Equatable, Hashable, Sendable {
+
+    /// What the platform calls it, often the language's name.
+    public let name: String
+
+    /// A BCP 47 tag, such as `fr` or `pt-BR`; `nil` when the file doesn't
+    /// say.
+    public let language: String?
+
+    /// Its place in the host's list.
+    let index: Int32
+
+    init(name: String, language: String?, index: Int32) {
+        self.name = name
+        self.language = language
+        self.index = index
     }
 }
 
