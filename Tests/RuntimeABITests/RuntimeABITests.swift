@@ -111,4 +111,18 @@ import Testing
         #expect(BuiltinContracts.clockDelegate.instanceMethods.map(\.key) == ["fire"])
         #expect(BuiltinContracts.all.map(\.name).contains(BuiltinContracts.clockDelegateName))
     }
+
+    // MARK: Byte order
+
+    /// Contract records are little-endian on every host, a big-endian
+    /// PowerPC's included (`Documentation/PowerPC.md`).
+    @Test func contractRecordsAreLowByteFirst() {
+        let descriptor = ContractDescriptor(name: "a", kind: .contract, version: 0x0102_0304, methods: [])
+        let bytes = ContractMetadata.encode(descriptor)
+        // "RTC", format, kind, then the version.
+        #expect(Array(bytes[5..<9]) == [4, 3, 2, 1])
+        // The name: its length as a u16, then its bytes.
+        #expect(Array(bytes[9..<12]) == [1, 0, 0x61])
+        #expect(ContractMetadata.decode(bytes) == [descriptor])
+    }
 }
