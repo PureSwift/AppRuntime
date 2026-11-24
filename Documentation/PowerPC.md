@@ -1,6 +1,11 @@
 # Linux on 32-bit PowerPC: G4 now, G3 later
 
-**Status:** a plan, not reviewed. Nothing in it is built.
+**Status:** reviewed, and built as far as this machine can: both targets
+in `guest.py`, the search for swift-linux's toolchain, the format and
+AltiVec checks, `Scripts/support/ppc32.c`, the byte-order audit, and tests
+of each against PowerPC objects linked from C. No PowerPC slice of a
+Swift guest is built yet: that needs swift-linux's toolchain, which isn't
+installed here ("Still to do", below).
 
 Native slices for Linux on the PowerPC Macs: a G4 slice now, with the
 Swift toolchain swift-linux has for 32-bit PowerPC, and a G3 slice once
@@ -124,6 +129,71 @@ kernel; AltiVec is `PPC_FEATURE_HAS_ALTIVEC` in the auxiliary vector's
   the table above. GLES for `Surface` is Mesa's, which the GPUs in these
   Macs reach only in part: a Radeon 9xxx (r300) has GLES 2, a Rage 128
   in a G3 has none, and an app with `Surface` doesn't run there.
+
+## Built
+
+- **`linux-ppc7400` and `linux-ppc750`** in `guest.py`'s targets and its
+  `linux` group. Each names swift-linux's toolchain, `-mcpu=7400` or
+  `-mcpu=750` (Clang's flag for PowerPC, where other targets take
+  `-march`), `ppc32.c` and `math.c`, and the format its sealed object must
+  be, `elf32-powerpc`.
+- **The toolchain** is `$RT_SWIFT_LINUX_TOOLCHAIN`, or one installed as
+  `swift-linux*.xctoolchain` or under `/opt/swift-linux*`, that has
+  Embedded Swift for `powerpc-unknown-none-elf` or, failing that, for
+  `powerpc-unknown-linux-gnu`, whose library and concurrency runtime the
+  slice then takes, as the arm64 slice takes the hosted one's. Without
+  one, `--target linux` builds the other Linux slices and says it skipped
+  these; naming one alone is an error that says what to install.
+- **The checks:** a sealed object and its `libapp.so` must be
+  `elf32-powerpc`, not little-endian or 64-bit; and a G3 slice is refused
+  if its disassembly has any AltiVec instruction, the standard library's
+  included, so a G4-only library can't slip into it.
+- **`ppc32.c`:** 64-bit shifts, division and remainders; conversions
+  between 64-bit integers and `Float` and `Double`; single-threaded
+  64-bit atomics; `ceil` and `floor`. Freestanding, written on 32-bit
+  halves in big-endian order, with no AltiVec.
+- **The audit:** every Swift reader and writer of the formats names its
+  byte order (`RenderCodec`, `ContractMetadata`, the drawing format,
+  `TextCoding`, `MemoryImageDecoder`), and `GuestExecutor`'s casts and
+  `HostFiles`' are within the process. `CRuntime` has no type punning. The
+  wasm2c shim copies slots and WASI results into linear memory in the
+  host's order (`Scripts/wasm2c-shim.py`, its `memcpy`s of arguments,
+  results and `rt_w2c_store32`/`store64`): right only on a little-endian
+  host, which is why a wasm2c-made PowerPC slice isn't offered.
+- **Tests:** `Scripts/test_guest_ppc.py` links PowerPC libraries from C
+  with this toolchain and checks them: both CPUs pass; little-endian and
+  64-bit objects are refused; the helpers a guest needs are outside the
+  allowed set until `ppc32.c` supplies them, and are sealed in; a G3 slice
+  with AltiVec is refused, and `ppc32.c` has none. It also runs `ppc32.c`'s
+  helpers on this machine against its own arithmetic, 20,000 cases each,
+  which checks the algorithms on the little-endian halves. Swift tests pin
+  the render codec's, the contract records' and the drawing format's
+  bytes, so a change that went through native order fails on every host.
+
+## Still to do
+
+- **A Swift guest's PowerPC slice,** with swift-linux's toolchain:
+  `guest.py slice --target linux-ppc7400` for `ExampleApp`, then the
+  examples.
+- **Running it:** `ExampleApp`'s self-check on 32-bit PowerPC, under
+  `qemu-ppc` in a Debian Ports root or on a G4, with a runner built by
+  swift-linux. That's also the first run of `ppc32.c`'s big-endian halves.
+- **The G3 slice,** once swift-linux's library is built for the 750: the
+  AltiVec check is what will say it's ready.
+- **The hosts:** `LinuxAppRuntime`'s runner and renderer for PowerPC, and
+  §7.7's selection.
+
+## Changed while building
+
+- **The helpers are libgcc's names, in plain C:** 32-bit PowerPC returns
+  a 64-bit value in two registers, which C expresses, so `ppc32.c` needs
+  none of `armv7-eabi.c`'s assembly.
+- **`ceil` and `floor` are in `ppc32.c`,** as they are in `armv7-eabi.c`:
+  the G3's and G4's FPUs can't round to an integer.
+- **The questions, as built:** the IDs are `linux-ppc7400` and
+  `linux-ppc750`; QEMU's user mode or a real G4 for running a slice, when
+  there is one; wasm on these hosts waits on WasmKit being checked on a
+  big-endian host.
 
 ## Not in this plan
 
