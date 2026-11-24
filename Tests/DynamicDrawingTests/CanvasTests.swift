@@ -216,6 +216,20 @@ extension DynamicDrawingTests {
         ])
     }
 
+    /// The format is little-endian on every host, a big-endian PowerPC's
+    /// included (`Documentation/PowerPC.md`).
+    @Test func aDrawingsNumbersAreLowByteFirst() {
+        var writer = DrawingWriter()
+        writer.command(.alpha) { $0.float(0.5) }          // 0x3F00_0000
+        writer.command(.font) { $0.u32(0x0102_0304) }
+        writer.command(.strokeStyle) { $0.u16(0x0A0B) }
+        #expect(writer.bytes == DrawingWriter.header + [
+            0x04, 4, 0, 0, 0, 0x3F,
+            0x0B, 4, 4, 3, 2, 1,
+            0x09, 2, 0x0B, 0x0A,
+        ])
+    }
+
     @Test func aPathKeepsTheTransformItWasBuiltIn() {
         _ = backend()
         let context = GraphicsContext()
