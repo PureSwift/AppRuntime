@@ -124,7 +124,8 @@ GUEST_MODULE_NAMES = {"DynamicObservation": "Observation", "DynamicSwiftUI": "Sw
 CONCURRENCY_SUPPORT = "concurrency.c"
 # For a Linux triple, the Clang importer looks for glibc headers to map, and
 # warns without a sysroot. Guest code never includes libc headers.
-LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'", "libc not found for 'x86_64-unknown-linux-gnu'")
+LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'", "libc not found for 'x86_64-unknown-linux-gnu'",
+                 "libc not found for 'powerpc-unknown-linux-gnu'")
 # The concurrency triples for ELF slices whose bare-metal triple has no
 # Embedded concurrency runtime. Their runtimes were built for a hosted
 # Linux: linux-gnu.c supplies libstdc++'s tree, glibc's errno and stderr,
@@ -132,6 +133,13 @@ LIBC_WARNINGS = ("libc not found for 'aarch64-unknown-linux-gnu'", "libc not fou
 AARCH64_LINUX = dict(triple="aarch64-unknown-linux-gnu", cflags=["-mno-outline-atomics"],
                      support=["aarch64-linux.c", "linux-gnu.c"])
 X86_64_LINUX = dict(triple="x86_64-unknown-linux-gnu", support=["linux-gnu.c"])
+PPC32_LINUX = dict(triple="powerpc-unknown-linux-gnu", support=["linux-gnu.c"])
+# 32-bit PowerPC: big-endian, hard-float, the SVR4 ABI, built with
+# swift-linux's toolchain, which has the Embedded Swift standard library for
+# it that the default toolchain lacks (Documentation/PowerPC.md). Target IDs
+# take Mach-O's CPU names: ppc7400 (G4), ppc750 (G3).
+SWIFT_LINUX = "swift-linux"
+SWIFT_LINUX_ENVIRONMENT = "RT_SWIFT_LINUX_TOOLCHAIN"
 TARGETS = {
     "wasm32": dict(kind="wasm", triple="wasm32-unknown-wasip1",
                    about="WASI reactor module, every host"),
@@ -170,6 +178,19 @@ TARGETS = {
     "linux-x86_64": dict(kind="elf", triple="x86_64-unknown-none-elf", cpu="nehalem", concurrency=X86_64_LINUX,
                          support=["x86_64-half.c", "math.c"], shared=True,
                          about="Linux x86_64 (x86-64-v2: SSE4.2, POPCNT), libc-agnostic"),
+    # file_format: what `llvm-objdump -f` must say of the sealed object, for
+    # a target whose byte order or width a mistake would change.
+    "linux-ppc7400": dict(kind="elf", triple="powerpc-unknown-none-elf", cpu="7400", concurrency=PPC32_LINUX,
+                          toolchain=SWIFT_LINUX, file_format="elf32-powerpc", shared=True,
+                          support=["ppc32.c", "math.c"],
+                          about="Linux on a G4 (ppc7400, AltiVec), 32-bit big-endian; swift-linux's toolchain"),
+    # no_altivec: refused if anything in it, the standard library included,
+    # uses AltiVec.
+    "linux-ppc750": dict(kind="elf", triple="powerpc-unknown-none-elf", cpu="750", cflags=["-mno-altivec"],
+                         concurrency=PPC32_LINUX, toolchain=SWIFT_LINUX, file_format="elf32-powerpc", shared=True,
+                         no_altivec=True,
+                         support=["ppc32.c", "math.c"],
+                         about="Linux on a G3 (ppc750, no AltiVec), 32-bit big-endian; swift-linux's G3 toolchain"),
     "android-arm64-v8a": dict(kind="elf", triple="aarch64-none-none-elf", concurrency=AARCH64_LINUX,
                               support=["math.c"], about="Android arm64-v8a"),
     "android-armeabi-v7a": dict(kind="elf", triple="armv7-none-none-eabi", cflags=ARMV7_SOFTFP,
@@ -186,7 +207,7 @@ PLATFORM_GROUPS = {
     "tvos": ["tvos-arm64"],
     "watchos": ["watchos-arm64"],
     "visionos": ["visionos-arm64"],
-    "linux": ["linux-arm64", "linux-armv7", "linux-x86_64"],
+    "linux": ["linux-arm64", "linux-armv7", "linux-x86_64", "linux-ppc7400", "linux-ppc750"],
     "android": ["android-arm64-v8a", "android-armeabi-v7a", "android-x86_64"],
 }
 
@@ -204,6 +225,11 @@ EMBEDDED_VARIABLE = "SWIFT_EMBEDDED"
 GUEST_ENVIRONMENT = dict(os.environ, **{EMBEDDED_VARIABLE: "1"})
 HOST_ENVIRONMENT = {key: value for key, value in os.environ.items() if key != EMBEDDED_VARIABLE}
 
+
+
+class ToolchainMissing(BuildError):
+    """A target's toolchain isn't installed: a platform group skips the
+    target, and naming it alone is an error."""
 
 def run(arguments, cwd=None, quiet=False, filter_warnings=(), environment=None):
     """Runs a command; raises BuildError with its output on failure."""
@@ -224,12 +250,17 @@ def run(arguments, cwd=None, quiet=False, filter_warnings=(), environment=None):
 
 class Toolchain:
 
-    def __init__(self, package):
-        info = json.loads(run(["swift", "-print-target-info"], cwd=package, quiet=True))
-        resources = Path(info["paths"]["runtimeResourcePath"])
-        self.usr = resources.parent.parent
+    def __init__(self, package=None, usr=None):
+        """The toolchain `swift` runs in `package`, or the one at `usr`."""
+        if usr is None:
+            info = json.loads(run(["swift", "-print-target-info"], cwd=package, quiet=True))
+            resources = Path(info["paths"]["runtimeResourcePath"])
+            self.usr = resources.parent.parent
+            version = run(["swift", "--version"], cwd=package, quiet=True)
+        else:
+            self.usr = Path(usr)
+            version = run([self.usr / "bin" / "swiftc", "--version"], quiet=True)
         self.bin = self.usr / "bin"
-        version = run(["swift", "--version"], cwd=package, quiet=True)
         match = re.search(r"Swift version (\d+\.\d+(?:\.\d+)?)", version)
         self.version = match.group(1) if match else ""
 
@@ -282,6 +313,30 @@ class Toolchain:
         raise BuildError(
             f"no Embedded wasm Swift SDK for Swift {self.version}; install it with "
             "`swift sdk install <swift.org wasm SDK URL> --checksum <checksum>` or set RT_WASM_SDK")
+
+
+def toolchain_candidates(name):
+    """Where another toolchain may be: $RT_SWIFT_LINUX_TOOLCHAIN, then an
+    installed one by its name. Each is a toolchain directory or its `usr`."""
+    candidates = []
+    if name == SWIFT_LINUX and SWIFT_LINUX_ENVIRONMENT in os.environ:
+        candidates.append(Path(os.environ[SWIFT_LINUX_ENVIRONMENT]))
+    candidates += sorted((Path.home() / "Library/Developer/Toolchains").glob(f"{name}*.xctoolchain"))
+    candidates += sorted(Path("/opt").glob(f"{name}*"))
+    return candidates
+
+
+def find_toolchain(name, triples):
+    """The first toolchain by that name with Embedded Swift for one of
+    `triples`, or None."""
+    for candidate in toolchain_candidates(name):
+        usr = candidate / "usr" if (candidate / "usr" / "bin" / "swiftc").exists() else candidate
+        if not (usr / "bin" / "swiftc").exists():
+            continue
+        toolchain = Toolchain(usr=usr)
+        if any(toolchain.embedded_modules(triple) for triple in triples):
+            return toolchain
+    return None
 
 
 def embedded_cache(version):
@@ -506,7 +561,8 @@ class Compiler:
         # EMBEDDED_NO_CONCURRENCY).
         flags += [f"-D{define}" for define in self.defines]
         if self.cpu:
-            flags.append(f"-march={self.cpu}")
+            # Clang takes PowerPC's CPU as -mcpu, and the others' as -march.
+            flags.append(f"-mcpu={self.cpu}" if self.triple.startswith("powerpc") else f"-march={self.cpu}")
         if self.wasm_sdk:
             flags += ["--sysroot", self.wasm_sdk / "WASI.sdk"]
         else:
@@ -539,7 +595,7 @@ class Compiler:
             flags += ["-sdk", self.wasm_sdk / "WASI.sdk",
                       "-resource-dir", self.wasm_sdk / "swift.xctoolchain/usr/lib/swift"]
         for flag in self.common_c_flags():
-            if not str(flag).startswith("-march="):
+            if not str(flag).startswith(("-march=", "-mcpu=")):
                 flags += ["-Xcc", flag]
         return flags
 
@@ -800,9 +856,39 @@ def dynamic_problems(headers):
     return problems
 
 
-def check_shared(toolchain, shared, manifest=None):
+def file_format_problems(toolchain, obj, expected):
+    """Whether `llvm-objdump -f` names the object's format as `expected`:
+    `elf32-powerpc` is 32-bit big-endian PowerPC, and not its little-endian
+    or 64-bit kin."""
+    if expected is None:
+        return []
+    found = re.search(r"file format (\S+)", run([toolchain.tool("llvm-objdump"), "-f", obj], quiet=True))
+    format = found.group(1) if found else "unknown"
+    return [] if format == expected else [f"it's {format}, not {expected}"]
+
+
+# AltiVec's instructions and the VRSAVE register's moves, as llvm-objdump
+# names them: a G3 has none of them.
+ALTIVEC = re.compile(
+    r"^\s*[0-9a-f]+:(?:\s+[0-9a-f]{2}){4}\s+"
+    r"(v[a-z0-9.]+|lvx|lvxl|stvx|stvxl|lvsl|lvsr|lve[bhw]x|stve[bhw]x|mfvscr|mtvscr|"
+    r"dss|dssall|dst|dstt|dstst|dststt|mfvrsave|mtvrsave)\b", re.MULTILINE)
+
+
+def altivec_problems(toolchain, obj):
+    """The first few AltiVec instructions in an object, for a slice that
+    must run on a G3."""
+    disassembly = run([toolchain.tool("llvm-objdump"), "-d", "--mcpu=7400", obj], quiet=True)
+    found = sorted({match.group(1) for match in ALTIVEC.finditer(disassembly)})
+    if not found:
+        return []
+    return [f"it has AltiVec instructions, which a G3 lacks: {', '.join(found[:5])}"]
+
+
+def check_shared(toolchain, shared, manifest=None, file_format=None):
     """Returns a list of problems with a libapp.so."""
-    problems = dynamic_problems(run([toolchain.tool("llvm-objdump"), "-p", shared], quiet=True))
+    problems = file_format_problems(toolchain, shared, file_format)
+    problems += dynamic_problems(run([toolchain.tool("llvm-objdump"), "-p", shared], quiet=True))
     problems += undefined_problems(symbols(toolchain, shared, undefined=True, dynamic=True), macho=False)
     exported = symbols(toolchain, shared, undefined=False, dynamic=True)
     if exported != sorted(GUEST_EXPORTS):
@@ -814,9 +900,9 @@ def check_shared(toolchain, shared, manifest=None):
     return problems
 
 
-def check_sealed(toolchain, obj, macho, manifest=None):
+def check_sealed(toolchain, obj, macho, manifest=None, file_format=None):
     """Returns a list of problems with a sealed object."""
-    problems = []
+    problems = file_format_problems(toolchain, obj, file_format)
     if manifest is not None:
         section = "__DATA,__rt_manifest" if macho else ".rt_manifest"
         if dump_section(toolchain, obj, section) != manifest:
@@ -1008,6 +1094,7 @@ class Builder:
         self.plugins = build_plugins(self.graph, product, macros)
         self.root = self.package / ".build" / "guest" / product
         self._contracts = None
+        self._toolchains = {}
         # The canonical manifest JSON, embedded as rt.manifest in every slice.
         self.manifest = None
 
@@ -1026,44 +1113,75 @@ class Builder:
             return self.elf_slice(config, output)
         return self.macho_slice(config, output)
 
+    def toolchain_for(self, config):
+        """The toolchain a target builds with: the package's, or the one its
+        entry names, which raises ToolchainMissing if it isn't installed."""
+        name = config.get("toolchain")
+        if name is None:
+            return self.toolchain
+        if name not in self._toolchains:
+            triples = [config["triple"]] + ([config["concurrency"]["triple"]] if config.get("concurrency") else [])
+            self._toolchains[name] = find_toolchain(name, triples)
+        toolchain = self._toolchains[name]
+        if toolchain is None:
+            raise ToolchainMissing(
+                f"{config['about']}: no {name} toolchain with Embedded Swift for {config['triple']}; "
+                f"install it, or set {SWIFT_LINUX_ENVIRONMENT} to its directory")
+        return toolchain
+
     def elf_slice(self, config, output):
+        toolchain = self.toolchain_for(config)
         triple = config["triple"]
         cflags = list(config.get("cflags", ()))
         support = list(config.get("support", []))
         module_paths = []
-        concurrency = has_concurrency(self.toolchain, triple)
+        concurrency = has_concurrency(toolchain, triple)
         alternative = config.get("concurrency")
+        if alternative and toolchain.embedded_modules(triple) is None and toolchain.embedded_modules(alternative["triple"]):
+            # No freestanding standard library: the hosted triple's, as for
+            # concurrency below.
+            triple = alternative["triple"]
+            cflags += alternative.get("cflags", [])
+            support += alternative.get("support", [])
+            concurrency = has_concurrency(toolchain, triple)
+            modules = toolchain.embedded_modules(triple)
+            if modules != toolchain.embedded_directory:
+                module_paths.append(modules)
+            alternative = None
         if not concurrency and alternative:
-            if has_concurrency(self.toolchain, alternative["triple"]):
+            if has_concurrency(toolchain, alternative["triple"]):
                 triple = alternative["triple"]
                 cflags += alternative.get("cflags", [])
                 support += alternative.get("support", [])
-                modules = self.toolchain.embedded_modules(triple)
-                if modules != self.toolchain.embedded_directory:
+                modules = toolchain.embedded_modules(triple)
+                if modules != toolchain.embedded_directory:
                     module_paths.append(modules)
                 concurrency = True
             else:
                 print(f"note: {output.name} is built without concurrency: no Embedded runtime for "
                       f"{triple} or {alternative['triple']} (Scripts/fetch-embedded-linux.sh fetches one)")
-        compiler = Compiler(self.toolchain, self.graph, self.product, triple, output / "objects",
+        compiler = Compiler(toolchain, self.graph, self.product, triple, output / "objects",
                             cflags=cflags, cpu=config.get("cpu"),
                             defines=() if concurrency else NO_CONCURRENCY, module_paths=module_paths)
         objects = compiler.compile(self.targets, self.plugins)
         support += [CONCURRENCY_SUPPORT] if concurrency else []
         objects += compiler.compile_support(support)
-        libraries = runtime_libraries(self.toolchain, triple, concurrency, output / "objects")
-        sealed = seal_elf(self.toolchain, objects, libraries, output)
+        libraries = runtime_libraries(toolchain, triple, concurrency, output / "objects")
+        sealed = seal_elf(toolchain, objects, libraries, output)
         if self.manifest is not None:
             manifest_file = output / "rt.manifest.json"
             manifest_file.write_bytes(self.manifest)
-            run([self.toolchain.tool("llvm-objcopy"), "--add-section", f".rt_manifest={manifest_file}", sealed])
-        problems = check_sealed(self.toolchain, sealed, macho=False, manifest=self.manifest)
+            run([toolchain.tool("llvm-objcopy"), "--add-section", f".rt_manifest={manifest_file}", sealed])
+        problems = check_sealed(toolchain, sealed, macho=False, manifest=self.manifest,
+                                file_format=config.get("file_format"))
+        if config.get("no_altivec"):
+            problems += altivec_problems(toolchain, sealed)
         if problems:
             raise BuildError(f"{output.name}:\n  " + "\n  ".join(problems))
         if not config.get("shared"):
-            return archive(self.toolchain, sealed, output / "libapp.a")
-        shared = link_shared(self.toolchain, sealed, output)
-        problems = check_shared(self.toolchain, shared, manifest=self.manifest)
+            return archive(toolchain, sealed, output / "libapp.a")
+        shared = link_shared(toolchain, sealed, output)
+        problems = check_shared(toolchain, shared, manifest=self.manifest, file_format=config.get("file_format"))
         if problems:
             raise BuildError(f"{output.name}, {shared.name}:\n  " + "\n  ".join(problems))
         return shared
@@ -1201,8 +1319,14 @@ def build_slices(arguments):
     targets = expand_targets(arguments.target)
     if arguments.loaded_manifest:
         prepare_manifest(arguments, builder, targets, manifest_resources(arguments))
+    named = set(arguments.target)
     for target_id in targets:
-        print(f"ok: {builder.slice(target_id)}")
+        try:
+            print(f"ok: {builder.slice(target_id)}")
+        except ToolchainMissing as missing:
+            if target_id in named:
+                raise
+            print(f"skipped {target_id}: {missing}")
 
 
 def build_bundle(arguments):
@@ -1244,8 +1368,15 @@ def build_bundle(arguments):
         shutil.rmtree(bundle)
     bundle.mkdir(parents=True)
 
+    named = set(arguments.target or [])
     for target_id in targets:
-        built = builder.slice(target_id)
+        try:
+            built = builder.slice(target_id)
+        except ToolchainMissing as missing:
+            if target_id in named:
+                raise
+            print(f"skipped {target_id}: {missing}")
+            continue
         destination = bundle / ("wasm32/App.wasm" if target_id == "wasm32" else f"lib/{target_id}/{built.name}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(built, destination)
